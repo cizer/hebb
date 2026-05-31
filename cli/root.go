@@ -1,0 +1,125 @@
+package cli
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/cizer/hebb/core"
+	"github.com/spf13/cobra"
+)
+
+var (
+	flagVault string
+	flagDB    string
+)
+
+// Execute builds the root command and runs it, exiting non-zero on error.
+func Execute(version string) {
+	if err := newRoot(version).Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+func newRoot(version string) *cobra.Command {
+	root := &cobra.Command{
+		Use:          "hebb",
+		Short:        "hebb - a portable engine for markdown knowledge vaults",
+		Long:         "hebb indexes, searches, scaffolds and maintains markdown vaults.\nMulti-vault: run inside a vault directory, or pass --vault.",
+		Version:      version,
+		SilenceUsage: true,
+	}
+	root.PersistentFlags().StringVar(&flagVault, "vault", "", "vault path (default: nearest .hebb/ above cwd, or $HEBB_VAULT)")
+	root.PersistentFlags().StringVar(&flagDB, "db", "", "index db path (default: <vault>/.hebb/index.db)")
+
+	root.AddCommand(indexCmd(), searchCmd())
+	root.AddCommand(
+		stub("new", "Scaffold a fresh vault from the template", "Phase 3"),
+		stub("install", "Wire hebb into this machine for a vault", "Phase 2"),
+		stub("serve", "Serve the local search UI", "Phase 1"),
+		stub("sync", "Sync the vault", "Phase 5"),
+		stub("doctor", "Check vault and install health", "Phase 2"),
+	)
+	return root
+}
+
+func stub(use, short, phase string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		RunE: func(*cobra.Command, []string) error {
+			return fmt.Errorf("%q is not implemented yet (planned: %s)", use, phase)
+		},
+	}
+}
+
+func openVault() (core.Config, *sql.DB, error) {
+	cfg, err := core.ResolveVault(flagVault, flagDB)
+	if err != nil {
+		return core.Config{}, nil, err
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		return core.Config{}, nil, err
+	}
+	return cfg, db, nil
+}
+
+func indexCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "index",
+		Short: "Build or refresh the search index",
+		RunE: func(*cobra.Command, []string) error {
+			cfg, db, err := openVault()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			res, err := core.FullReindex(cfg, db)
+			if err != nil {
+				return err
+			}
+			_, links, _, err := core.Stats(db)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("indexed %d notes (%d removed), %d links -> %s\n", res.Indexed, res.Removed, links, cfg.DBPath)
+			return nil
+		},
+	}
+}
+
+func searchCmd() *cobra.Command {
+	var limit int
+	var tag, prefix string
+	c := &cobra.Command{
+		Use:   "search [query]",
+		Short: "Search the vault",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			_, db, err := openVault()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			results, err := core.Search(db, strings.Join(args, " "), limit, tag, prefix)
+			if err != nil {
+				return err
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+			for _, r := range results {
+				fmt.Fprintf(w, "%s\t%s\n", r.Title, r.Path)
+			}
+			w.Flush()
+			fmt.Printf("(%d results)\n", len(results))
+			return nil
+		},
+	}
+	c.Flags().IntVar(&limit, "limit", 10, "max results")
+	c.Flags().StringVar(&tag, "tag", "", "filter by tag")
+	c.Flags().StringVar(&prefix, "path-prefix", "", "filter by path prefix")
+	return c
+}

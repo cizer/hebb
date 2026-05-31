@@ -1,0 +1,12 @@
+# Go build output
+/hebb
+/dist/
+*.test
+*.out
+
+# Per-vault derived state (lives in each vault, never committed here)
+.hebb/index.db
+.hebb/index.db-*
+
+# OS
+.DS_Store

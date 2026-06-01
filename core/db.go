@@ -12,7 +12,8 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, pragma := range []string{"PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL"} {
+	db.SetMaxOpenConns(1) // serialise watcher, search and reindex over one connection
+	for _, pragma := range []string{"PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL", "PRAGMA busy_timeout=3000"} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()
 			return nil, err

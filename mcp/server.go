@@ -23,6 +23,9 @@ func Serve(cfg core.Config, version string) error {
 	if _, err := core.FullReindex(cfg, db); err != nil {
 		return err
 	}
+	if w, werr := core.Watch(cfg, db); werr == nil {
+		defer w.Close()
+	}
 
 	s := server.NewMCPServer("hebb", version)
 	register(s, db, cfg)

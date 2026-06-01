@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Stage 1 - build + fast tests. Gates every push and PR.
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"
+            echo "Run: gofmt -w ."; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test ./...
+      - name: test (race detector)
+        run: go test -race ./...
+      - name: cross-compile release targets
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            echo "building $t"
+            GOOS="${t%/*}" GOARCH="${t#*/}" go build -o /dev/null ./cmd/hebb
+          done
+
+  # Stage 2 - acceptance in a production-like environment. Runs the built binary
+  # end to end (see TESTING.md / scripts/acceptance.sh). Only after Stage 1 is green.
+  acceptance:
+    name: acceptance (${{ matrix.os }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: acceptance harness
+        run: ./scripts/acceptance.sh

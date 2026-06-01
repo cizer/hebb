@@ -1,5 +1,7 @@
 # hebb
 
+[![CI](https://github.com/cizer/hebb/actions/workflows/ci.yml/badge.svg)](https://github.com/cizer/hebb/actions/workflows/ci.yml)
+
 A portable engine for markdown knowledge vaults: index, search, scaffold, maintain.
 
 `hebb` is the function layer for a "second brain" vault. The vault (markdown, attachments, memory) is the data; `hebb` is the tool that operates on it. It is **multi-vault**, like git is multi-repo: run `hebb` inside a vault directory, or pass `--vault`.

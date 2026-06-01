@@ -63,6 +63,29 @@ func TestRunSkipsSkillsWithoutAssetRoot(t *testing.T) {
 	}
 }
 
+func TestRunRendersLaunchdWebJob(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	launchdDir := t.TempDir()
+
+	_, err := Run(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		MCPCommand: DefaultMCPCommand,
+		Home:       home,
+		HebbBin:    "/usr/local/bin/hebb",
+		LaunchdDir: launchdDir,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	slug := Slugify(filepath.Base(vault))
+	plist := filepath.Join(launchdDir, "local.hebb."+slug+".web.plist")
+	if _, err := os.Stat(plist); err != nil {
+		t.Fatalf("web plist not rendered at %s: %v", plist, err)
+	}
+}
+
 func mustExist(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {

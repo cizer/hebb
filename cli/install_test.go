@@ -62,6 +62,29 @@ func TestInstallCommandIdempotent(t *testing.T) {
 	}
 }
 
+func TestInstallCommandRendersLaunchd(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	launchdDir := t.TempDir()
+
+	root := newRoot("test")
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--launchd", "--launchd-dir", launchdDir})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v\n%s", err, buf.String())
+	}
+
+	matches, _ := filepath.Glob(filepath.Join(launchdDir, "local.hebb.*.web.plist"))
+	if len(matches) != 1 {
+		t.Errorf("expected one web plist in %s, got %v", launchdDir, matches)
+	}
+}
+
 func TestInstallCommandWiresSkills(t *testing.T) {
 	vault := t.TempDir()
 	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n"), 0o644); err != nil {

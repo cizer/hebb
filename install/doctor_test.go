@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cizer/hebb/core"
@@ -89,6 +90,45 @@ func TestDoctorHealthyAfterInstall(t *testing.T) {
 		if _, ok := checkByName(checks, name); !ok {
 			t.Errorf("missing check %q", name)
 		}
+	}
+}
+
+func TestDoctorSkillsCountsOnlyHebbManagedLinks(t *testing.T) {
+	home := t.TempDir()
+	assetDir := t.TempDir()
+	skillsDst := filepath.Join(home, ".claude", "skills")
+	if err := os.MkdirAll(skillsDst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// build: a genuine hebb-managed link (-> <assetDir>/skills/build)
+	if err := os.Symlink(filepath.Join(assetDir, "skills", "build"), filepath.Join(skillsDst, "build")); err != nil {
+		t.Fatal(err)
+	}
+	// publish-artifact: a symlink owned by some other tool
+	if err := os.Symlink("/somewhere/else/publish-artifact", filepath.Join(skillsDst, "publish-artifact")); err != nil {
+		t.Fatal(err)
+	}
+	// vault-ingest: a real dir, not a link
+	if err := os.MkdirAll(filepath.Join(skillsDst, "vault-ingest"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var checks []Check
+	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
+	checkSkills(add, home, assetDir, []string{"build", "publish-artifact", "vault-ingest"})
+
+	c, ok := checkByName(checks, "skills")
+	if !ok {
+		t.Fatal("no skills check emitted")
+	}
+	if !strings.Contains(c.Detail, "1/3") {
+		t.Errorf("detail = %q, want 1/3 (only the hebb-managed link counts)", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "elsewhere") {
+		t.Errorf("detail = %q, want a note about the foreign symlink", c.Detail)
+	}
+	if c.Status != "warn" {
+		t.Errorf("status = %q, want warn", c.Status)
 	}
 }
 

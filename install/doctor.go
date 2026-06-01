@@ -53,13 +53,7 @@ func Doctor(opts Options) []Check {
 	checkSettings(add, opts.VaultPath, opts.MCPName)
 
 	if opts.Home != "" && existed {
-		linked := 0
-		for _, s := range vc.Skills {
-			if isSymlink(filepath.Join(opts.Home, ".claude", "skills", s)) {
-				linked++
-			}
-		}
-		add("skills", okIf(linked == len(vc.Skills)), fmt.Sprintf("%d/%d linked", linked, len(vc.Skills)))
+		checkSkills(add, opts.Home, resolvedAssetDir(opts), vc.Skills)
 	}
 
 	if opts.Home != "" {
@@ -137,6 +131,41 @@ func checkSettings(add func(string, string, string), vaultPath, mcpName string) 
 	add("settings", "warn", "MCP server not enabled")
 }
 
+// checkSkills counts only skills hebb actually manages: a skill is "linked"
+// only if ~/.claude/skills/<name> is a symlink resolving to <assetDir>/skills/<name>.
+// Symlinks pointing elsewhere (another tool or checkout) are reported separately
+// rather than silently counted, since hebb does not own them.
+func checkSkills(add func(string, string, string), home, assetDir string, skills []string) {
+	linked, elsewhere := 0, 0
+	for _, s := range skills {
+		p := filepath.Join(home, ".claude", "skills", s)
+		fi, err := os.Lstat(p)
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			continue // absent or a real dir: not a hebb link
+		}
+		target, _ := os.Readlink(p)
+		if assetDir != "" && target == filepath.Join(assetDir, "skills", s) {
+			linked++
+		} else {
+			elsewhere++
+		}
+	}
+	detail := fmt.Sprintf("%d/%d linked", linked, len(skills))
+	if elsewhere > 0 {
+		detail += fmt.Sprintf(" (%d symlinked elsewhere)", elsewhere)
+	}
+	add("skills", okIf(linked == len(skills)), detail)
+}
+
+// resolvedAssetDir is the on-disk asset dir doctor compares against, read-only:
+// the --asset-root override if set, otherwise the data dir. Never materialises.
+func resolvedAssetDir(opts Options) string {
+	if opts.AssetRoot != "" {
+		return opts.AssetRoot
+	}
+	return opts.DataDir
+}
+
 func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultConfig) {
 	dir := opts.LaunchdDir
 	if dir == "" && opts.Home != "" {
@@ -145,11 +174,7 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 	if dir == "" {
 		return
 	}
-	assetDir := opts.AssetRoot
-	if assetDir == "" {
-		assetDir = opts.DataDir // read-only: do not materialise during doctor
-	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", assetDir, opts.Home, vc.WebPort, vc.Jobs)
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs)
 	if len(jobs) == 0 {
 		return
 	}

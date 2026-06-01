@@ -52,8 +52,8 @@ func Doctor(opts Options) []Check {
 	checkIndex(add, opts.VaultPath)
 	checkSettings(add, opts.VaultPath, opts.MCPName)
 
-	if opts.Home != "" && existed {
-		checkSkills(add, opts.Home, resolvedAssetDir(opts), vc.Skills)
+	if existed {
+		checkSkills(add, opts.VaultPath, opts.Home, resolvedAssetDir(opts), vc.Skills)
 	}
 
 	if opts.Home != "" {
@@ -126,14 +126,22 @@ func checkSettings(add func(string, string, string), vaultPath, mcpName string) 
 	add("settings", "warn", "MCP server not enabled")
 }
 
-// checkSkills counts only skills hebb actually manages: a skill is "linked"
-// only if ~/.claude/skills/<name> is a symlink resolving to <assetDir>/skills/<name>.
-// Symlinks pointing elsewhere (another tool or checkout) are reported separately
-// rather than silently counted, since hebb does not own them.
-func checkSkills(add func(string, string, string), home, assetDir string, skills []string) {
-	linked, elsewhere := 0, 0
+// checkSkills counts only skills hebb manages at the project level
+// (<vault>/.claude/skills): a skill is "linked" only if it is a symlink
+// resolving to <assetDir>/skills/<name>. Because Claude precedence is
+// personal > project, a same-named skill in ~/.claude/skills shadows the
+// project one, so such skills are flagged, not counted. Symlinks pointing
+// elsewhere (another tool or checkout) are reported separately too.
+func checkSkills(add func(string, string, string), vaultPath, home, assetDir string, skills []string) {
+	linked, elsewhere, shadowed := 0, 0, 0
 	for _, s := range skills {
-		p := filepath.Join(home, ".claude", "skills", s)
+		if home != "" {
+			if _, err := os.Lstat(filepath.Join(home, ".claude", "skills", s)); err == nil {
+				shadowed++ // a personal skill overrides the project one
+				continue
+			}
+		}
+		p := filepath.Join(vaultPath, ".claude", "skills", s)
 		fi, err := os.Lstat(p)
 		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
 			continue // absent or a real dir: not a hebb link
@@ -146,6 +154,9 @@ func checkSkills(add func(string, string, string), home, assetDir string, skills
 		}
 	}
 	detail := fmt.Sprintf("%d/%d linked", linked, len(skills))
+	if shadowed > 0 {
+		detail += fmt.Sprintf(" (%d shadowed by a personal skill)", shadowed)
+	}
 	if elsewhere > 0 {
 		detail += fmt.Sprintf(" (%d symlinked elsewhere)", elsewhere)
 	}

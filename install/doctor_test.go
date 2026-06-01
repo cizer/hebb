@@ -94,9 +94,10 @@ func TestDoctorHealthyAfterInstall(t *testing.T) {
 }
 
 func TestDoctorSkillsCountsOnlyHebbManagedLinks(t *testing.T) {
-	home := t.TempDir()
+	vault := t.TempDir()
+	home := t.TempDir() // empty: no personal skills to shadow
 	assetDir := t.TempDir()
-	skillsDst := filepath.Join(home, ".claude", "skills")
+	skillsDst := filepath.Join(vault, ".claude", "skills")
 	if err := os.MkdirAll(skillsDst, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +116,7 @@ func TestDoctorSkillsCountsOnlyHebbManagedLinks(t *testing.T) {
 
 	var checks []Check
 	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
-	checkSkills(add, home, assetDir, []string{"build", "publish-artifact", "vault-ingest"})
+	checkSkills(add, vault, home, assetDir, []string{"build", "publish-artifact", "vault-ingest"})
 
 	c, ok := checkByName(checks, "skills")
 	if !ok {
@@ -129,6 +130,37 @@ func TestDoctorSkillsCountsOnlyHebbManagedLinks(t *testing.T) {
 	}
 	if c.Status != "warn" {
 		t.Errorf("status = %q, want warn", c.Status)
+	}
+}
+
+func TestDoctorSkillsFlagsPersonalShadow(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	assetDir := t.TempDir()
+	// A correct project-level link...
+	skillsDst := filepath.Join(vault, ".claude", "skills")
+	if err := os.MkdirAll(skillsDst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(assetDir, "skills", "vault-ingest"), filepath.Join(skillsDst, "vault-ingest")); err != nil {
+		t.Fatal(err)
+	}
+	// ...but a personal skill of the same name exists, which Claude prefers.
+	personal := filepath.Join(home, ".claude", "skills", "vault-ingest")
+	if err := os.MkdirAll(personal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var checks []Check
+	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
+	checkSkills(add, vault, home, assetDir, []string{"vault-ingest"})
+
+	c, _ := checkByName(checks, "skills")
+	if c.Status != "warn" {
+		t.Errorf("status = %q, want warn (project link shadowed by personal)", c.Status)
+	}
+	if !strings.Contains(c.Detail, "shadowed") {
+		t.Errorf("detail = %q, want a note about the personal shadow", c.Detail)
 	}
 }
 

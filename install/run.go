@@ -15,7 +15,7 @@ type Options struct {
 	VaultPath  string
 	MCPName    string
 	MCPCommand string
-	Home       string // base dir containing .claude (e.g. ~); "" disables skills/memory wiring
+	Home       string // base dir containing .claude (e.g. ~); "" disables memory wiring
 	HebbBin    string // path to the hebb binary, for the web launchd job
 	LaunchdDir string // target LaunchAgents dir; "" disables launchd rendering
 	Load       bool   // if true, bootstrap rendered jobs via launchctl
@@ -36,7 +36,7 @@ type Options struct {
 //   - project settings:      <vault>/.claude/settings.json (MCP enable + allow)
 //   - assets:                materialise embedded function content to DataDir
 //     (unless --asset-root points at a live repo checkout)
-//   - skills (if Home):      symlink <assetDir>/skills/* into <Home>/.claude/skills
+//   - skills:                symlink <assetDir>/skills/* into <vault>/.claude/skills (project-scoped)
 //   - memory (if Home):      symlink <vault>/memory into the Claude project dir
 //   - launchd (if requested): render the vault's jobs
 //
@@ -58,9 +58,11 @@ func Run(opts Options) (Report, error) {
 		return rep, err
 	}
 
-	if opts.Home != "" && assetDir != "" {
+	if assetDir != "" {
+		// Project-scoped: skills live in <vault>/.claude/skills so each vault has
+		// its own set and hebb never touches the user's global ~/.claude/skills.
 		skillsSrc := filepath.Join(assetDir, "skills")
-		claudeSkills := filepath.Join(opts.Home, ".claude", "skills")
+		claudeSkills := filepath.Join(opts.VaultPath, ".claude", "skills")
 		sr, err := SymlinkSkills(skillsSrc, claudeSkills)
 		if err != nil {
 			return rep, err

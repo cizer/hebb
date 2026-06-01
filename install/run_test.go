@@ -32,11 +32,11 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	mustExist(t, filepath.Join(vault, ".hebb", "config.toml"))
 	mustExist(t, filepath.Join(vault, ".mcp.json"))
 	mustExist(t, filepath.Join(vault, ".claude", "settings.json"))
-	// Skills symlinked into <home>/.claude/skills
+	// Skills symlinked into <vault>/.claude/skills (project-scoped)
 	for _, n := range []string{"build", "vault-ingest"} {
-		link := filepath.Join(home, ".claude", "skills", n)
+		link := filepath.Join(vault, ".claude", "skills", n)
 		if _, err := os.Lstat(link); err != nil {
-			t.Errorf("skill %s not linked into home: %v", n, err)
+			t.Errorf("skill %s not linked into vault: %v", n, err)
 		}
 	}
 	if statusOf(rep, "settings.json") == "" {
@@ -78,8 +78,8 @@ func TestRunStandaloneMaterialisesAndLinksSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "skills", "build", "SKILL.md")); err != nil {
 		t.Errorf("assets not materialised: %v", err)
 	}
-	// ...and skills linked from there into the home skills dir.
-	link := filepath.Join(home, ".claude", "skills", "build")
+	// ...and skills linked from there into the vault's project skills dir.
+	link := filepath.Join(vault, ".claude", "skills", "build")
 	target, err := os.Readlink(link)
 	if err != nil {
 		t.Fatalf("skill not linked: %v", err)

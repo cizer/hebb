@@ -22,7 +22,7 @@ target dirs (temp-dir tested) and defensive — it never clobbers a real file/di
 - ✅ init `.hebb/config.toml` + generate the project-scoped, portable `.mcp.json` (`command: hebb`, `args: [mcp]`)
 - ✅ project settings: merge MCP enable + tool allow-list into `<vault>/.claude/settings.json` (non-destructive)
 - ✅ standalone binary: `skills/`, `automation/`, `vault-template/` are `go:embed`'d and materialised to the hebb data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`) on install, so no repo checkout is needed; `--asset-root` is a dev override that links straight from a source tree
-- ✅ symlink `skills/*` into `~/.claude/skills` from the data dir (conflict-safe, repoints stale links)
+- ✅ symlink `skills/*` from the data dir into each vault's `<vault>/.claude/skills` (project-scoped, so vaults stay isolated and hebb never touches the global `~/.claude/skills`; conflict-safe, repoints stale links). doctor flags skills shadowed by a same-named personal skill (Claude precedence: personal > project)
 - ✅ render launchd jobs (`local.hebb.<slug>.<job>`, `plutil`-valid); `--launchd`/`--load` (launchctl bootstrap, dry-run preview); web job built in, automation jobs gated on their script existing
 - ✅ symlink memory into `~/.claude/projects/<project-slug>/memory` (Claude Code path-slug exact), sourced from `<vault>/.hebb/memory` so agent memory syncs with the vault but is hidden from Obsidian and excluded from the index; build the first index
 - ✅ `hebb doctor` — read-only health check (config, .mcp.json, index, settings, skills, memory, launchd), exits non-zero on failure

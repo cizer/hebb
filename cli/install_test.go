@@ -106,10 +106,10 @@ func TestInstallCommandWiresSkills(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, buf.String())
 	}
 
-	link := filepath.Join(home, ".claude", "skills", "build")
+	link := filepath.Join(vault, ".claude", "skills", "build")
 	target, err := os.Readlink(link)
 	if err != nil {
-		t.Fatalf("skill not symlinked into home: %v", err)
+		t.Fatalf("skill not symlinked into vault: %v", err)
 	}
 	if target != filepath.Join(assetRoot, "skills", "build") {
 		t.Errorf("link -> %s, want %s", target, filepath.Join(assetRoot, "skills", "build"))

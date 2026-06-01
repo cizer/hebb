@@ -1,0 +1,56 @@
+{{- define "cal" -}}
+{{if ge .Weekday 0}}<key>Weekday</key><integer>{{.Weekday}}</integer>{{end}}{{if ge .Hour 0}}<key>Hour</key><integer>{{.Hour}}</integer>{{end}}{{if ge .Minute 0}}<key>Minute</key><integer>{{.Minute}}</integer>{{end}}
+{{- end -}}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{.Label}}</string>
+    <key>ProgramArguments</key>
+    <array>
+{{- range .Program}}
+        <string>{{.}}</string>
+{{- end}}
+    </array>
+{{- if .WorkingDir}}
+    <key>WorkingDirectory</key>
+    <string>{{.WorkingDir}}</string>
+{{- end}}
+{{- if .EnvVars}}
+    <key>EnvironmentVariables</key>
+    <dict>
+{{- range .EnvVars}}
+        <key>{{.Key}}</key>
+        <string>{{.Value}}</string>
+{{- end}}
+    </dict>
+{{- end}}
+{{- if .Schedule}}
+    <key>StartCalendarInterval</key>
+{{- if eq (len .Schedule) 1}}
+    <dict>{{template "cal" (index .Schedule 0)}}</dict>
+{{- else}}
+    <array>
+{{- range .Schedule}}
+        <dict>{{template "cal" .}}</dict>
+{{- end}}
+    </array>
+{{- end}}
+{{- end}}
+    <key>RunAtLoad</key>
+    <{{.RunAtLoad}}/>
+{{- if .KeepAlive}}
+    <key>KeepAlive</key>
+    <true/>
+{{- end}}
+{{- if gt .Throttle 0}}
+    <key>ThrottleInterval</key>
+    <integer>{{.Throttle}}</integer>
+{{- end}}
+    <key>StandardOutPath</key>
+    <string>{{.LogPath}}</string>
+    <key>StandardErrorPath</key>
+    <string>{{.LogPath}}</string>
+</dict>
+</plist>

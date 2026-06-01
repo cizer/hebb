@@ -1,0 +1,71 @@
+package install
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestRunWiresEverythingLocal(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	assets := makeSkills(t, "build", "vault-ingest") // assetRoot/skills/* would be the real layout
+	// makeSkills returns a dir that IS the skills dir; Run expects assetRoot to
+	// contain a skills/ subdir, so nest it.
+	assetRoot := t.TempDir()
+	if err := os.Rename(assets, filepath.Join(assetRoot, "skills")); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Run(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		MCPCommand: DefaultMCPCommand,
+		Home:       home,
+		AssetRoot:  assetRoot,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	mustExist(t, filepath.Join(vault, ".hebb", "config.toml"))
+	mustExist(t, filepath.Join(vault, ".mcp.json"))
+	mustExist(t, filepath.Join(vault, ".claude", "settings.json"))
+	// Skills symlinked into <home>/.claude/skills
+	for _, n := range []string{"build", "vault-ingest"} {
+		link := filepath.Join(home, ".claude", "skills", n)
+		if _, err := os.Lstat(link); err != nil {
+			t.Errorf("skill %s not linked into home: %v", n, err)
+		}
+	}
+	if statusOf(rep, "settings.json") == "" {
+		t.Error("report missing settings.json step")
+	}
+}
+
+func TestRunSkipsSkillsWithoutAssetRoot(t *testing.T) {
+	vault := t.TempDir()
+	rep, err := Run(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		MCPCommand: DefaultMCPCommand,
+		// no Home, no AssetRoot -> vault-local only
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	mustExist(t, filepath.Join(vault, ".hebb", "config.toml"))
+	mustExist(t, filepath.Join(vault, ".claude", "settings.json"))
+	for _, s := range rep.Steps {
+		if s.Name == "build" {
+			t.Error("skills should be skipped when AssetRoot is empty")
+		}
+	}
+}
+
+func mustExist(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected %s: %v", path, err)
+	}
+}

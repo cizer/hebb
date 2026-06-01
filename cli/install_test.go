@@ -4,18 +4,20 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"testing"
 )
 
-// runInstall executes `hebb install --vault <vault>` and returns combined output.
-func runInstall(t *testing.T, vault string) string {
+// runInstall executes `hebb install --vault <vault>` (plus any extra args) and
+// returns combined output. A temp --home keeps the run hermetic.
+func runInstall(t *testing.T, vault string, extra ...string) string {
 	t.Helper()
 	root := newRoot("test")
 	var buf bytes.Buffer
 	root.SetOut(&buf)
 	root.SetErr(&buf)
-	root.SetArgs([]string{"install", "--vault", vault})
+	args := append([]string{"install", "--vault", vault, "--home", t.TempDir()}, extra...)
+	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v\noutput:\n%s", err, buf.String())
 	}
@@ -24,7 +26,6 @@ func runInstall(t *testing.T, vault string) string {
 
 func TestInstallCommandEndToEnd(t *testing.T) {
 	vault := t.TempDir()
-	// A minimal markdown corpus so the first index has something to do.
 	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# Hello\n\nbody #tag\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -34,13 +35,14 @@ func TestInstallCommandEndToEnd(t *testing.T) {
 	for _, want := range []string{
 		filepath.Join(vault, ".hebb", "config.toml"),
 		filepath.Join(vault, ".mcp.json"),
+		filepath.Join(vault, ".claude", "settings.json"),
 		filepath.Join(vault, ".hebb", "index.db"),
 	} {
 		if _, err := os.Stat(want); err != nil {
 			t.Errorf("expected %s to exist after install: %v", want, err)
 		}
 	}
-	if !strings.Contains(out, "1 notes indexed") {
+	if !regexp.MustCompile(`index\s+1 notes indexed`).MatchString(out) {
 		t.Errorf("expected index summary in output, got:\n%s", out)
 	}
 }
@@ -52,10 +54,41 @@ func TestInstallCommandIdempotent(t *testing.T) {
 	}
 	runInstall(t, vault)
 	out := runInstall(t, vault)
-	if !strings.Contains(out, "config.toml    exists") {
+	if !regexp.MustCompile(`config\.toml\s+exists`).MatchString(out) {
 		t.Errorf("second install should report config.toml exists, got:\n%s", out)
 	}
-	if !strings.Contains(out, ".mcp.json      unchanged") {
+	if !regexp.MustCompile(`\.mcp\.json\s+unchanged`).MatchString(out) {
 		t.Errorf("second install should report .mcp.json unchanged, got:\n%s", out)
+	}
+}
+
+func TestInstallCommandWiresSkills(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Asset root with a skills/ dir holding one skill.
+	assetRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(assetRoot, "skills", "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+
+	root := newRoot("test")
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--asset-root", assetRoot})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("install: %v\n%s", err, buf.String())
+	}
+
+	link := filepath.Join(home, ".claude", "skills", "build")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("skill not symlinked into home: %v", err)
+	}
+	if target != filepath.Join(assetRoot, "skills", "build") {
+		t.Errorf("link -> %s, want %s", target, filepath.Join(assetRoot, "skills", "build"))
 	}
 }

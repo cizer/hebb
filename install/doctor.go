@@ -145,7 +145,11 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 	if dir == "" {
 		return
 	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", opts.AssetRoot, opts.Home, vc.WebPort, vc.Jobs)
+	assetDir := opts.AssetRoot
+	if assetDir == "" {
+		assetDir = opts.DataDir // read-only: do not materialise during doctor
+	}
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", assetDir, opts.Home, vc.WebPort, vc.Jobs)
 	if len(jobs) == 0 {
 		return
 	}

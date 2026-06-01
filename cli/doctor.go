@@ -10,7 +10,7 @@ import (
 )
 
 func doctorCmd() *cobra.Command {
-	var home, assetRoot, launchdDir string
+	var home, assetRoot, launchdDir, dataDir string
 	c := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check vault and install health",
@@ -27,11 +27,15 @@ func doctorCmd() *cobra.Command {
 			if assetRoot == "" {
 				assetRoot = os.Getenv("HEBB_HOME")
 			}
+			if dataDir == "" {
+				dataDir = defaultDataDir(home)
+			}
 			checks := install.Doctor(install.Options{
 				VaultPath:  cfg.VaultPath,
 				MCPName:    install.DefaultMCPServerName,
 				Home:       home,
 				AssetRoot:  assetRoot,
+				DataDir:    dataDir,
 				LaunchdDir: launchdDir,
 			})
 			out := cmd.OutOrStdout()
@@ -48,8 +52,10 @@ func doctorCmd() *cobra.Command {
 	c.Flags().StringVar(&assetRoot, "asset-root", "", "hebb repo/asset dir holding skills/ (default $HEBB_HOME)")
 	c.Flags().StringVar(&home, "home", "", "home dir holding .claude (default: user home)")
 	c.Flags().StringVar(&launchdDir, "launchd-dir", "", "LaunchAgents dir to check (default: <home>/Library/LaunchAgents)")
+	c.Flags().StringVar(&dataDir, "data-dir", "", "hebb data dir to check (default: $XDG_DATA_HOME/hebb or <home>/.local/share/hebb)")
 	_ = c.Flags().MarkHidden("home")
 	_ = c.Flags().MarkHidden("launchd-dir")
+	_ = c.Flags().MarkHidden("data-dir")
 	return c
 }
 

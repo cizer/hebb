@@ -16,7 +16,7 @@ func runInstall(t *testing.T, vault string, extra ...string) string {
 	var buf bytes.Buffer
 	root.SetOut(&buf)
 	root.SetErr(&buf)
-	args := append([]string{"install", "--vault", vault, "--home", t.TempDir()}, extra...)
+	args := append([]string{"install", "--vault", vault, "--home", t.TempDir(), "--data-dir", t.TempDir()}, extra...)
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v\noutput:\n%s", err, buf.String())
@@ -74,7 +74,7 @@ func TestInstallCommandRendersLaunchd(t *testing.T) {
 	var buf bytes.Buffer
 	root.SetOut(&buf)
 	root.SetErr(&buf)
-	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--launchd", "--launchd-dir", launchdDir})
+	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--data-dir", t.TempDir(), "--launchd", "--launchd-dir", launchdDir})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v\n%s", err, buf.String())
 	}
@@ -101,7 +101,7 @@ func TestInstallCommandWiresSkills(t *testing.T) {
 	var buf bytes.Buffer
 	root.SetOut(&buf)
 	root.SetErr(&buf)
-	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--asset-root", assetRoot})
+	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--data-dir", t.TempDir(), "--asset-root", assetRoot})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("install: %v\n%s", err, buf.String())
 	}

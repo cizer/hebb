@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 func TestRunWiresEverythingLocal(t *testing.T) {
@@ -48,6 +49,46 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	}
 	if statusOf(rep, "memory") != "symlinked" {
 		t.Errorf("memory step = %q, want symlinked", statusOf(rep, "memory"))
+	}
+}
+
+func TestRunStandaloneMaterialisesAndLinksSkills(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	dataDir := t.TempDir()
+	// No AssetRoot: assets come from the embedded FS, materialised to dataDir.
+	assets := fstest.MapFS{
+		"skills/build/SKILL.md":    {Data: []byte("build")},
+		"skills/vault-ingest/S.md": {Data: []byte("ingest")},
+		"automation/run-digest.sh": {Data: []byte("#!/bin/sh\n")},
+	}
+
+	rep, err := Run(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		MCPCommand: DefaultMCPCommand,
+		Home:       home,
+		Assets:     assets,
+		DataDir:    dataDir,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Assets materialised to the data dir...
+	if _, err := os.Stat(filepath.Join(dataDir, "skills", "build", "SKILL.md")); err != nil {
+		t.Errorf("assets not materialised: %v", err)
+	}
+	// ...and skills linked from there into the home skills dir.
+	link := filepath.Join(home, ".claude", "skills", "build")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("skill not linked: %v", err)
+	}
+	if target != filepath.Join(dataDir, "skills", "build") {
+		t.Errorf("skill -> %s, want it under the data dir %s", target, dataDir)
+	}
+	if statusOf(rep, "assets") == "" {
+		t.Error("report missing assets step")
 	}
 }
 

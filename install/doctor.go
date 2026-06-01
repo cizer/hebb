@@ -57,12 +57,7 @@ func Doctor(opts Options) []Check {
 	}
 
 	if opts.Home != "" {
-		link := filepath.Join(opts.Home, ".claude", "projects", ClaudeProjectSlug(opts.VaultPath), "memory")
-		if isSymlink(link) {
-			add("memory", "ok", "linked")
-		} else {
-			add("memory", "warn", "not linked (run hebb install)")
-		}
+		checkMemory(add, opts.Home, opts.VaultPath)
 	}
 
 	if existed {
@@ -155,6 +150,23 @@ func checkSkills(add func(string, string, string), home, assetDir string, skills
 		detail += fmt.Sprintf(" (%d symlinked elsewhere)", elsewhere)
 	}
 	add("skills", okIf(linked == len(skills)), detail)
+}
+
+// checkMemory verifies the Claude project memory symlink resolves to this
+// vault's MemoryDir. A symlink pointing elsewhere (e.g. a stale link to an old
+// memory location) is flagged rather than passed.
+func checkMemory(add func(string, string, string), home, vaultPath string) {
+	link := filepath.Join(home, ".claude", "projects", ClaudeProjectSlug(vaultPath), "memory")
+	want := MemoryDir(vaultPath)
+	target, _ := os.Readlink(link)
+	switch {
+	case target == want:
+		add("memory", "ok", "linked")
+	case isSymlink(link):
+		add("memory", "warn", "linked elsewhere: "+target)
+	default:
+		add("memory", "warn", "not linked (run hebb install)")
+	}
 }
 
 // resolvedAssetDir is the on-disk asset dir doctor compares against, read-only:

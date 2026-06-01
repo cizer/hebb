@@ -23,13 +23,21 @@ func ClaudeProjectSlug(absPath string) string {
 	return b.String()
 }
 
-// SymlinkMemory links <vault>/memory into
+// MemoryDir is the in-vault home for this vault's Claude Code memory. It lives
+// under .hebb so agent memory still syncs and travels with the vault, but is
+// hidden from Obsidian (a dotfolder) and excluded from the index (.hebb is in
+// the default exclude list), so memory is never treated as vault content.
+func MemoryDir(vaultPath string) string {
+	return filepath.Join(vaultPath, ".hebb", "memory")
+}
+
+// SymlinkMemory links <vault>/.hebb/memory into
 // <claudeProjectsDir>/<projectSlug>/memory so Claude Code reads the vault's
 // (synced) memory when opened there. The vault memory dir is created if absent.
 // It is defensive: an existing real memory dir at the target is left untouched
 // (status "conflict").
 func SymlinkMemory(vaultPath, claudeProjectsDir, projectSlug string) (string, error) {
-	src := filepath.Join(vaultPath, "memory")
+	src := MemoryDir(vaultPath)
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		return "", err
 	}

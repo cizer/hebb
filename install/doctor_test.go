@@ -132,6 +132,27 @@ func TestDoctorSkillsCountsOnlyHebbManagedLinks(t *testing.T) {
 	}
 }
 
+func TestDoctorMemoryFlagsStaleLink(t *testing.T) {
+	home := t.TempDir()
+	vault := t.TempDir()
+	link := filepath.Join(home, ".claude", "projects", ClaudeProjectSlug(vault), "memory")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Stale: points at the old root memory location, not .hebb/memory.
+	if err := os.Symlink(filepath.Join(vault, "memory"), link); err != nil {
+		t.Fatal(err)
+	}
+	var checks []Check
+	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
+	checkMemory(add, home, vault)
+
+	c, _ := checkByName(checks, "memory")
+	if c.Status != "warn" || !strings.Contains(c.Detail, "elsewhere") {
+		t.Errorf("stale link: status=%q detail=%q, want warn + 'elsewhere'", c.Status, c.Detail)
+	}
+}
+
 func TestAnyFailed(t *testing.T) {
 	if AnyFailed([]Check{{Status: "ok"}, {Status: "warn"}}) {
 		t.Error("warn/ok should not count as failed")

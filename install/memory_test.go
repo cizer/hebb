@@ -32,9 +32,12 @@ func TestSymlinkMemoryCreatesLink(t *testing.T) {
 	if status != "symlinked" {
 		t.Errorf("status = %q, want symlinked", status)
 	}
-	// The vault memory dir is created...
-	if fi, err := os.Stat(filepath.Join(vault, "memory")); err != nil || !fi.IsDir() {
-		t.Fatalf("vault memory dir not created: %v", err)
+	// The in-vault memory dir is created under .hebb (hidden, index-excluded)...
+	if fi, err := os.Stat(MemoryDir(vault)); err != nil || !fi.IsDir() {
+		t.Fatalf("vault memory dir not created at %s: %v", MemoryDir(vault), err)
+	}
+	if MemoryDir(vault) != filepath.Join(vault, ".hebb", "memory") {
+		t.Fatalf("MemoryDir = %s, want <vault>/.hebb/memory", MemoryDir(vault))
 	}
 	// ...and linked into the project dir.
 	link := filepath.Join(projects, slug, "memory")
@@ -42,8 +45,8 @@ func TestSymlinkMemoryCreatesLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("memory not symlinked: %v", err)
 	}
-	if target != filepath.Join(vault, "memory") {
-		t.Errorf("memory -> %s, want %s", target, filepath.Join(vault, "memory"))
+	if target != MemoryDir(vault) {
+		t.Errorf("memory -> %s, want %s", target, MemoryDir(vault))
 	}
 }
 

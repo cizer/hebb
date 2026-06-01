@@ -15,13 +15,20 @@ Go module, cobra CLI skeleton, repo created, architecture doc added.
 - ✅ watcher: fsnotify incremental reindex, wired into `mcp` and `serve`; index db serialised (`MaxOpenConns=1` + `busy_timeout`)
 - ✅ tests: core + web; `go vet` clean; verified live (MCP over stdio, HTTP)
 
-### Phase 2 — `hebb install` ⬜  (next)
-Wire a vault into the machine, idempotently:
-- init `.hebb/config.toml`; generate the project-scoped `.mcp.json`
-- register the MCP / lay down Claude settings + permissions; symlink `skills/*` into `~/.claude/skills`
-- render + bootstrap launchd jobs (labels per vault)
-- symlink the memory dir into `~/.claude/projects/<vault-slug>/memory`; build the first index
-- `hebb doctor` — health check of vault + install
+### Phase 2 — `hebb install` ✅  (mechanism complete)
+Wire a vault into the machine, idempotently. Every step is parameterised by its
+target dirs (temp-dir tested) and defensive — it never clobbers a real file/dir:
+- ✅ core: `.hebb/config.toml` model (name, exclude_dirs, web_port, jobs, skills); `ResolveVault` honors it
+- ✅ init `.hebb/config.toml` + generate the project-scoped, portable `.mcp.json` (`command: hebb`, `args: [mcp]`)
+- ✅ project settings: merge MCP enable + tool allow-list into `<vault>/.claude/settings.json` (non-destructive)
+- ✅ symlink `skills/*` into `~/.claude/skills` (conflict-safe, repoints stale links)
+- ✅ render launchd jobs (`local.hebb.<slug>.<job>`, `plutil`-valid); `--launchd`/`--load` (launchctl bootstrap, dry-run preview); web job built in, automation jobs gated on their script existing
+- ✅ symlink memory into `~/.claude/projects/<project-slug>/memory` (Claude Code path-slug exact); build the first index
+- ✅ `hebb doctor` — read-only health check (config, .mcp.json, index, settings, skills, memory, launchd), exits non-zero on failure
+
+Remaining before a live install is meaningful (content migration, not tool work):
+- move the real skills `~/.claude/skills/*` and automation `vault/bin/*` into `skills/` and `automation/` (today placeholders); install then links/renders them
+- distribute the binary so `command: hebb` resolves on PATH (Phase 4), or run from source with `--asset-root`/`$HEBB_HOME`
 
 ### Phase 3 — `hebb new` + vault-template ⬜
 - `vault-template/`: PARA skeleton, baseline `CLAUDE.md` (generic, split from the personal one), note templates, memory seed
@@ -35,4 +42,4 @@ Wire a vault into the machine, idempotently:
 
 ## Resume point
 
-**Next: Phase 2, `hebb install`.** Nothing is wired into the live setup yet; `onevault-mcp` still serves Richie's vault until the Phase 5 cutover.
+**Next: migrate skill + automation content into the repo (then Phase 3 `hebb new`).** The `hebb install`/`doctor` mechanism is built and tested; `skills/` and `automation/` still hold placeholders, so a real install links/renders nothing for them yet. Nothing is wired into the live setup; `onevault-mcp` still serves Richie's vault until the Phase 5 cutover. Run install/doctor against a throwaway vault with `--home`/`--asset-root`/`--launchd-dir` to exercise the full surface safely.

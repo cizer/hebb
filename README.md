@@ -8,7 +8,7 @@ Go rewrite of the Node reference `onevault-mcp`. Design in [ARCHITECTURE.md](ARC
 
 ## Status
 
-**Phase 1 complete** — feature parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; that is Phase 2 (`hebb install`).
+**Phase 2 mechanism complete** — `hebb install` and `hebb doctor` work end-to-end (config, `.mcp.json`, project settings, skills symlinks, launchd jobs, memory symlink, first index). Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; the skill/automation content still has to be migrated into the repo, and `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
 
 ## Commands
 
@@ -17,10 +17,12 @@ Working today:
 - `hebb search <query>` — full-text search (`--tag`, `--path-prefix`, `--limit`)
 - `hebb mcp` — MCP server over stdio for Claude (`search_vault`, `expand_context`, `get_context_for_topic`, `vault_stats`, `reindex_vault`)
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, or `$HEBB_WEB_PORT`)
+- `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml` and the project-scoped `.mcp.json`, merges project settings, builds the first index. Add `--asset-root` (or `$HEBB_HOME`) to symlink skills, `--launchd` to render launchd jobs (`--load` to bootstrap them).
+- `hebb doctor` — read-only health check of a vault and its install; exits non-zero if anything is broken.
 
 Vault selection: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.
 
-Planned (stubs for now): `hebb new`, `hebb install`, `hebb sync`, `hebb doctor`.
+Planned (stubs for now): `hebb new`, `hebb sync`.
 
 ## Build
 

@@ -51,6 +51,15 @@ func Run(opts Options) (Report, error) {
 		rep.Steps = append(rep.Steps, sr.Steps...)
 	}
 
+	if opts.Home != "" {
+		projects := filepath.Join(opts.Home, ".claude", "projects")
+		status, err := SymlinkMemory(opts.VaultPath, projects, ClaudeProjectSlug(opts.VaultPath))
+		if err != nil {
+			return rep, err
+		}
+		rep.add("memory", status)
+	}
+
 	if opts.LaunchdDir != "" && opts.HebbBin != "" && opts.Home != "" {
 		if err := renderLaunchd(&rep, opts); err != nil {
 			return rep, err

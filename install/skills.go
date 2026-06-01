@@ -35,33 +35,11 @@ func SymlinkSkills(srcDir, dstDir string) (Report, error) {
 			continue
 		}
 		name := e.Name()
-		want := filepath.Join(srcAbs, name)
-		link := filepath.Join(dstDir, name)
-
-		info, err := os.Lstat(link)
-		switch {
-		case os.IsNotExist(err):
-			if err := os.Symlink(want, link); err != nil {
-				return r, err
-			}
-			r.add(name, "symlinked")
-		case err != nil:
+		status, err := linkOne(filepath.Join(srcAbs, name), filepath.Join(dstDir, name))
+		if err != nil {
 			return r, err
-		case info.Mode()&os.ModeSymlink != 0:
-			if cur, _ := os.Readlink(link); cur == want {
-				r.add(name, "exists")
-				continue
-			}
-			if err := os.Remove(link); err != nil {
-				return r, err
-			}
-			if err := os.Symlink(want, link); err != nil {
-				return r, err
-			}
-			r.add(name, "repointed")
-		default:
-			r.add(name, "conflict")
 		}
+		r.add(name, status)
 	}
 	return r, nil
 }

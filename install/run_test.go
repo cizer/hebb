@@ -41,6 +41,14 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	if statusOf(rep, "settings.json") == "" {
 		t.Error("report missing settings.json step")
 	}
+	// Memory linked into the project dir.
+	memLink := filepath.Join(home, ".claude", "projects", ClaudeProjectSlug(vault), "memory")
+	if _, err := os.Lstat(memLink); err != nil {
+		t.Errorf("memory not linked into project dir: %v", err)
+	}
+	if statusOf(rep, "memory") != "symlinked" {
+		t.Errorf("memory step = %q, want symlinked", statusOf(rep, "memory"))
+	}
 }
 
 func TestRunSkipsSkillsWithoutAssetRoot(t *testing.T) {

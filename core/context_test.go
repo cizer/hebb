@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,50 @@ func TestContextGraph(t *testing.T) {
 	}
 	if len(GetContextForTopic(db, "alpha", 10, "")) == 0 {
 		t.Fatalf("expected topic context for 'alpha'")
+	}
+}
+
+func TestTopicContextPopulatesTagsForLinkedNotes(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(vault, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// "hubword" is unique to the hub note, so only it matches the search; the
+	// decisions note is reached purely via the wiki-link, exercising the path
+	// that previously dropped tags.
+	write("Aurora Overview.md", "# Aurora Overview\n\nhubword project. See [[Aurora Decisions]].\n\n#aurora")
+	write("Aurora Decisions.md", "# Aurora Decisions\n\nDecided on FTS5.\n\n#aurora")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	var decisions *TopicResult
+	results := GetContextForTopic(db, "hubword", 10, "")
+	for i := range results {
+		if results[i].Path == "Aurora Decisions.md" {
+			decisions = &results[i]
+		}
+	}
+	if decisions == nil {
+		t.Fatal("expected Aurora Decisions pulled in via the link graph")
+	}
+	if !strings.Contains(decisions.Relevance, "linked_from") {
+		t.Errorf("relevance = %q, want linked_from", decisions.Relevance)
+	}
+	if !strings.Contains(decisions.Tags, "aurora") {
+		t.Errorf("linked note tags = %q, want to include 'aurora'", decisions.Tags)
 	}
 }
 

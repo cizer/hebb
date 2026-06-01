@@ -211,7 +211,20 @@ func GetContextForTopic(db *sql.DB, topic string, limit int, pathPrefix string) 
 	}
 	out := make([]TopicResult, 0, len(order))
 	for _, p := range order {
-		out = append(out, m[p])
+		r := m[p]
+		// Notes pulled in via the link graph arrive without tags (ExpandContext
+		// does not carry them); backfill so every result reports its real tags.
+		if r.Tags == "" {
+			r.Tags = tagsFor(db, p)
+		}
+		out = append(out, r)
 	}
 	return out
+}
+
+// tagsFor returns the stored tag string for a note path, or "" if none/unknown.
+func tagsFor(db *sql.DB, path string) string {
+	var t sql.NullString
+	db.QueryRow("SELECT tags FROM notes WHERE path = ?", path).Scan(&t)
+	return t.String
 }

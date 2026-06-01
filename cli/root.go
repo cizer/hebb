@@ -39,10 +39,9 @@ func newRoot(version string) *cobra.Command {
 	root.PersistentFlags().StringVar(&flagVault, "vault", "", "vault path (default: nearest .hebb/ above cwd, or $HEBB_VAULT)")
 	root.PersistentFlags().StringVar(&flagDB, "db", "", "index db path (default: <vault>/.hebb/index.db)")
 
-	root.AddCommand(indexCmd(), searchCmd(), mcpCmd(version), serveCmd())
+	root.AddCommand(indexCmd(), searchCmd(), mcpCmd(version), serveCmd(), installCmd())
 	root.AddCommand(
 		stub("new", "Scaffold a fresh vault from the template", "Phase 3"),
-		stub("install", "Wire hebb into this machine for a vault", "Phase 2"),
 		stub("sync", "Sync the vault", "Phase 5"),
 		stub("doctor", "Check vault and install health", "Phase 2"),
 	)

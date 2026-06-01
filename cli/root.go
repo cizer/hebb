@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/cizer/hebb/core"
 	hebbmcp "github.com/cizer/hebb/mcp"
+	hebbweb "github.com/cizer/hebb/web"
 	"github.com/spf13/cobra"
 )
 
@@ -36,11 +39,10 @@ func newRoot(version string) *cobra.Command {
 	root.PersistentFlags().StringVar(&flagVault, "vault", "", "vault path (default: nearest .hebb/ above cwd, or $HEBB_VAULT)")
 	root.PersistentFlags().StringVar(&flagDB, "db", "", "index db path (default: <vault>/.hebb/index.db)")
 
-	root.AddCommand(indexCmd(), searchCmd(), mcpCmd(version))
+	root.AddCommand(indexCmd(), searchCmd(), mcpCmd(version), serveCmd())
 	root.AddCommand(
 		stub("new", "Scaffold a fresh vault from the template", "Phase 3"),
 		stub("install", "Wire hebb into this machine for a vault", "Phase 2"),
-		stub("serve", "Serve the local search UI", "Phase 1"),
 		stub("sync", "Sync the vault", "Phase 5"),
 		stub("doctor", "Check vault and install health", "Phase 2"),
 	)
@@ -137,4 +139,34 @@ func mcpCmd(version string) *cobra.Command {
 			return hebbmcp.Serve(cfg, version)
 		},
 	}
+}
+
+func serveCmd() *cobra.Command {
+	var port int
+	c := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the local web search UI",
+		RunE: func(*cobra.Command, []string) error {
+			cfg, err := core.ResolveVault(flagVault, flagDB)
+			if err != nil {
+				return err
+			}
+			name := os.Getenv("HEBB_VAULT_NAME")
+			if name == "" {
+				name = filepath.Base(cfg.VaultPath)
+			}
+			return hebbweb.Serve(cfg, port, name)
+		},
+	}
+	c.Flags().IntVar(&port, "port", defaultWebPort(), "port (default 4321, or $HEBB_WEB_PORT)")
+	return c
+}
+
+func defaultWebPort() int {
+	if v := os.Getenv("HEBB_WEB_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 4321
 }

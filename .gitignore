@@ -8,5 +8,8 @@
 .hebb/index.db
 .hebb/index.db-*
 
+# Local Claude Code session state
+.claude/settings.local.json
+
 # OS
 .DS_Store

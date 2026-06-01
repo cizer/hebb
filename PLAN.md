@@ -44,3 +44,13 @@ Remaining before a live install is meaningful (content migration, not tool work)
 ## Resume point
 
 **Next: migrate skill + automation content into the repo (then Phase 3 `hebb new`).** The `hebb install`/`doctor` mechanism is built and tested; `skills/` and `automation/` still hold placeholders, so a real install links/renders nothing for them yet. Nothing is wired into the live setup; `onevault-mcp` still serves Richie's vault until the Phase 5 cutover. Run install/doctor against a throwaway vault with `--home`/`--asset-root`/`--launchd-dir` to exercise the full surface safely.
+
+## Parked ideas
+
+Not committed to a phase; recorded for later.
+
+### Per-request context interception via Claude Code hooks
+Have hebb run on every prompt in a vault session to inject (not rewrite) context before the model responds, as a deterministic "push" complement to the MCP "pull" tools.
+- **Mechanism:** a `hebb hook` subcommand wired into the vault's `.claude/settings.json` by `install`. `UserPromptSubmit` fires before the model sees a prompt and its stdout is injected into context; `SessionStart` runs once per session (good for a one-shot orientation load).
+- **Why parked:** always-on per-turn injection tends to be net negative (token + noise cost, per-turn latency, partial duplication of the pull tools). The viable shape is gated: a cheap relevance check, or a SessionStart one-shot, opt-in per vault via `config.toml`. Augment only; never silently rewrite the user's prompt.
+- **If revived:** prototype `hebb hook` + a `SessionStart` one-shot first, measure token/quality impact, then consider per-turn injection behind a config flag. Confirm the exact hook stdin/stdout/exit-code contract against the Claude Code docs before building.

@@ -29,7 +29,7 @@ Layers: **Data** (per-vault content + memory + `.hebb/` config) · **Function** 
 - **Directory-context operation:** `hebb` walks up from the current directory to the nearest `.hebb/`, like `git`/`npm`. `cd ~/vaults/work && hebb serve`. A `--vault <path>` flag and `HEBB_VAULT` env override cover automation and headless runs.
 - **Project-scoped MCP:** the `.mcp.json` committed in each vault wires that vault's `hebb` when Claude is opened there. No global MCP registration to juggle; open the work vault, get the work MCP.
 - **Shared vs per-vault:**
-  - Shared (function): the `hebb` binary and global skills in `~/.claude/skills`. Installed once.
+  - Shared (function): the `hebb` binary, which embeds the skills/automation/template assets and on `install` materialises them to the hebb data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`) and links the skills into `~/.claude/skills`. Installed once; no repo checkout needed (a checkout is only a dev override via `--asset-root`).
   - Per-vault (data + its config): `.hebb/config.toml`, the index, memory, `CLAUDE.md`, enabled jobs, web port.
 - **Personal vs work:** `hebb new ~/vaults/personal` and `hebb new ~/vaults/work` are fully independent (different content, memory, contract, even web-UI ports so both run at once).
 - **Travels vs local:** commit `.hebb/config.toml` and `.mcp.json` so a cloned or synced vault self-identifies; gitignore `.hebb/index.db` and machine-local state.
@@ -121,7 +121,7 @@ Install `hebb` once (Homebrew/npm). Then, per vault:
 1. Stand up `hebb` as a Go module; port the Node `onevault-mcp` engine into `core/`, with a thin `cli/` and an `mcp/` surface (goldmark, modernc SQLite FTS5, fsnotify, stdlib HTTP, mcp-go).
 2. Add vault discovery (`.hebb/` upward) and the `--vault`/`HEBB_VAULT` override.
 3. Move `vault/bin/*` into `hebb/automation/`; make launchd jobs per-vault (label includes vault name).
-4. Move `~/.claude/skills/*` into `hebb/skills/`; symlink back via `hebb install`.
+4. Move `~/.claude/skills/*` into `hebb/skills/`; they embed into the binary and `hebb install` materialises them to the data dir and symlinks them back into `~/.claude/skills`.
 5. Relocate memory to a synced vault location; symlink into `~/.claude`.
 6. Extract a generic `vault-template/` (PARA skeleton, baseline `CLAUDE.md` split from the personalised one, note templates, memory seed).
 7. Build the `hebb` CLI (`new`, `install`, `sync`, `index`, `serve`, `doctor`) with per-vault `.hebb/` and `.mcp.json` generation, idempotent.

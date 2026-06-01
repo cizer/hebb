@@ -21,14 +21,15 @@ target dirs (temp-dir tested) and defensive — it never clobbers a real file/di
 - ✅ core: `.hebb/config.toml` model (name, exclude_dirs, web_port, jobs, skills); `ResolveVault` honors it
 - ✅ init `.hebb/config.toml` + generate the project-scoped, portable `.mcp.json` (`command: hebb`, `args: [mcp]`)
 - ✅ project settings: merge MCP enable + tool allow-list into `<vault>/.claude/settings.json` (non-destructive)
-- ✅ symlink `skills/*` into `~/.claude/skills` (conflict-safe, repoints stale links)
+- ✅ standalone binary: `skills/`, `automation/`, `vault-template/` are `go:embed`'d and materialised to the hebb data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`) on install, so no repo checkout is needed; `--asset-root` is a dev override that links straight from a source tree
+- ✅ symlink `skills/*` into `~/.claude/skills` from the data dir (conflict-safe, repoints stale links)
 - ✅ render launchd jobs (`local.hebb.<slug>.<job>`, `plutil`-valid); `--launchd`/`--load` (launchctl bootstrap, dry-run preview); web job built in, automation jobs gated on their script existing
 - ✅ symlink memory into `~/.claude/projects/<project-slug>/memory` (Claude Code path-slug exact); build the first index
 - ✅ `hebb doctor` — read-only health check (config, .mcp.json, index, settings, skills, memory, launchd), exits non-zero on failure
 
 Remaining before a live install is meaningful (content migration, not tool work):
-- move the real skills `~/.claude/skills/*` and automation `vault/bin/*` into `skills/` and `automation/` (today placeholders); install then links/renders them
-- distribute the binary so `command: hebb` resolves on PATH (Phase 4), or run from source with `--asset-root`/`$HEBB_HOME`
+- move the real skills `~/.claude/skills/*` and automation `vault/bin/*` into `skills/` and `automation/` (today placeholders); they then embed into the binary and install materialises + links/renders them
+- distribute the binary so `command: hebb` resolves on PATH (Phase 4); the assets are already standalone (embedded), so this is the only remaining standalone gap
 
 ### Phase 3 — `hebb new` + vault-template ⬜
 - `vault-template/`: PARA skeleton, baseline `CLAUDE.md` (generic, split from the personal one), note templates, memory seed

@@ -17,7 +17,7 @@ Working today:
 - `hebb search <query>` — full-text search (`--tag`, `--path-prefix`, `--limit`)
 - `hebb mcp` — MCP server over stdio for Claude (`search_vault`, `expand_context`, `get_context_for_topic`, `vault_stats`, `reindex_vault`)
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, or `$HEBB_WEB_PORT`)
-- `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml` and the project-scoped `.mcp.json`, merges project settings, builds the first index. Add `--asset-root` (or `$HEBB_HOME`) to symlink skills, `--launchd` to render launchd jobs (`--load` to bootstrap them).
+- `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml` and the project-scoped `.mcp.json`, merges project settings, materialises the bundled skills to `~/.local/share/hebb` and links them into `~/.claude/skills`, symlinks memory, builds the first index. Standalone (assets are embedded in the binary); `--asset-root` links skills from a repo checkout instead, `--launchd` renders launchd jobs (`--load` bootstraps them).
 - `hebb doctor` — read-only health check of a vault and its install; exits non-zero if anything is broken.
 
 Vault selection: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.

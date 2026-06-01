@@ -25,7 +25,7 @@ Layers: **Data** (per-vault content + memory + `.hebb/` config) · **Function** 
 
 > `hebb` is multi-vault like `git` is multi-repo. Installed once; each vault is self-contained and self-describing. This is what keeps personal and work cleanly apart.
 
-- **Per-vault marker and config:** each vault has a `.hebb/` directory at its root (like `.git`): `config.toml` (exclude dirs, web port, enabled jobs and skills, vault name), `index.db` (derived), and a generated `.mcp.json`.
+- **Per-vault marker and config:** each vault has a `.hebb/` directory at its root (like `.git`): `config.toml` (exclude dirs, web port, enabled jobs and skills, vault name), `index.db` (derived), `memory/` (this vault's Claude Code memory, symlinked into `~/.claude/projects/<slug>/memory`; under `.hebb` so it is hidden from Obsidian and excluded from the index but still syncs with the vault), and a generated `.mcp.json` at the vault root.
 - **Directory-context operation:** `hebb` walks up from the current directory to the nearest `.hebb/`, like `git`/`npm`. `cd ~/vaults/work && hebb serve`. A `--vault <path>` flag and `HEBB_VAULT` env override cover automation and headless runs.
 - **Project-scoped MCP:** the `.mcp.json` committed in each vault wires that vault's `hebb` when Claude is opened there. No global MCP registration to juggle; open the work vault, get the work MCP.
 - **Shared vs per-vault:**

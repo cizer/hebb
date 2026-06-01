@@ -29,7 +29,7 @@ func DefaultVaultConfig(name string) VaultConfig {
 		ExcludeDirs: append([]string(nil), defaultExcludeDirs...),
 		WebPort:     defaultWebPort,
 		Jobs:        []string{"daily-digest", "action-review", "web"},
-		Skills:      []string{"build", "publish-artifact", "vault-ingest"},
+		Skills:      []string{"vault-ingest"},
 	}
 }
 

@@ -52,7 +52,7 @@ flowchart TB
 
   subgraph SHARED["FUNCTION — hebb, installed once (forked from onevault-mcp)"]
     BIN["hebb binary: core engine + thin CLI + MCP surface"]
-    SK["global skills (~/.claude/skills): build, publish-artifact, vault-ingest"]
+    SK["global skills (~/.claude/skills): vault-ingest (generic, vault-agnostic)"]
     TPL["vault-template: PARA skeleton, baseline CLAUDE.md, note templates, memory seed"]
   end
 
@@ -100,7 +100,7 @@ hebb/                # Go binary; onevault-mcp (Node) is the reference spec
   core/              # UI-agnostic engine: index, search, scaffold, sync, hygiene
   cli/               # thin CLI over core: new, install, sync, index, serve, doctor
   mcp/               # MCP server surface over core
-  skills/            # build, publish-artifact, vault-ingest
+  skills/            # vault-ingest (generic, vault-agnostic; specifics live in each vault's CLAUDE.md)
   automation/        # action-review, digest, syncs
   launchd/           # parameterised plist templates
   config/            # settings.json + permissions template, global config defaults

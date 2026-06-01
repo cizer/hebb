@@ -35,8 +35,23 @@ Remaining before a live install is meaningful (content migration, not tool work)
 - `vault-template/`: PARA skeleton, baseline `CLAUDE.md` (generic, split from the personal one), note templates, memory seed
 - `hebb new <path>` scaffolds a fresh vault then installs against it; from-scratch test (zero personal data)
 
-### Phase 4 — Package + distribute ⬜
-- Homebrew tap and/or npm, GitHub Actions CI, fuller README
+### Phase 4 — Pipeline, package + distribute ⬜
+Two-stage continuous-deployment pipeline (GitHub Actions; remote is
+`github.com/cizer/hebb`). Test strategy and the stage definitions live in
+[TESTING.md](TESTING.md).
+
+- **Stage 1 — build (fast tests), every push/PR:** `go build`, `gofmt -l`,
+  `go vet`, `go test ./...` (~5s today), `go test -race` (watcher/serve), optional
+  staticcheck; cross-compile the matrix (darwin arm64/amd64, linux amd64/arm64) to prove it builds.
+- **Stage 2 — acceptance (production-like), before deploy:** build the
+  acceptance harness (`scripts/acceptance.sh`, runnable locally and in CI) that
+  drives the *built binary* against a throwaway vault + temp `HOME` on macOS and
+  Linux runners: install → doctor → index/search (canary) → serve+curl the API →
+  mcp over stdio (initialize, tools/list, tools/call) → plutil-lint plists
+  (macOS). This automates today's manual UAT. `--load` is not run in CI.
+- **Stage 3 — release (the deploy):** on a version tag past acceptance, publish a
+  GitHub release with binaries, bump a Homebrew tap formula, optional npm.
+- Add pre-commit/pre-push hooks mirroring Stage 1 (consistent local + CI); fuller README.
 
 ### Phase 5 — Cutover ⬜
 - repoint the live machine to `hebb`, relocate memory to the synced location, remove `vault/bin` scripts, retire `onevault-mcp`

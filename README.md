@@ -32,6 +32,8 @@ go test ./...
 go run ./cmd/hebb --help
 ```
 
+Test strategy and the (planned) two-stage CD pipeline are in [TESTING.md](TESTING.md).
+
 ## Layout
 
 - `core/` — UI-agnostic engine (index, search, context, watcher)

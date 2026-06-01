@@ -1,0 +1,110 @@
+# hebb test strategy
+
+How hebb is tested today, and the two-stage deployment pipeline it feeds. The
+roadmap for building the pipeline lives in [PLAN.md](PLAN.md) (Phase 4).
+
+## Principles
+
+1. **Test the real dependency, not a mock.** The engine is tested against a real
+   SQLite FTS5 database and a real filesystem, because the index *is* the
+   product. Mocks would hide exactly the FTS5/parser behaviour we care about.
+2. **Hermetic.** Every test uses temp dirs (vault, `HOME`, data dir,
+   LaunchAgents) and no network. Nothing writes to the real home. This is why
+   install is parameterised by its target directories.
+3. **Test the surfaces callers actually use.** The MCP tool output, the CLI, and
+   the web API are tested at their boundary, not just the functions beneath
+   them. Both bugs found during UAT lived at a surface/seam, not in a unit.
+4. **Consistent locally and in CI.** The same commands run in both. The
+   acceptance harness is a script you can run on your machine, not CI-only.
+5. **Fail fast.** Fastest checks first (build, fmt, vet, then tests); the slow,
+   production-like acceptance stage runs only once the fast stage is green.
+6. **Secure by default.** No secrets in the repo; release credentials live only
+   in CI secrets.
+
+## Current layers
+
+The whole suite (`go test ./...`) is ~65 tests and runs in ~5s, cold. All
+hermetic.
+
+| Layer | Where | Exercises | Real deps |
+|---|---|---|---|
+| Unit | `core` (parser, config, slugify), `install` (mcpjson, settings merge, bootstrap dry-run), `launchd` (render) | Pure logic and rendering | none |
+| Integration (engine) | `core/index_test`, `context_test`, `watch_test`, `single_test` | Temp vault → `FullReindex` → real SQLite FTS5 → search / context / stats / incremental watch | SQLite FTS5, filesystem |
+| Surface | `mcp/server_test` (tool output + cross-tool tag consistency), `cli/*_test` (install/doctor via cobra), `web/server_test` (HTTP), `install/*_test` (wiring, conflict-safety, idempotency) | The strings/exit codes/files callers and Claude consume | filesystem |
+| Static | `go vet`, `gofmt`; launchd plists validated with `plutil -lint` (macOS only, skipped elsewhere) | Vet, formatting, plist validity | toolchain |
+| Acceptance | **manual today** (the canary-fixture session test) | The built binary end to end | OS, real-ish env |
+
+Counts as of writing: core 14, install 34, launchd 5, cli 6, web 1, mcp 5.
+
+## The gap
+
+The acceptance layer is manual. It needs to become a scripted suite that drives
+the **built binary** (the artifact that ships), in a production-like
+environment, before any deploy. We also have no cross-platform or
+race-detector coverage yet.
+
+## Pipeline: two stages
+
+Continuous deployment: green `main` produces a candidate artifact; a tagged
+commit that passes both stages is released.
+
+### Stage 1 - Build (fast tests)
+
+Gate on every push / PR. Target wall-clock: under ~2 minutes.
+
+- `go build ./...`
+- `gofmt -l .` (fail if anything is unformatted)
+- `go vet ./...`
+- `go test ./...` (unit + integration + surface; ~5s)
+- `go test -race ./...` (the watcher and `serve` run concurrently with SQLite;
+  the race detector guards those paths)
+- optional: `staticcheck` / `golangci-lint`
+- cross-compile the release artifacts (matrix below) to prove they build
+
+Properties: fastest checks first, zero manual input, blocking, same as the local
+pre-commit/pre-push hooks.
+
+### Stage 2 - Acceptance (production-like)
+
+Runs only after Stage 1 is green, on the target OSes (macOS and Linux runners),
+against the **natively built binary**, not `go test`. This is the automation of
+today's manual UAT.
+
+The acceptance harness (a script, runnable locally and in CI) does, against a
+throwaway fixture vault and a temp `HOME`:
+
+1. put the built `hebb` on `PATH`
+2. `hebb install --vault V --home H --data-dir D --launchd --launchd-dir L` → assert exit 0 and that the contracts, materialised assets, memory link and rendered plists exist
+3. `hebb doctor` → assert health (expected ok/warn set)
+4. `hebb index` + `hebb search <canary>` → assert the known notes come back
+5. `hebb serve --port <free>` → `curl /api/stats` and `/api/search` → assert the JSON
+6. `hebb mcp` over stdio → JSON-RPC `initialize`, `tools/list` (the 5 tools), `tools/call search_vault` (canary) and `get_context_for_topic` (tag consistency) → assert responses
+7. macOS only: `plutil -lint` the rendered plists
+
+Notes: `--load` (launchctl bootstrap) is **not** run in CI (no GUI session, and
+it would mutate the runner); acceptance renders and validates plists instead.
+A darwin binary cannot run on a Linux runner, so each OS runner builds and tests
+its own binary; cross-compiled release artifacts are a separate build step.
+
+### Stage 3 - Release (the deploy)
+
+On a version tag, once acceptance is green: publish a GitHub release with the
+built binaries, bump the Homebrew tap formula, optionally publish to npm. That
+is the "deploy a new artifact" step.
+
+## Build matrix
+
+`darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64`. macOS is primary
+(launchd); Linux proves portability and gives cheaper CI runners for the fast
+stage.
+
+## Local mirror
+
+The cloud stages mirror what runs locally, so CI never surprises you:
+
+| Local layer | Command |
+|---|---|
+| Pre-commit | `gofmt`, `go vet` |
+| Pre-push | `go test ./...` |
+| Full (pre-release) | `go test -race ./...` + the acceptance harness |
+| Cloud CI | Stage 1 then Stage 2 above |

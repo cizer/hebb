@@ -45,7 +45,15 @@ func ResolveVault(flagVault, flagDB string) (Config, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return Config{}, err
 	}
-	return Config{VaultPath: abs, DBPath: dbPath, ExcludeDirs: defaultExcludeDirs}, nil
+	cfg := Config{VaultPath: abs, DBPath: dbPath, ExcludeDirs: defaultExcludeDirs}
+	vc, existed, err := LoadVaultConfig(abs)
+	if err != nil {
+		return Config{}, err
+	}
+	if existed && len(vc.ExcludeDirs) > 0 {
+		cfg.ExcludeDirs = vc.ExcludeDirs
+	}
+	return cfg, nil
 }
 
 func findVaultUp(start string) string {

@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/cizer/hebb/core"
+	hebbmcp "github.com/cizer/hebb/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +36,7 @@ func newRoot(version string) *cobra.Command {
 	root.PersistentFlags().StringVar(&flagVault, "vault", "", "vault path (default: nearest .hebb/ above cwd, or $HEBB_VAULT)")
 	root.PersistentFlags().StringVar(&flagDB, "db", "", "index db path (default: <vault>/.hebb/index.db)")
 
-	root.AddCommand(indexCmd(), searchCmd())
+	root.AddCommand(indexCmd(), searchCmd(), mcpCmd(version))
 	root.AddCommand(
 		stub("new", "Scaffold a fresh vault from the template", "Phase 3"),
 		stub("install", "Wire hebb into this machine for a vault", "Phase 2"),
@@ -122,4 +123,18 @@ func searchCmd() *cobra.Command {
 	c.Flags().StringVar(&tag, "tag", "", "filter by tag")
 	c.Flags().StringVar(&prefix, "path-prefix", "", "filter by path prefix")
 	return c
+}
+
+func mcpCmd(version string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Run the MCP server over stdio (for Claude)",
+		RunE: func(*cobra.Command, []string) error {
+			cfg, err := core.ResolveVault(flagVault, flagDB)
+			if err != nil {
+				return err
+			}
+			return hebbmcp.Serve(cfg, version)
+		},
+	}
 }

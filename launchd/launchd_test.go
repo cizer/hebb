@@ -142,6 +142,35 @@ func TestRenderedPlistsPassPlutil(t *testing.T) {
 	}
 }
 
+// TestRenderEscapesXMLMetacharacters guards against malformed plists when a
+// vault path or name contains XML metacharacters (all legal in directory
+// names). The raw values must not appear; the escaped forms must.
+func TestRenderEscapesXMLMetacharacters(t *testing.T) {
+	path := "/Users/me/R&D <vault> \"x\" 'y'"
+	j := Job{
+		Label:      "local.hebb.r-d.web",
+		Program:    []string{"hebb", "serve", "--vault", path},
+		WorkingDir: path,
+		EnvVars:    []EnvVar{{Key: "HEBB_VAULT", Value: path}},
+		RunAtLoad:  true,
+		LogPath:    path + "/web.log",
+	}
+	b, err := Render(j)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	wellFormed(t, b) // would fail on unescaped & or <
+	s := string(b)
+	if strings.Contains(s, "R&D <vault>") {
+		t.Errorf("raw XML metacharacters leaked into plist:\n%s", s)
+	}
+	for _, want := range []string{"R&amp;D", "&lt;vault&gt;", "&quot;x&quot;", "&apos;y&apos;"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing escaped sequence %q:\n%s", want, s)
+		}
+	}
+}
+
 func TestWriteJobsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	jobs := []Job{{

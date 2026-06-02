@@ -6,23 +6,23 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>{{.Label}}</string>
+    <string>{{xml .Label}}</string>
     <key>ProgramArguments</key>
     <array>
 {{- range .Program}}
-        <string>{{.}}</string>
+        <string>{{xml .}}</string>
 {{- end}}
     </array>
 {{- if .WorkingDir}}
     <key>WorkingDirectory</key>
-    <string>{{.WorkingDir}}</string>
+    <string>{{xml .WorkingDir}}</string>
 {{- end}}
 {{- if .EnvVars}}
     <key>EnvironmentVariables</key>
     <dict>
 {{- range .EnvVars}}
-        <key>{{.Key}}</key>
-        <string>{{.Value}}</string>
+        <key>{{xml .Key}}</key>
+        <string>{{xml .Value}}</string>
 {{- end}}
     </dict>
 {{- end}}
@@ -49,8 +49,8 @@
     <integer>{{.Throttle}}</integer>
 {{- end}}
     <key>StandardOutPath</key>
-    <string>{{.LogPath}}</string>
+    <string>{{xml .LogPath}}</string>
     <key>StandardErrorPath</key>
-    <string>{{.LogPath}}</string>
+    <string>{{xml .LogPath}}</string>
 </dict>
 </plist>

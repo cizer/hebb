@@ -8,13 +8,29 @@ import (
 	_ "embed"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 )
 
 //go:embed job.plist.tmpl
 var plistTemplate string
 
-var tmpl = template.Must(template.New("plist").Parse(plistTemplate))
+// xmlEscaper escapes the five XML metacharacters. Job fields (label, vault
+// path, program args, env values, log path) flow into plist element content
+// unescaped by text/template, so a vault path or name containing &, <, >, " or
+// ' would otherwise produce malformed XML that launchctl rejects. All such
+// characters are legal in macOS/Linux directory names.
+var xmlEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+	"'", "&apos;",
+)
+
+var tmpl = template.Must(template.New("plist").
+	Funcs(template.FuncMap{"xml": xmlEscaper.Replace}).
+	Parse(plistTemplate))
 
 // EnvVar is one EnvironmentVariables entry. A slice (not a map) keeps rendering
 // deterministic for idempotent writes.

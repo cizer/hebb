@@ -60,3 +60,53 @@ func TestFullReindexAndSearch(t *testing.T) {
 		t.Fatalf("stats notes=%d links=%d, want 2 and 1", notes, links)
 	}
 }
+
+// TestIndexSkipsSymlinkedNotes ensures a symlinked .md is never followed and
+// indexed: a note symlinked to a file outside the vault could otherwise pull
+// host content (e.g. a secret) into the searchable index. Both the full walk
+// and the single-file (watcher) path must refuse it.
+func TestIndexSkipsSymlinkedNotes(t *testing.T) {
+	vault := t.TempDir()
+	outside := t.TempDir()
+
+	secret := filepath.Join(outside, "secret.md")
+	if err := os.WriteFile(secret, []byte("# Secret\n\ntopsecretcanary token"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "real.md"), []byte("# Real\n\nordinary note"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	leak := filepath.Join(vault, "leak.md")
+	if err := os.Symlink(secret, leak); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	res, err := FullReindex(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Indexed != 1 {
+		t.Fatalf("indexed = %d, want 1 (symlinked note skipped)", res.Indexed)
+	}
+	if hits, _ := Search(db, "topsecretcanary", 10, "", ""); len(hits) != 0 {
+		t.Fatalf("symlinked secret leaked into index: %+v", hits)
+	}
+
+	// The watcher's single-file path must also refuse the symlink.
+	if err := IndexFile(cfg, db, "leak.md"); err != nil {
+		t.Fatalf("IndexFile: %v", err)
+	}
+	if hits, _ := Search(db, "topsecretcanary", 10, "", ""); len(hits) != 0 {
+		t.Fatalf("IndexFile indexed a symlinked secret: %+v", hits)
+	}
+}

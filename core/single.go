@@ -12,6 +12,12 @@ import (
 // file no longer exists it is removed from the index.
 func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	full := filepath.Join(cfg.VaultPath, filepath.FromSlash(rel))
+	// Never index a symlinked note: it could point outside the vault (e.g. at a
+	// host secret), and following it would leak that content into the index.
+	// Drop any prior entry so a file that becomes a symlink stops being served.
+	if fi, err := os.Lstat(full); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return RemoveFile(db, rel)
+	}
 	content, err := os.ReadFile(full)
 	if err != nil {
 		return RemoveFile(db, rel)

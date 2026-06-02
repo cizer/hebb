@@ -28,6 +28,13 @@ func FullReindex(cfg Config, db *sql.DB) (IndexResult, error) {
 		if err != nil {
 			return nil // skip unreadable entries
 		}
+		// Never follow symlinks. WalkDir does not descend into symlinked dirs,
+		// but a symlinked .md file would otherwise be read and indexed - a note
+		// pointing at, say, ~/.ssh/id_rsa would pull host files into the
+		// searchable index. This matters most for synced or shared vaults.
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		if d.IsDir() {
 			if excluded[d.Name()] {
 				return filepath.SkipDir

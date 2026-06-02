@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -36,7 +37,27 @@ func Serve(cfg core.Config, port int, vaultName string) error {
 	return http.ListenAndServe(addr, newMux(cfg, db, vaultName))
 }
 
-func newMux(cfg core.Config, db *sql.DB, vaultName string) *http.ServeMux {
+// guardLocalhost rejects any request whose Host header is not a loopback
+// literal. The listener already binds 127.0.0.1, but a Host check is what
+// defeats DNS rebinding: a remote page that rebinds its domain to 127.0.0.1
+// still sends its own hostname as Host, so it cannot read vault content or
+// trigger a reindex. The port is ignored; only the hostname must be loopback.
+func guardLocalhost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		switch host {
+		case "127.0.0.1", "localhost", "::1", "[::1]":
+			next.ServeHTTP(w, r)
+		default:
+			http.Error(w, "forbidden: host not allowed (loopback only)", http.StatusForbidden)
+		}
+	})
+}
+
+func newMux(cfg core.Config, db *sql.DB, vaultName string) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +118,7 @@ func newMux(cfg core.Config, db *sql.DB, vaultName string) *http.ServeMux {
 		writeJSON(w, http.StatusOK, map[string]int{"indexed": res.Indexed})
 	})
 
-	return mux
+	return guardLocalhost(mux)
 }
 
 type resultItem struct {

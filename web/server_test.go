@@ -49,3 +49,39 @@ func TestSearchAPI(t *testing.T) {
 		t.Fatalf("obsidian uri = %q", sr.Results[0].Obsidian)
 	}
 }
+
+// TestHostGuard checks the loopback Host guard: a foreign Host (as sent by a
+// page that rebound its domain to 127.0.0.1) is refused, while loopback Hosts
+// are served. This is the DNS-rebinding defence on top of the 127.0.0.1 bind.
+func TestHostGuard(t *testing.T) {
+	cfg, err := core.ResolveVault(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	h := newMux(cfg, db, "TestVault")
+
+	cases := []struct {
+		host string
+		want int
+	}{
+		{"127.0.0.1:4321", http.StatusOK},
+		{"localhost:4321", http.StatusOK},
+		{"[::1]:4321", http.StatusOK},
+		{"evil.example.com", http.StatusForbidden},
+		{"attacker.test:4321", http.StatusForbidden},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+		req.Host = c.host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("Host %q -> %d, want %d", c.host, rec.Code, c.want)
+		}
+	}
+}

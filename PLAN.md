@@ -31,9 +31,10 @@ Remaining before a live install is meaningful (content migration, not tool work)
 - move the real skills `~/.claude/skills/*` and automation `vault/bin/*` into `skills/` and `automation/` (today placeholders); they then embed into the binary and install materialises + links/renders them
 - distribute the binary so `command: hebb` resolves on PATH (Phase 4); the assets are already standalone (embedded), so this is the only remaining standalone gap
 
-### Phase 3 — `hebb new` + vault-template ⬜
-- `vault-template/`: PARA skeleton, baseline `CLAUDE.md` (generic, split from the personal one), note templates, memory seed
-- `hebb new <path>` scaffolds a fresh vault then installs against it; from-scratch test (zero personal data)
+### Phase 3 — `hebb new` + vault-template ✅
+- ✅ `vault-template/`: PARA skeleton (`1-Projects/`..`4-Archives/`), generic baseline `CLAUDE.md`, starter `README.md`, a `templates/note.md`, and an empty memory seed under `.hebb/memory/`. Embedded via `go:embed all:vault-template` (dotfiles included).
+- ✅ `install.Scaffold` copies the template tree into a target, defensively (refuses a non-empty dir, never clobbers); `hebb new <path>` scaffolds then installs against it, reusing the shared `installVault` runner. From-scratch test proves a fresh vault indexes and is searchable with zero personal data; verified standalone from the embedded assets (`new` -> `doctor` -> `search`).
+- Note: a fresh vault indexes its own `CLAUDE.md`/`README.md`/`templates/note.md` (3 notes). Excluding `templates/` or root config notes from the index is a possible later refinement.
 
 ### Phase 4 — Pipeline, package + distribute 🚧
 Two-stage continuous-deployment pipeline (GitHub Actions; remote is
@@ -57,7 +58,7 @@ workflow in `.github/workflows/ci.yml`.
 
 ## Resume point
 
-**Next: migrate skill + automation content into the repo (then Phase 3 `hebb new`).** The `hebb install`/`doctor` mechanism is built and tested; `skills/` and `automation/` still hold placeholders, so a real install links/renders nothing for them yet. Nothing is wired into the live setup; `onevault-mcp` still serves Richie's vault until the Phase 5 cutover. Run install/doctor against a throwaway vault with `--home`/`--asset-root`/`--launchd-dir` to exercise the full surface safely.
+**Next: finish skill + automation content migration, then Phase 4 Stage 3 (release).** Phase 3 (`hebb new` + `vault-template/`) is built and tested. `skills/` and `automation/` still hold placeholders (skill migration is underway in a separate session), so a real install links/renders nothing for them yet, and a fresh vault's `doctor` reports `skills 0/3` until they land. Nothing is wired into the live setup; `onevault-mcp` still serves the live vault until the Phase 5 cutover. Run `new`/install/doctor against a throwaway dir with `--home`/`--asset-root`/`--data-dir`/`--launchd-dir` to exercise the full surface safely.
 
 ## Parked ideas
 

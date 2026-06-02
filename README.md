@@ -10,7 +10,7 @@ Go rewrite of the Node reference `onevault-mcp`. Design in [ARCHITECTURE.md](ARC
 
 ## Status
 
-**Phase 2 mechanism complete** — `hebb install` and `hebb doctor` work end-to-end (config, `.mcp.json`, project settings, skills symlinks, launchd jobs, memory symlink, first index). Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; the skill/automation content still has to be migrated into the repo, and `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
+**Phase 3 complete** — `hebb new` scaffolds a fresh vault from the bundled template and installs it; `hebb install` and `hebb doctor` work end-to-end (config, `.mcp.json`, project settings, skills symlinks, launchd jobs, memory symlink, first index). Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; the skill/automation content still has to be migrated into the repo, and `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
 
 ## Commands
 
@@ -21,10 +21,11 @@ Working today:
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, or `$HEBB_WEB_PORT`)
 - `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml` and the project-scoped `.mcp.json`, merges project settings, materialises the bundled skills to `~/.local/share/hebb` and links them into `~/.claude/skills`, symlinks memory, builds the first index. Standalone (assets are embedded in the binary); `--asset-root` links skills from a repo checkout instead, `--launchd` renders launchd jobs (`--load` bootstraps them).
 - `hebb doctor` — read-only health check of a vault and its install; exits non-zero if anything is broken.
+- `hebb new <path>` — scaffold a fresh vault from the bundled template (PARA skeleton, baseline `CLAUDE.md`, a note template, a memory seed) and install it. Refuses to scaffold into a non-empty directory.
 
 Vault selection: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.
 
-Planned (stubs for now): `hebb new`, `hebb sync`.
+Planned (stub for now): `hebb sync`.
 
 ## Build
 

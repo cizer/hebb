@@ -63,6 +63,16 @@ workflow in `.github/workflows/ci.yml`.
 
 Not committed to a phase; recorded for later.
 
+### Deferred review findings (security/design review, 02-06-2026)
+Lower-priority items from the architecture/design/security review. The three high-value fixes (plist XML escaping, web Host-header guard against DNS rebinding, symlink containment in the indexer) are done and on `claude/architecture-design-security-review-B5xbX`. Remaining, in rough priority order:
+
+- **File-size cap on indexing** (`core/index.go`, `core/single.go`): files are read whole into memory and FTS-indexed with no upper bound, so a multi-GB `.md` is a local memory/DoS hazard. Add a sane cap (e.g. skip-and-warn above N MB).
+- **Escape `LIKE` metacharacters in `resolvePath`** (`core/context.go`): the `path LIKE '%'+input+'%'` fallback is parameterised (no injection) but `%`/`_` in a title or path act as wildcards, so lookups can resolve to an unexpected note. Escape them for predictable matches.
+- **`govulncheck` in CI** (`.github/workflows/ci.yml`): add a standing dependency-vulnerability scan. `staticcheck` is already noted under Phase 4.
+- **SHA-pin GitHub Actions** (`.github/workflows/ci.yml`): actions are pinned to major versions; pin to commit SHAs for supply-chain robustness.
+
+Informational (no action unless they bite): single-process-per-vault index assumption (concurrent `serve` + `mcp` rely on SQLite locking, not design - worth a docs note); `Watch` failures are swallowed in `mcp`/`web` (a one-line stderr warning would aid diagnosis); `go.mod` pins an exact patch toolchain (`go 1.26.3`) - relax to `go 1.26` unless deliberate.
+
 ### Per-request context interception via Claude Code hooks
 Have hebb run on every prompt in a vault session to inject (not rewrite) context before the model responds, as a deterministic "push" complement to the MCP "pull" tools.
 - **Mechanism:** a `hebb hook` subcommand wired into the vault's `.claude/settings.json` by `install`. `UserPromptSubmit` fires before the model sees a prompt and its stdout is injected into context; `SessionStart` runs once per session (good for a one-shot orientation load).

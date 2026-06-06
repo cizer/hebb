@@ -48,6 +48,7 @@ func TestNewFromScratch(t *testing.T) {
 	// The PARA skeleton and baseline files are present.
 	for _, rel := range []string{
 		"CLAUDE.md",
+		"AGENTS.md",
 		"templates/note.md",
 		"1-Projects", "2-Areas", "3-Resources", "4-Archives",
 		filepath.Join(".hebb", "config.toml"),

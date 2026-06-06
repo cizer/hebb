@@ -21,7 +21,8 @@ Working today:
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, or `$HEBB_WEB_PORT`)
 - `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml`, symlinks memory, builds the first index. The MCP server and skills come from the hebb plugin; pass `--mcp-json` to write a per-vault `.mcp.json` + project settings for plugin-less use. Standalone (automation scripts are embedded in the binary and materialised to `~/.local/share/hebb` for launchd); `--asset-root` uses a repo checkout's `automation/` instead, `--launchd` renders launchd jobs (`--load` bootstraps them).
 - `hebb doctor` — read-only health check of a vault and its install; exits non-zero if anything is broken.
-- `hebb new <path>` — scaffold a fresh vault from the bundled template (PARA skeleton, baseline `CLAUDE.md`, a note template, a memory seed) and install it. Refuses to scaffold into a non-empty directory.
+- `hebb new <path>` — scaffold a fresh vault from the bundled template (PARA skeleton, baseline `CLAUDE.md` + `AGENTS.md`, a note template, a memory seed) and install it. Refuses to scaffold into a non-empty directory.
+- `hebb codex` — register this vault with the Codex CLI by merging an `[mcp_servers.hebb]` block into `~/.codex/config.toml` (idempotent, non-destructive; `--mcp-name` for a second vault). The Codex counterpart to the Claude plugin.
 
 Vault selection: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.
 

@@ -1,0 +1,75 @@
+# GoReleaser config for hebb. Cuts a GitHub release with cross-compiled,
+# version-stamped binaries when a vX.Y.Z tag is pushed (see
+# .github/workflows/release.yml). hebb is pure Go (modernc SQLite, no cgo), so
+# every target cross-compiles from one runner with CGO disabled.
+#
+# Local check:   goreleaser check
+# Dry run:       goreleaser release --snapshot --clean
+version: 2
+
+project_name: hebb
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hebb
+    main: ./cmd/hebb
+    binary: hebb
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Stamp the clean tag into main.version (dev builds derive it from VCS info).
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: hebb
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: cizer
+    name: hebb
+  draft: false
+  prerelease: auto
+
+# Homebrew tap (optional — disabled until the tap repo + token exist, so the
+# first release can't fail on it). To enable:
+#   1. Create a public repo  cizer/homebrew-hebb
+#   2. Add a repo secret HOMEBREW_TAP_GITHUB_TOKEN (a PAT with `repo` scope on
+#      the tap) and pass it to the release job's GoReleaser env.
+#   3. Uncomment the block below.
+# Then `brew install cizer/hebb/hebb` works.
+#
+# brews:
+#   - name: hebb
+#     repository:
+#       owner: cizer
+#       name: homebrew-hebb
+#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+#     homepage: "https://github.com/cizer/hebb"
+#     description: "Portable engine for markdown knowledge vaults"
+#     install: |
+#       bin.install "hebb"
+#     test: |
+#       system "#{bin}/hebb", "--version"

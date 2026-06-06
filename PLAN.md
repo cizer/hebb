@@ -58,7 +58,9 @@ workflow in `.github/workflows/ci.yml`.
 
 ## Resume point
 
-**Next: finish skill + automation content migration, then Phase 4 Stage 3 (release).** Phase 3 (`hebb new` + `vault-template/`) is built and tested. `skills/` and `automation/` still hold placeholders (skill migration is underway in a separate session), so a real install links/renders nothing for them yet, and a fresh vault's `doctor` reports `skills 0/3` until they land. Nothing is wired into the live setup; `onevault-mcp` still serves the live vault until the Phase 5 cutover. Run `new`/install/doctor against a throwaway dir with `--home`/`--asset-root`/`--data-dir`/`--launchd-dir` to exercise the full surface safely.
+**Next: migrate automation scripts, then Phase 4 Stage 3 (release).** Phases 0-3 done. Skills are sorted for the vault layer: `vault-ingest` is the one generic, project-scoped vault skill (`build` and `publish-artifact` dropped as non-vault function), so a fresh vault's `doctor` reports `skills 1/1`. Still placeholders: `automation/` (daily-digest, action-review) — those launchd jobs stay gated until their scripts land. Nothing is wired into the live setup; `onevault-mcp` serves the live vault until the Phase 5 cutover. Run `new`/install/doctor against a throwaway dir with `--home`/`--data-dir`/`--launchd-dir` to exercise the full surface safely.
+
+**Open question:** Claude Code precedence is personal > project, and project skills install as symlinks into `<vault>/.claude/skills`. Whether Claude Code follows symlinks there is undocumented — verify by opening Claude in a hebb vault and checking the skill loads; if not, switch install to copy skill files instead of symlinking.
 
 ## Parked ideas
 

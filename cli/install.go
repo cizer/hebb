@@ -31,7 +31,8 @@ func installCmd() *cobra.Command {
 		Short: "Wire this vault into the machine",
 		Long: "Initialise the per-vault contracts (.hebb/config.toml, .mcp.json),\n" +
 			"write project settings, materialise the bundled skills and link them into\n" +
-			"~/.claude/skills, symlink memory, and build the first index. Idempotent.\n" +
+			"the vault's .claude/skills (project-scoped), symlink memory, and build the\n" +
+			"first index. Idempotent.\n" +
 			"The binary is standalone (assets are embedded); pass --asset-root to link\n" +
 			"skills straight from a repo checkout instead. Pass --launchd to render the\n" +
 			"vault's launchd jobs (and --load to bootstrap them).",

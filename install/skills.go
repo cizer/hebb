@@ -6,7 +6,7 @@ import (
 )
 
 // SymlinkSkills links each immediate subdirectory of srcDir (each a skill) into
-// dstDir (typically ~/.claude/skills), creating dstDir if needed. Non-directory
+// dstDir (the vault's .claude/skills), creating dstDir if needed. Non-directory
 // entries in srcDir (e.g. README.md) are ignored.
 //
 // It is idempotent and defensive:

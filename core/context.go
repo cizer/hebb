@@ -46,15 +46,16 @@ func outgoing(db *sql.DB, sourcePath string) []linkRow {
 		if rows.Scan(&target, &p, &t, &s) != nil {
 			continue
 		}
-		path := p.String
-		if path == "" {
-			path = target
+		// Skip dangling links: a [[target]] with no matching note in the index
+		// is not context, so don't fabricate a phantom entry from the raw link.
+		if !p.Valid || p.String == "" {
+			continue
 		}
 		title := t.String
 		if title == "" {
 			title = target
 		}
-		out = append(out, linkRow{Path: path, Title: title, Snippet: s.String})
+		out = append(out, linkRow{Path: p.String, Title: title, Snippet: s.String})
 	}
 	return out
 }

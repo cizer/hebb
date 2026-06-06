@@ -22,7 +22,7 @@ var (
 
 // Execute builds the root command and runs it, exiting non-zero on error.
 func Execute(version string) {
-	if err := newRoot(version).Execute(); err != nil {
+	if err := newRoot(buildVersion(version)).Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

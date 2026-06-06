@@ -36,6 +36,11 @@ go test ./...
 go run ./cmd/hebb --help
 ```
 
+`hebb --version` on a dev build shows the git revision (e.g. `0.0.0-dev
+(abc123def456-dirty)`) from Go's embedded VCS info, so builds are
+distinguishable; releases stamp a clean version via
+`-ldflags "-X main.version=vX.Y.Z"`.
+
 Test strategy and the (planned) two-stage CD pipeline are in [TESTING.md](TESTING.md).
 
 ## Layout

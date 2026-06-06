@@ -191,6 +191,10 @@ if command -v python3 >/dev/null 2>&1; then
   [ -f "$VAULT/2-Areas/_DAILY-DIGEST.md" ]; report $? "digest note written"
   dig="$(cat "$VAULT/2-Areas/_DAILY-DIGEST.md" 2>/dev/null)"
   has "$dig" "Aurora"; report $? "digest lists a canary note touched today"
+  # Regression (found in live UAT): an --output outside the vault must not crash
+  # on the success message (Path.relative_to would raise).
+  python3 "$DATA/automation/generate-vault-digest.py" --vault-root "$VAULT" --date "$TOMORROW" --output "$WORK/external-digest.md" > "$WORK/digest-ext.out" 2>&1
+  report $? "generate-vault-digest.py handles an --output outside the vault"
 
   # Action review: seed one OPEN-ACTIONS register (done after the noteCount
   # checks above, so it does not perturb them), then collate it.

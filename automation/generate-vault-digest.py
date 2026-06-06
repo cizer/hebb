@@ -225,11 +225,17 @@ def main() -> int:
         build_document(new_entry, output_path, today), encoding="utf-8"
     )
 
-    print(
-        f"Wrote {output_path.relative_to(vault_root)} "
-        f"({len(touched)} notes for {label})"
-    )
+    print(f"Wrote {display_path(output_path, vault_root)} ({len(touched)} notes for {label})")
     return 0
+
+
+def display_path(path: Path, vault_root: Path) -> Path | str:
+    """Path relative to the vault for readable logs, or the absolute path when
+    --output points outside the vault (relative_to would otherwise raise)."""
+    try:
+        return path.relative_to(vault_root)
+    except ValueError:
+        return path
 
 
 if __name__ == "__main__":

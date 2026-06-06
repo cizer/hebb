@@ -340,9 +340,18 @@ def main() -> int:
     markdown, json_export = build_review(vault_root, output_path, args.register_name, args.owner)
     output_path.write_text(markdown, encoding="utf-8")
     json_output_path.write_text(json_export, encoding="utf-8")
-    print(f"Wrote {output_path.relative_to(vault_root)}")
-    print(f"Wrote {json_output_path.relative_to(vault_root)}")
+    print(f"Wrote {display_path(output_path, vault_root)}")
+    print(f"Wrote {display_path(json_output_path, vault_root)}")
     return 0
+
+
+def display_path(path: Path, vault_root: Path) -> Path | str:
+    """Path relative to the vault for readable logs, or the absolute path when
+    an output flag points outside the vault (relative_to would otherwise raise)."""
+    try:
+        return path.relative_to(vault_root)
+    except ValueError:
+        return path
 
 
 if __name__ == "__main__":

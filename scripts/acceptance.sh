@@ -171,6 +171,51 @@ else
   echo "  skip  plutil unavailable (non-macOS)"
 fi
 
+# --- automation scripts (materialised from the embedded binary) ---------------
+# Install materialised the automation scripts to $DATA/automation; run them the
+# way launchd would, against the canary vault, and confirm they produce output.
+echo "==> automation"
+[ -x "$DATA/automation/run-vault-digest.sh" ]; report $? "digest wrapper materialised + executable"
+[ -x "$DATA/automation/generate-action-review.py" ]; report $? "action-review materialised + executable"
+
+# Daily digest: window = the day before the run date, so a run dated "tomorrow"
+# covers the canary notes created today. The wrapper also calls `hebb index`.
+TOMORROW="$(date -v+1d +%F 2>/dev/null || date -d 'tomorrow' +%F)"
+if command -v python3 >/dev/null 2>&1; then
+  # The launchd entrypoint: runs the generator (real window) then `hebb index`.
+  "$DATA/automation/run-vault-digest.sh" --vault-root "$VAULT" > "$WORK/wrapper.out" 2>&1
+  report $? "run-vault-digest.sh (launchd entrypoint) runs + reindexes"
+  # Deterministic generator run that targets the canary notes' day.
+  python3 "$DATA/automation/generate-vault-digest.py" --vault-root "$VAULT" --date "$TOMORROW" > "$WORK/digest.out" 2>&1
+  report $? "generate-vault-digest.py runs"
+  [ -f "$VAULT/2-Areas/_DAILY-DIGEST.md" ]; report $? "digest note written"
+  dig="$(cat "$VAULT/2-Areas/_DAILY-DIGEST.md" 2>/dev/null)"
+  has "$dig" "Aurora"; report $? "digest lists a canary note touched today"
+
+  # Action review: seed one OPEN-ACTIONS register (done after the noteCount
+  # checks above, so it does not perturb them), then collate it.
+  mkdir -p "$VAULT/2-Areas/Team"
+  cat > "$VAULT/2-Areas/Team/OPEN-ACTIONS.md" <<EOF
+# Open Actions - Team
+
+| Status | Action | Owner | Review / Due | First Raised | Latest Source |
+| --- | --- | --- | --- | --- | --- |
+| Open | Ship $CANARY | [[Alex Doe]] | 2020-01-01 | 2019-12-01 | [[Standup]] |
+| Done | Old task | [[Sam Roe]] | 2019-06-01 | 2019-05-01 | [[Note]] |
+EOF
+  python3 "$DATA/automation/generate-action-review.py" --vault-root "$VAULT" --owner "Alex Doe" > "$WORK/review.out" 2>&1
+  report $? "generate-action-review.py runs"
+  rev="$(cat "$VAULT/2-Areas/_ACTION-REVIEW.md" 2>/dev/null)"
+  has "$rev" "Open actions:** 1"; report $? "action review counts open actions (excludes Done)"
+  has "$rev" "Ship $CANARY"; report $? "action review lists the open action"
+  if has "$rev" "Old task"; then report 1 "done action excluded from review"; else report 0 "done action excluded from review"; fi
+  json="$(cat "$VAULT/2-Areas/_ACTION-REVIEW.json" 2>/dev/null)"
+  has "$json" '"overdue": true'; report $? "action review flags the overdue action"
+  has "$json" '"mine": true'; report $? "action review flags the owner's action"
+else
+  echo "  skip  python3 unavailable"
+fi
+
 # --- tally --------------------------------------------------------------------
 echo
 echo "acceptance: $ok passed, $fail failed"

@@ -10,7 +10,7 @@ Go rewrite of the Node reference `onevault-mcp`. Design in [ARCHITECTURE.md](ARC
 
 ## Status
 
-**Phase 3 complete; plugin adopted** — `hebb new` scaffolds a fresh vault from the bundled template and installs it; `hebb install` and `hebb doctor` work end-to-end (config, launchd jobs, memory symlink, first index). The agent-facing layer (the MCP server and the `vault-ingest` skill) ships as the hebb Claude Code plugin in [`plugin/`](plugin/), so install is now purely data-side; `--mcp-json` writes a per-vault `.mcp.json` + settings for plugin-less use. Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; the automation content still has to be migrated into the repo, and `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
+**Phase 3 complete; plugin adopted** — `hebb new` scaffolds a fresh vault from the bundled template and installs it; `hebb install` and `hebb doctor` work end-to-end (config, launchd jobs, memory symlink, first index). The agent-facing layer (the MCP server and the `vault-ingest` skill) ships as the hebb Claude Code plugin in [`plugin/`](plugin/), so install is now purely data-side; `--mcp-json` writes a per-vault `.mcp.json` + settings for plugin-less use. Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). The daily-digest and action-review automation scripts are now migrated into [`automation/`](automation/), embedded in the binary and rendered as launchd jobs by `hebb install`. Not yet wired into a live machine; `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
 
 ## Commands
 

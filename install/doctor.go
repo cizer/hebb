@@ -52,10 +52,6 @@ func Doctor(opts Options) []Check {
 	checkIndex(add, opts.VaultPath)
 	checkSettings(add, opts.VaultPath, opts.MCPName)
 
-	if existed {
-		checkSkills(add, opts.VaultPath, opts.Home, resolvedAssetDir(opts), vc.Skills)
-	}
-
 	if opts.Home != "" {
 		checkMemory(add, opts.Home, opts.VaultPath)
 	}
@@ -126,43 +122,6 @@ func checkSettings(add func(string, string, string), vaultPath, mcpName string) 
 		}
 	}
 	add("settings", "warn", "MCP server not enabled")
-}
-
-// checkSkills counts only skills hebb manages at the project level
-// (<vault>/.claude/skills): a skill is "linked" only if it is a symlink
-// resolving to <assetDir>/skills/<name>. Because Claude precedence is
-// personal > project, a same-named skill in ~/.claude/skills shadows the
-// project one, so such skills are flagged, not counted. Symlinks pointing
-// elsewhere (another tool or checkout) are reported separately too.
-func checkSkills(add func(string, string, string), vaultPath, home, assetDir string, skills []string) {
-	linked, elsewhere, shadowed := 0, 0, 0
-	for _, s := range skills {
-		if home != "" {
-			if _, err := os.Lstat(filepath.Join(home, ".claude", "skills", s)); err == nil {
-				shadowed++ // a personal skill overrides the project one
-				continue
-			}
-		}
-		p := filepath.Join(vaultPath, ".claude", "skills", s)
-		fi, err := os.Lstat(p)
-		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-			continue // absent or a real dir: not a hebb link
-		}
-		target, _ := os.Readlink(p)
-		if assetDir != "" && target == filepath.Join(assetDir, "skills", s) {
-			linked++
-		} else {
-			elsewhere++
-		}
-	}
-	detail := fmt.Sprintf("%d/%d linked", linked, len(skills))
-	if shadowed > 0 {
-		detail += fmt.Sprintf(" (%d shadowed by a personal skill)", shadowed)
-	}
-	if elsewhere > 0 {
-		detail += fmt.Sprintf(" (%d symlinked elsewhere)", elsewhere)
-	}
-	add("skills", okIf(linked == len(skills)), detail)
 }
 
 // checkMemory verifies the Claude project memory symlink resolves to this

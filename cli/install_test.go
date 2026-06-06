@@ -100,34 +100,3 @@ func TestInstallCommandRendersLaunchd(t *testing.T) {
 		t.Errorf("expected one web plist in %s, got %v", launchdDir, matches)
 	}
 }
-
-func TestInstallCommandWiresSkills(t *testing.T) {
-	vault := t.TempDir()
-	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Asset root with a skills/ dir holding one skill.
-	assetRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(assetRoot, "skills", "build"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	home := t.TempDir()
-
-	root := newRoot("test")
-	var buf bytes.Buffer
-	root.SetOut(&buf)
-	root.SetErr(&buf)
-	root.SetArgs([]string{"install", "--vault", vault, "--home", home, "--data-dir", t.TempDir(), "--asset-root", assetRoot})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("install: %v\n%s", err, buf.String())
-	}
-
-	link := filepath.Join(vault, ".claude", "skills", "build")
-	target, err := os.Readlink(link)
-	if err != nil {
-		t.Fatalf("skill not symlinked into vault: %v", err)
-	}
-	if target != filepath.Join(assetRoot, "skills", "build") {
-		t.Errorf("link -> %s, want %s", target, filepath.Join(assetRoot, "skills", "build"))
-	}
-}

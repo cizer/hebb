@@ -14,7 +14,7 @@ func doctorCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check vault and install health",
-		Long:  "Inspect a vault and its install (config, .mcp.json, index, settings,\nskills, memory, launchd) and report each. Read-only; repairs nothing.",
+		Long:  "Inspect a vault and its install (config, .mcp.json, index, settings,\nmemory, launchd) and report each. Read-only; repairs nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Resolve the vault path without opening the index (read-only).
 			cfg, err := core.ResolveVault(flagVault, flagDB)
@@ -49,7 +49,7 @@ func doctorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&assetRoot, "asset-root", "", "hebb repo/asset dir holding skills/ (default $HEBB_HOME)")
+	c.Flags().StringVar(&assetRoot, "asset-root", "", "hebb repo/asset dir holding automation/ (default $HEBB_HOME)")
 	c.Flags().StringVar(&home, "home", "", "home dir holding .claude (default: user home)")
 	c.Flags().StringVar(&launchdDir, "launchd-dir", "", "LaunchAgents dir to check (default: <home>/Library/LaunchAgents)")
 	c.Flags().StringVar(&dataDir, "data-dir", "", "hebb data dir to check (default: $XDG_DATA_HOME/hebb or <home>/.local/share/hebb)")

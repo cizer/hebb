@@ -10,20 +10,12 @@ import (
 func TestRunWiresEverythingLocal(t *testing.T) {
 	vault := t.TempDir()
 	home := t.TempDir()
-	assets := makeSkills(t, "build", "vault-ingest") // assetRoot/skills/* would be the real layout
-	// makeSkills returns a dir that IS the skills dir; Run expects assetRoot to
-	// contain a skills/ subdir, so nest it.
-	assetRoot := t.TempDir()
-	if err := os.Rename(assets, filepath.Join(assetRoot, "skills")); err != nil {
-		t.Fatal(err)
-	}
 
 	rep, err := Run(Options{
 		VaultPath:  vault,
 		MCPName:    DefaultMCPServerName,
 		MCPCommand: DefaultMCPCommand,
 		Home:       home,
-		AssetRoot:  assetRoot,
 		MCPJSON:    true, // exercise the plugin-less wiring (.mcp.json + settings)
 	})
 	if err != nil {
@@ -33,12 +25,9 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	mustExist(t, filepath.Join(vault, ".hebb", "config.toml"))
 	mustExist(t, filepath.Join(vault, ".mcp.json"))
 	mustExist(t, filepath.Join(vault, ".claude", "settings.json"))
-	// Skills symlinked into <vault>/.claude/skills (project-scoped)
-	for _, n := range []string{"build", "vault-ingest"} {
-		link := filepath.Join(vault, ".claude", "skills", n)
-		if _, err := os.Lstat(link); err != nil {
-			t.Errorf("skill %s not linked into vault: %v", n, err)
-		}
+	// Install never touches .claude/skills: the plugin delivers skills.
+	if _, err := os.Lstat(filepath.Join(vault, ".claude", "skills")); err == nil {
+		t.Error("install should not create <vault>/.claude/skills (the plugin ships skills)")
 	}
 	if statusOf(rep, "settings.json") == "" {
 		t.Error("report missing settings.json step")
@@ -53,14 +42,13 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	}
 }
 
-func TestRunStandaloneMaterialisesAndLinksSkills(t *testing.T) {
+func TestRunStandaloneMaterialisesAutomation(t *testing.T) {
 	vault := t.TempDir()
 	home := t.TempDir()
 	dataDir := t.TempDir()
-	// No AssetRoot: assets come from the embedded FS, materialised to dataDir.
+	// No AssetRoot: assets come from the embedded FS, materialised to dataDir so
+	// launchd jobs can find their automation scripts. Skills are not materialised.
 	assets := fstest.MapFS{
-		"skills/build/SKILL.md":    {Data: []byte("build")},
-		"skills/vault-ingest/S.md": {Data: []byte("ingest")},
 		"automation/run-digest.sh": {Data: []byte("#!/bin/sh\n")},
 	}
 
@@ -75,31 +63,26 @@ func TestRunStandaloneMaterialisesAndLinksSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	// Assets materialised to the data dir...
-	if _, err := os.Stat(filepath.Join(dataDir, "skills", "build", "SKILL.md")); err != nil {
-		t.Errorf("assets not materialised: %v", err)
+	// Automation materialised to the data dir.
+	if _, err := os.Stat(filepath.Join(dataDir, "automation", "run-digest.sh")); err != nil {
+		t.Errorf("automation not materialised: %v", err)
 	}
-	// ...and skills linked from there into the vault's project skills dir.
-	link := filepath.Join(vault, ".claude", "skills", "build")
-	target, err := os.Readlink(link)
-	if err != nil {
-		t.Fatalf("skill not linked: %v", err)
-	}
-	if target != filepath.Join(dataDir, "skills", "build") {
-		t.Errorf("skill -> %s, want it under the data dir %s", target, dataDir)
+	// Nothing skill-related lands in the vault.
+	if _, err := os.Lstat(filepath.Join(vault, ".claude", "skills")); err == nil {
+		t.Error("install should not create <vault>/.claude/skills")
 	}
 	if statusOf(rep, "assets") == "" {
 		t.Error("report missing assets step")
 	}
 }
 
-func TestRunSkipsSkillsWithoutAssetRoot(t *testing.T) {
+func TestRunVaultLocalOnly(t *testing.T) {
 	vault := t.TempDir()
-	rep, err := Run(Options{
+	_, err := Run(Options{
 		VaultPath:  vault,
 		MCPName:    DefaultMCPServerName,
 		MCPCommand: DefaultMCPCommand,
-		// no Home, no AssetRoot -> vault-local only
+		// no Home, no AssetRoot, no MCPJSON -> vault-local config only
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -108,11 +91,6 @@ func TestRunSkipsSkillsWithoutAssetRoot(t *testing.T) {
 	// Default install writes no .mcp.json/settings (plugin provides MCP).
 	if _, err := os.Stat(filepath.Join(vault, ".mcp.json")); err == nil {
 		t.Error("default install should not write .mcp.json")
-	}
-	for _, s := range rep.Steps {
-		if s.Name == "build" {
-			t.Error("skills should be skipped when AssetRoot is empty")
-		}
 	}
 }
 

@@ -10,7 +10,7 @@ Go rewrite of the Node reference `onevault-mcp`. Design in [ARCHITECTURE.md](ARC
 
 ## Status
 
-**Phase 3 complete** — `hebb new` scaffolds a fresh vault from the bundled template and installs it; `hebb install` and `hebb doctor` work end-to-end (config, `.mcp.json`, project settings, skills symlinks, launchd jobs, memory symlink, first index). Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; the skill/automation content still has to be migrated into the repo, and `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
+**Phase 3 complete; plugin adopted** — `hebb new` scaffolds a fresh vault from the bundled template and installs it; `hebb install` and `hebb doctor` work end-to-end (config, launchd jobs, memory symlink, first index). The agent-facing layer (the MCP server and the `vault-ingest` skill) ships as the hebb Claude Code plugin in [`plugin/`](plugin/), so install is now purely data-side; `--mcp-json` writes a per-vault `.mcp.json` + settings for plugin-less use. Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). Not yet wired into a live machine; the automation content still has to be migrated into the repo, and `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
 
 ## Commands
 
@@ -19,7 +19,7 @@ Working today:
 - `hebb search <query>` — full-text search (`--tag`, `--path-prefix`, `--limit`)
 - `hebb mcp` — MCP server over stdio for Claude (`search_vault`, `expand_context`, `get_context_for_topic`, `vault_stats`, `reindex_vault`)
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, or `$HEBB_WEB_PORT`)
-- `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml` and the project-scoped `.mcp.json`, merges project settings, materialises the bundled skills to `~/.local/share/hebb` and links them into the vault's `.claude/skills` (project-scoped), symlinks memory, builds the first index. Standalone (assets are embedded in the binary); `--asset-root` links skills from a repo checkout instead, `--launchd` renders launchd jobs (`--load` bootstraps them).
+- `hebb install` — wire a vault into the machine, idempotently: writes `.hebb/config.toml`, symlinks memory, builds the first index. The MCP server and skills come from the hebb plugin; pass `--mcp-json` to write a per-vault `.mcp.json` + project settings for plugin-less use. Standalone (automation scripts are embedded in the binary and materialised to `~/.local/share/hebb` for launchd); `--asset-root` uses a repo checkout's `automation/` instead, `--launchd` renders launchd jobs (`--load` bootstraps them).
 - `hebb doctor` — read-only health check of a vault and its install; exits non-zero if anything is broken.
 - `hebb new <path>` — scaffold a fresh vault from the bundled template (PARA skeleton, baseline `CLAUDE.md`, a note template, a memory seed) and install it. Refuses to scaffold into a non-empty directory.
 
@@ -44,4 +44,5 @@ Test strategy and the (planned) two-stage CD pipeline are in [TESTING.md](TESTIN
 - `mcp/` — MCP server surface
 - `web/` — web search UI (page embedded via go:embed)
 - `cmd/hebb/` — entrypoint
-- `skills/ automation/ launchd/ config/ vault-template/` — installed by `hebb install` (Phase 2+)
+- `plugin/` — the hebb Claude Code plugin (manifest, `.mcp.json`, `vault-ingest` skill)
+- `automation/ launchd/ vault-template/` — embedded in the binary; used by `hebb install`/`hebb new`

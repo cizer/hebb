@@ -22,10 +22,10 @@ type Options struct {
 	MCPJSON    bool   // if true, write a per-vault .mcp.json + settings (plugin-less wiring)
 
 	// Asset source. The binary is standalone: Assets carries the embedded
-	// function content (skills/, automation/, vault-template/), materialised to
-	// DataDir on install. AssetRoot is a development override - point it at a
-	// repo checkout to symlink skills straight from source (live editing) and
-	// skip materialisation.
+	// function content (automation/, vault-template/), materialised to DataDir on
+	// install so launchd jobs can find their scripts. AssetRoot is a development
+	// override - point it at a repo checkout to use its automation/ straight from
+	// source and skip materialisation.
 	Assets    fs.FS
 	DataDir   string
 	AssetRoot string
@@ -36,13 +36,13 @@ type Options struct {
 //   - vault config:          .hebb/config.toml (always)
 //   - plugin-less wiring (if MCPJSON): .mcp.json + <vault>/.claude/settings.json
 //     (the hebb plugin normally provides the MCP server instead)
-//   - assets:                materialise embedded function content to DataDir
-//     (unless --asset-root points at a live repo checkout)
-//   - skills:                symlink <assetDir>/skills/* into <vault>/.claude/skills (project-scoped)
-//   - memory (if Home):      symlink <vault>/memory into the Claude project dir
+//   - assets:                materialise embedded automation scripts to DataDir
+//     (unless --asset-root points at a live repo checkout), for launchd jobs
+//   - memory (if Home):      symlink <vault>/.hebb/memory into the Claude project dir
 //   - launchd (if requested): render the vault's jobs
 //
-// Every step is idempotent.
+// Skills are delivered by the hebb Claude Code plugin (see plugin/), not by
+// install. Every step is idempotent.
 func Run(opts Options) (Report, error) {
 	rep, err := VaultLocal(opts.VaultPath)
 	if err != nil {
@@ -65,21 +65,11 @@ func Run(opts Options) (Report, error) {
 		rep.add("settings.json", wroteOrUnchanged(sc))
 	}
 
+	// Materialise automation scripts so launchd jobs can find them. Skills are
+	// no longer materialised or linked: the plugin ships them.
 	assetDir, err := resolveAssetDir(&rep, opts)
 	if err != nil {
 		return rep, err
-	}
-
-	if assetDir != "" {
-		// Project-scoped: skills live in <vault>/.claude/skills so each vault has
-		// its own set and hebb never touches the user's global ~/.claude/skills.
-		skillsSrc := filepath.Join(assetDir, "skills")
-		claudeSkills := filepath.Join(opts.VaultPath, ".claude", "skills")
-		sr, err := SymlinkSkills(skillsSrc, claudeSkills)
-		if err != nil {
-			return rep, err
-		}
-		rep.Steps = append(rep.Steps, sr.Steps...)
 	}
 
 	if opts.Home != "" {

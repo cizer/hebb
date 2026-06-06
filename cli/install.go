@@ -30,13 +30,13 @@ func installCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Wire this vault into the machine",
-		Long: "Initialise the per-vault contracts (.hebb/config.toml, .mcp.json),\n" +
-			"write project settings, materialise the bundled skills and link them into\n" +
-			"the vault's .claude/skills (project-scoped), symlink memory, and build the\n" +
-			"first index. Idempotent.\n" +
-			"The binary is standalone (assets are embedded); pass --asset-root to link\n" +
-			"skills straight from a repo checkout instead. Pass --launchd to render the\n" +
-			"vault's launchd jobs (and --load to bootstrap them).",
+		Long: "Initialise the per-vault config (.hebb/config.toml), symlink memory\n" +
+			"into the Claude project dir, and build the first index. Idempotent.\n" +
+			"Skills and the MCP server are delivered by the hebb Claude Code plugin;\n" +
+			"pass --mcp-json to write a per-vault .mcp.json + settings for plugin-less\n" +
+			"use instead. Pass --launchd to render the vault's launchd jobs (and --load\n" +
+			"to bootstrap them); the binary is standalone, with automation scripts\n" +
+			"embedded, or pass --asset-root to use a repo checkout's automation/.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, db, err := openVault()
 			if err != nil {
@@ -54,7 +54,7 @@ func installCmd() *cobra.Command {
 // machine-targeting flags are hidden: they exist for tests and headless runs.
 func bindInstallFlags(c *cobra.Command, p *installParams) {
 	c.Flags().StringVar(&p.serverName, "mcp-name", install.DefaultMCPServerName, "MCP server name written into .mcp.json")
-	c.Flags().StringVar(&p.assetRoot, "asset-root", "", "dev override: link skills from this repo checkout instead of the bundled assets (default $HEBB_HOME)")
+	c.Flags().StringVar(&p.assetRoot, "asset-root", "", "dev override: use this repo checkout's automation/ instead of the bundled assets (default $HEBB_HOME)")
 	c.Flags().BoolVar(&p.mcpJSON, "mcp-json", false, "write a per-vault .mcp.json + settings for plugin-less use (otherwise the hebb plugin provides the MCP server)")
 	c.Flags().BoolVar(&p.withLaunchd, "launchd", false, "render the vault's launchd jobs into ~/Library/LaunchAgents")
 	c.Flags().BoolVar(&p.load, "load", false, "bootstrap rendered launchd jobs via launchctl (implies --launchd)")

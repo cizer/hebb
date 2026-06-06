@@ -25,11 +25,11 @@ Layers: **Data** (per-vault content + memory + `.hebb/` config) · **Function** 
 
 > `hebb` is multi-vault like `git` is multi-repo. Installed once; each vault is self-contained and self-describing. This is what keeps personal and work cleanly apart.
 
-- **Per-vault marker and config:** each vault has a `.hebb/` directory at its root (like `.git`): `config.toml` (exclude dirs, web port, enabled jobs and skills, vault name), `index.db` (derived), `memory/` (this vault's Claude Code memory, symlinked into `~/.claude/projects/<slug>/memory`; under `.hebb` so it is hidden from Obsidian and excluded from the index but still syncs with the vault), and a generated `.mcp.json` at the vault root.
+- **Per-vault marker and config:** each vault has a `.hebb/` directory at its root (like `.git`): `config.toml` (exclude dirs, web port, enabled jobs, vault name), `index.db` (derived), and `memory/` (this vault's Claude Code memory, symlinked into `~/.claude/projects/<slug>/memory`; under `.hebb` so it is hidden from Obsidian and excluded from the index but still syncs with the vault).
 - **Directory-context operation:** `hebb` walks up from the current directory to the nearest `.hebb/`, like `git`/`npm`. `cd ~/vaults/work && hebb serve`. A `--vault <path>` flag and `HEBB_VAULT` env override cover automation and headless runs.
-- **Project-scoped MCP:** the `.mcp.json` committed in each vault wires that vault's `hebb` when Claude is opened there. No global MCP registration to juggle; open the work vault, get the work MCP.
+- **Agent wiring via the plugin:** the hebb Claude Code plugin (`plugin/`) provides the MCP server and the `vault-ingest` skill, user-level, and resolves the opened vault through `HEBB_VAULT=${CLAUDE_PROJECT_DIR}`. No per-vault MCP registration or skill symlinks to juggle; open a vault, get the hebb MCP. `hebb install --mcp-json` writes a per-vault `.mcp.json` + project settings as a plugin-less fallback.
 - **Shared vs per-vault:**
-  - Shared (function): the `hebb` binary, which embeds the skills/automation/template assets and on `install` materialises them once to the hebb data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`). No repo checkout needed (a checkout is only a dev override via `--asset-root`). Skills are then linked per vault into `<vault>/.claude/skills` (project-scoped), so vaults stay isolated and hebb never touches the user's global `~/.claude/skills`.
+  - Shared (function): the `hebb` binary (engine + CLI + MCP surface) plus the hebb plugin (agent adapter: MCP + skill). The binary embeds the automation/template assets and on `install` materialises the automation scripts once to the hebb data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`) for launchd. No repo checkout needed (a checkout is only a dev override via `--asset-root`).
   - Per-vault (data + its config): `.hebb/config.toml`, the index, memory, `CLAUDE.md`, enabled jobs, web port.
 - **Personal vs work:** `hebb new ~/vaults/personal` and `hebb new ~/vaults/work` are fully independent (different content, memory, contract, even web-UI ports so both run at once).
 - **Travels vs local:** commit `.hebb/config.toml` and `.mcp.json` so a cloned or synced vault self-identifies; gitignore `.hebb/index.db` and machine-local state.
@@ -52,7 +52,7 @@ flowchart TB
 
   subgraph SHARED["FUNCTION — hebb, installed once (forked from onevault-mcp)"]
     BIN["hebb binary: core engine + thin CLI + MCP surface"]
-    SK["project skills (<vault>/.claude/skills): vault-ingest (generic, vault-agnostic)"]
+    PLG["hebb plugin: MCP server + vault-ingest skill (generic, vault-agnostic)"]
     TPL["vault-template: PARA skeleton, baseline CLAUDE.md, note templates, memory seed"]
   end
 
@@ -60,15 +60,15 @@ flowchart TB
     MD["Markdown notes (PARA) + attachments"]
     MEM["memory"]
     CONV["CLAUDE.md + conventions"]
-    HCFG[".hebb/config.toml + .mcp.json (committed)"]
+    HCFG[".hebb/config.toml (committed)"]
     IDX[".hebb/index.db (derived, gitignored)"]
   end
 
   AGENT -->|reads/writes files| MD
-  AGENT -->|project-scoped .mcp.json| BIN
+  AGENT -->|plugin: MCP + skill| PLG
+  PLG -->|HEBB_VAULT=CLAUDE_PROJECT_DIR| BIN
   BIN -->|resolves vault via .hebb, reads| MD
   BIN -->|builds/reads| IDX
-  BIN -->|hebb install wires| SK
   BIN -.hebb new scaffolds from.-> TPL
   HCFG -.configures.-> BIN
   CONV -.governs.-> AGENT
@@ -100,10 +100,9 @@ hebb/                # Go binary; onevault-mcp (Node) is the reference spec
   core/              # UI-agnostic engine: index, search, scaffold, sync, hygiene
   cli/               # thin CLI over core: new, install, sync, index, serve, doctor
   mcp/               # MCP server surface over core
-  skills/            # vault-ingest (generic, vault-agnostic; specifics live in each vault's CLAUDE.md)
-  automation/        # action-review, digest, syncs
+  plugin/            # hebb Claude Code plugin: manifest, .mcp.json, vault-ingest skill
+  automation/        # action-review, digest, syncs (embedded; materialised for launchd)
   launchd/           # parameterised plist templates
-  config/            # settings.json + permissions template, global config defaults
   vault-template/    # PARA skeleton, baseline CLAUDE.md, note templates, memory seed
   README.md / ARCHITECTURE.md
 ```
@@ -112,7 +111,7 @@ hebb/                # Go binary; onevault-mcp (Node) is the reference spec
 
 Install `hebb` once (Homebrew/npm). Then, per vault:
 
-- **Restore (existing vault):** `cd <vault> && hebb install` initialises `.hebb/`, writes `config.toml`, generates the project-scoped `.mcp.json`, symlinks global skills, renders and loads that vault's launchd jobs, builds the index, symlinks the memory dir.
+- **Restore (existing vault):** `cd <vault> && hebb install` initialises `.hebb/`, writes `config.toml`, symlinks the memory dir, renders and loads that vault's launchd jobs, builds the index. The MCP server and skills come from the hebb plugin (`--mcp-json` writes a per-vault `.mcp.json` + settings for plugin-less use).
 - **Fresh:** `hebb new <path>` scaffolds a vault from `vault-template/` then installs against it.
 - Re-auth connectors. The only manual step.
 
@@ -121,10 +120,10 @@ Install `hebb` once (Homebrew/npm). Then, per vault:
 1. Stand up `hebb` as a Go module; port the Node `onevault-mcp` engine into `core/`, with a thin `cli/` and an `mcp/` surface (goldmark, modernc SQLite FTS5, fsnotify, stdlib HTTP, mcp-go).
 2. Add vault discovery (`.hebb/` upward) and the `--vault`/`HEBB_VAULT` override.
 3. Move `vault/bin/*` into `hebb/automation/`; make launchd jobs per-vault (label includes vault name).
-4. Move `~/.claude/skills/*` into `hebb/skills/`; they embed into the binary and `hebb install` materialises them to the data dir and symlinks them into each vault's `.claude/skills` (project-scoped). Personal skills override project skills in Claude, so a global skill of the same name must be relocated to a vault before the project copy takes effect.
-5. Relocate memory to a synced vault location; symlink into `~/.claude`.
+4. Move `~/.claude/skills/*` into the hebb plugin (`plugin/skills/`); the plugin delivers them user-level via its manifest, namespaced `hebb:<skill>`, so there is no per-vault symlinking and no personal-vs-project shadowing. The generic `vault-ingest` is the only skill; vault specifics live in each vault's `CLAUDE.md`.
+5. Relocate memory to a synced vault location (`.hebb/memory`); symlink into `~/.claude`.
 6. Extract a generic `vault-template/` (PARA skeleton, baseline `CLAUDE.md` split from the personalised one, note templates, memory seed).
-7. Build the `hebb` CLI (`new`, `install`, `sync`, `index`, `serve`, `doctor`) with per-vault `.hebb/` and `.mcp.json` generation, idempotent.
+7. Build the `hebb` CLI (`new`, `install`, `sync`, `index`, `serve`, `doctor`) with per-vault `.hebb/`, idempotent; `--mcp-json` for a plugin-less `.mcp.json`.
 8. Confirm the index is gitignored; retire `onevault-mcp` after cutover.
 
 ## Scope

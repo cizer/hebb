@@ -13,3 +13,6 @@
 
 # OS
 .DS_Store
+
+# Throwaway plugin spike (not part of the build)
+/spike/

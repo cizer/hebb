@@ -68,6 +68,8 @@ Plugin migration recap: **A** graduated `plugin/` into the repo (manifest + `.mc
 
 **Codex adapter done:** `hebb codex` merges `[mcp_servers.hebb]` into `~/.codex/config.toml` (surgical, idempotent, vault pinned via `env.HEBB_VAULT` + `cwd`); `vault-template/` ships a generic `AGENTS.md`. See `install/codex.go`, `cli/codex.go`.
 
+**Agent-wiring UX done:** `hebb install` now offers an interactive picker (Codex / Claude Desktop / plugin-less Claude Code `.mcp.json`) when stdin is a TTY; it auto-skips when piped/headless/in tests, so CI never blocks. Non-interactive equivalents: `--codex`, `--claude-desktop`, `--mcp-json`, plus `--no-interaction`. New `install/claudedesktop.go` writes/removes `mcpServers.hebb` in `claude_desktop_config.json` (absolute binary path + `HEBB_VAULT`, surgical JSON merge preserving other servers). The Claude Code plugin stays a one-time marketplace install (not per-vault). `hebb reset` also un-wires Claude Desktop now. Picker logic (`cli/agents.go`) is a pure `parseAgentSelection` + thin prompt; unit + e2e tested. The standalone `hebb codex` command remains.
+
 **Plugin marketplace done:** `.claude-plugin/marketplace.json` at the repo root sources `./plugin`, so the plugin installs persistently via `/plugin marketplace add cizer/hebb` (or a local dir) + `/plugin install hebb@hebb` - no more `--plugin-dir` every session (that's dev-only). `marketplace_test.go` guards it. Repo is going public (Richie's call). Distribution model confirmed: public repo ⇒ anyone can add the marketplace; the binary still needs a channel (below). Other clients (Claude Desktop via `claude_desktop_config.json`, Codex via `hebb codex`) use the MCP server directly, not the plugin.
 
 **Next up (queued):**

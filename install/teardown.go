@@ -1,6 +1,7 @@
 package install
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,13 +14,14 @@ import (
 // Directory fields are explicit so it is hermetically testable. Force=false is a
 // dry run (report only, mutate nothing).
 type TeardownOptions struct {
-	VaultPath   string
-	Home        string // base dir holding .claude; "" disables the memory step
-	LaunchdDir  string // "" -> <home>/Library/LaunchAgents
-	CodexConfig string // "" -> <home>/.codex/config.toml
-	MCPName     string // server/block name (default "hebb")
-	Force       bool   // false = dry run
-	KeepIndex   bool   // default false -> clear .hebb/index.db (cheap to rebuild)
+	VaultPath     string
+	Home          string // base dir holding .claude; "" disables the memory step
+	LaunchdDir    string // "" -> <home>/Library/LaunchAgents
+	CodexConfig   string // "" -> <home>/.codex/config.toml
+	DesktopConfig string // "" -> the macOS Claude Desktop config under Home
+	MCPName       string // server/block name (default "hebb")
+	Force         bool   // false = dry run
+	KeepIndex     bool   // default false -> clear .hebb/index.db (cheap to rebuild)
 }
 
 // TeardownStep is one action in the teardown plan/report.
@@ -75,6 +77,7 @@ func Teardown(opts TeardownOptions) (TeardownReport, error) {
 	}
 	teardownLaunchd(&rep, opts, launchdSlug)
 	teardownCodex(&rep, opts)
+	teardownClaudeDesktop(&rep, opts)
 	teardownMCPJSON(&rep, opts)
 	teardownIndex(&rep, opts)
 	return rep, nil
@@ -161,6 +164,41 @@ func teardownCodex(rep *TeardownReport, opts TeardownOptions) {
 		return
 	}
 	rep.add("codex mcp_servers."+opts.MCPName, status)
+}
+
+func teardownClaudeDesktop(rep *TeardownReport, opts TeardownOptions) {
+	path := opts.DesktopConfig
+	if path == "" && opts.Home != "" {
+		path = DefaultClaudeDesktopConfigPath(opts.Home)
+	}
+	if path == "" {
+		return
+	}
+	label := "claude desktop mcpServers." + opts.MCPName
+	if !opts.Force {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			rep.add(label, "absent")
+			return
+		}
+		var root map[string]any
+		if json.Unmarshal(b, &root) == nil {
+			if servers, ok := root["mcpServers"].(map[string]any); ok {
+				if _, ok := servers[opts.MCPName]; ok {
+					rep.add(label, "would remove")
+					return
+				}
+			}
+		}
+		rep.add(label, "absent")
+		return
+	}
+	status, err := RemoveClaudeDesktopConfig(path, opts.MCPName)
+	if err != nil {
+		rep.add(label, "skipped: "+err.Error())
+		return
+	}
+	rep.add(label, status)
 }
 
 // teardownMCPJSON removes the opt-in per-vault .mcp.json only when it is the

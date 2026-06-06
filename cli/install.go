@@ -23,6 +23,13 @@ type installParams struct {
 	withLaunchd bool
 	load        bool
 	mcpJSON     bool
+	// Agent wiring. When none of these (or --mcp-json) is set and stdin is a
+	// terminal, install offers an interactive picker; --no-interaction skips it.
+	codex            bool
+	claudeDesktop    bool
+	noInteraction    bool
+	codexConfig      string // test override
+	claudeDesktopCfg string // test override
 }
 
 func installCmd() *cobra.Command {
@@ -56,6 +63,11 @@ func bindInstallFlags(c *cobra.Command, p *installParams) {
 	c.Flags().StringVar(&p.serverName, "mcp-name", install.DefaultMCPServerName, "MCP server name written into .mcp.json")
 	c.Flags().StringVar(&p.assetRoot, "asset-root", "", "dev override: use this repo checkout's automation/ instead of the bundled assets (default $HEBB_HOME)")
 	c.Flags().BoolVar(&p.mcpJSON, "mcp-json", false, "write a per-vault .mcp.json + settings for plugin-less use (otherwise the hebb plugin provides the MCP server)")
+	c.Flags().BoolVar(&p.codex, "codex", false, "register this vault as a Codex MCP server (~/.codex/config.toml)")
+	c.Flags().BoolVar(&p.claudeDesktop, "claude-desktop", false, "register this vault as a Claude Desktop MCP server")
+	c.Flags().BoolVar(&p.noInteraction, "no-interaction", false, "never prompt; wire only the agents named by flags")
+	c.Flags().StringVar(&p.codexConfig, "codex-config", "", "Codex config.toml (default: <home>/.codex/config.toml)")
+	c.Flags().StringVar(&p.claudeDesktopCfg, "claude-desktop-config", "", "Claude Desktop config path (default: macOS app support dir)")
 	c.Flags().BoolVar(&p.withLaunchd, "launchd", false, "render the vault's launchd jobs into ~/Library/LaunchAgents")
 	c.Flags().BoolVar(&p.load, "load", false, "bootstrap rendered launchd jobs via launchctl (implies --launchd)")
 	c.Flags().StringVar(&p.home, "home", "", "home dir holding .claude (default: user home)")
@@ -64,6 +76,8 @@ func bindInstallFlags(c *cobra.Command, p *installParams) {
 	_ = c.Flags().MarkHidden("home")
 	_ = c.Flags().MarkHidden("launchd-dir")
 	_ = c.Flags().MarkHidden("data-dir")
+	_ = c.Flags().MarkHidden("codex-config")
+	_ = c.Flags().MarkHidden("claude-desktop-config")
 }
 
 // installVault performs the file-level install for an already-resolved vault
@@ -89,6 +103,14 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 	}
 	hebbBin, _ := os.Executable()
 
+	// Interactive agent picker: only when the user named no agent explicitly,
+	// didn't opt out, and stdin is a terminal (so CI/headless/tests never block).
+	out := cmd.OutOrStdout()
+	if !p.codex && !p.claudeDesktop && !p.mcpJSON && !p.noInteraction && stdinIsInteractive() {
+		sel := promptAgents(cmd.InOrStdin(), out)
+		p.codex, p.claudeDesktop, p.mcpJSON = sel.Codex, sel.ClaudeDesktop, sel.MCPJSON
+	}
+
 	rep, err := install.Run(install.Options{
 		VaultPath:  cfg.VaultPath,
 		MCPName:    p.serverName,
@@ -111,12 +133,38 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		return err
 	}
 
-	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Installed vault: %s\n", cfg.VaultPath)
 	for _, s := range rep.Steps {
 		fmt.Fprintf(out, "  %-16s %s\n", s.Name, s.Status)
 	}
 	fmt.Fprintf(out, "  %-16s %d notes indexed\n", "index", res.Indexed)
+
+	// Per-agent wiring chosen by flag or picker (.mcp.json was handled by Run).
+	if p.codex {
+		codexPath := p.codexConfig
+		if codexPath == "" {
+			codexPath = filepath.Join(home, ".codex", "config.toml")
+		}
+		status, err := install.WriteCodexConfig(codexPath, p.serverName, install.DefaultMCPCommand, cfg.VaultPath)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "  %-16s %s (%s)\n", "codex", status, codexPath)
+	}
+	if p.claudeDesktop {
+		desktopPath := p.claudeDesktopCfg
+		if desktopPath == "" {
+			desktopPath = install.DefaultClaudeDesktopConfigPath(home)
+		}
+		// Claude Desktop launches servers with a minimal PATH, so pin the
+		// absolute binary path, not the bare name.
+		status, err := install.WriteClaudeDesktopConfig(desktopPath, p.serverName, hebbBin, cfg.VaultPath)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "  %-16s %s (%s)\n", "claude-desktop", status, desktopPath)
+		fmt.Fprintf(out, "  %-16s restart Claude Desktop to load it\n", "")
+	}
 	return nil
 }
 

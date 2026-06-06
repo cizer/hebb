@@ -189,6 +189,30 @@ func TestTeardownLeavesForeignMCPJSON(t *testing.T) {
 	}
 }
 
+func TestTeardownRemovesClaudeDesktop(t *testing.T) {
+	opts, _ := wiredVault(t)
+	// Wire a Claude Desktop config with hebb + a sibling that must survive.
+	desktop := filepath.Join(t.TempDir(), "claude_desktop_config.json")
+	if _, err := WriteClaudeDesktopConfig(desktop, DefaultMCPServerName, "/abs/hebb", opts.VaultPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteClaudeDesktopConfig(desktop, "onevault", "node", "/other"); err != nil {
+		t.Fatal(err)
+	}
+	opts.DesktopConfig = desktop
+	opts.Force = true
+	if _, err := Teardown(opts); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(desktop)
+	if strings.Contains(string(b), opts.VaultPath) {
+		t.Errorf("hebb desktop entry should be removed:\n%s", b)
+	}
+	if !strings.Contains(string(b), "onevault") {
+		t.Error("the sibling desktop server must survive")
+	}
+}
+
 func TestTeardownTolerantOfBareVault(t *testing.T) {
 	vault := t.TempDir()
 	home := t.TempDir()

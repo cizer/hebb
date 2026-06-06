@@ -13,7 +13,7 @@ import (
 // dry run unless --force is passed, and it NEVER removes vault content (notes,
 // .hebb/memory, .hebb/config.toml).
 func resetCmd() *cobra.Command {
-	var home, launchdDir, codexConfig, mcpName string
+	var home, launchdDir, codexConfig, desktopConfig, mcpName string
 	var force, keepIndex bool
 	c := &cobra.Command{
 		Use:   "reset",
@@ -33,13 +33,14 @@ func resetCmd() *cobra.Command {
 				home, _ = os.UserHomeDir()
 			}
 			rep, err := install.Teardown(install.TeardownOptions{
-				VaultPath:   cfg.VaultPath,
-				Home:        home,
-				LaunchdDir:  launchdDir,
-				CodexConfig: codexConfig,
-				MCPName:     mcpName,
-				Force:       force,
-				KeepIndex:   keepIndex,
+				VaultPath:     cfg.VaultPath,
+				Home:          home,
+				LaunchdDir:    launchdDir,
+				CodexConfig:   codexConfig,
+				DesktopConfig: desktopConfig,
+				MCPName:       mcpName,
+				Force:         force,
+				KeepIndex:     keepIndex,
 			})
 			if err != nil {
 				return err
@@ -67,8 +68,10 @@ func resetCmd() *cobra.Command {
 	c.Flags().StringVar(&home, "home", "", "home dir holding .claude/.codex (default: user home)")
 	c.Flags().StringVar(&launchdDir, "launchd-dir", "", "LaunchAgents dir (default: <home>/Library/LaunchAgents)")
 	c.Flags().StringVar(&codexConfig, "codex-config", "", "Codex config.toml (default: <home>/.codex/config.toml)")
+	c.Flags().StringVar(&desktopConfig, "claude-desktop-config", "", "Claude Desktop config (default: macOS app support dir)")
 	_ = c.Flags().MarkHidden("home")
 	_ = c.Flags().MarkHidden("launchd-dir")
 	_ = c.Flags().MarkHidden("codex-config")
+	_ = c.Flags().MarkHidden("claude-desktop-config")
 	return c
 }

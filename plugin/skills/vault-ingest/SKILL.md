@@ -28,7 +28,29 @@ Prefer it over directory listing or grep when looking for existing content.
 File at creation; don't stage everything in a holding/inbox folder. Defer to the
 vault's `CLAUDE.md` for any different or additional folders.
 
+## Sensitive content
+
+Some incoming content is personal: coaching reflections, performance reviews,
+family or relationship context, health, finances. File these with explicit
+visibility framing rather than letting them blend with work material:
+
+- Frontmatter: `visibility: private`, `#private` tag
+- 🔒 icon and a short disposition note at the top of the file or its folder index
+- Folder-level rule, paraphrased: "Don't surface specifics from this folder in
+  work-facing notes (1:1 prep with others, action registers, team-level notes)
+  unless the user explicitly asks."
+
+Background context for understanding the user's framing lives in these folders.
+Citing the specifics in other notes does not.
+
 ## Workflow
+
+### 0. Anchor the date
+
+Confirm today's date from the session context before stamping any file. When the
+user says "today" or "had a chat", use that date — but **state it explicitly in
+the report** so they can correct before files are stamped. Date errors create
+wiki-link debt across the vault that's painful to clean up. Worth the one line.
 
 ### 1. Search before creating
 
@@ -39,6 +61,9 @@ default to appending to it rather than starting a new one.
 
 Use `mcp__hebb__get_context_for_topic` or `mcp__hebb__expand_context` when the
 content sits in a broader topic and you want a wider sweep of related material.
+
+If the vault keeps an ingest log and there's any chance the same source has been
+ingested before, search the log too.
 
 ### 2. Decide the destination
 
@@ -62,6 +87,14 @@ combined file. Rule of thumb: if each item could plausibly accumulate its own
 contacts, links, history, or related material over time, give it its own note and
 wiki-link them together. If the items are tightly bound (attributes of a single
 concept), keep them in one note.
+
+**Recurring streams.** For things that arrive periodically (fortnightly product
+updates, sprint updates, weekly reports, meeting series), set up the folder
+structure once and subsequent items slot in without re-deciding:
+
+- `<Area>/Teams/<Team>/_TEAM-INFO.md` + `Updates/` (or `Sprint Updates/`) subfolder
+- `<Series>/_SERIES-INFO.md` + dated notes for meeting series
+- `<Source>/_INDEX.md` + dated pointer notes for low-priority registers
 
 ### 4. Pull in related existing material
 
@@ -113,16 +146,86 @@ is a risk.
 
 ### 8. Report what happened
 
-Close with a short summary in the chat: which notes were filed where (as markdown
-links so the user can click through), what was pulled from existing material, what
-was skipped and why. Keep it tight, and mention the ingest log entry if one was made.
+Close with a short summary in the chat: the **date you're filing under**, which
+notes were filed where (as markdown links so the user can click through), what
+was pulled from existing material, what was skipped and why. Keep it tight, and
+mention the ingest log entry if one was made.
+
+**Action propagation.** Capture any actions raised by the ingest inside the
+canonical note, and flag the action-bearing ones in a dedicated section
+(`## Actions raised` or `## Items worth a glance`). **Don't promote actions to a
+central register** (OPEN-ACTIONS or equivalent) without asking. Ask once: "Add
+these to the action register or leave in the note?" Repeated registry updates
+during rapid-fire ingest sessions create friction and risk over-tracking. If the
+user has already said "leave actions for now" in this session, take it as
+standing instruction and don't re-ask.
+
+## Sources and access
+
+### Email (`.eml`)
+
+Parse with Python's `email` module (`policy.default`). Extract plain-text body +
+named attachments.
+
+**Strip when ingesting:**
+- Distribution lists longer than ~10 names — replace with a paraphrase
+  ("broad cross-group distribution including X, Y, key roles")
+- Mobile / personal phone numbers
+- Signature blocks and marketing footers
+- Tracking pixels and wrapped links
+
+**Preserve:**
+- Sender name + role + email
+- Substantive named participants (To/CC referenced in content)
+- The actual content body
+
+When in doubt, strip. The source `.eml` file remains accessible if specifics are
+needed later.
+
+### AI-generated meeting summaries
+
+Copilot recaps, Otter notes, Granola exports — anything that's already paraphrased
+rather than verbatim transcript.
+
+- Add an explicit "⚠️ **AI-generated summary**; specifics worth verifying." caveat
+  at the top of the canonical note.
+- Restructure thematically (by topic) rather than by speaker. Summary-level
+  attribution is unreliable.
+- Watch for room-mic artefacts: a city name or room name as a "speaker"
+  ("Amsterdam said X") almost always means the conference-room mic, not a person —
+  note this when it appears.
+- Mark verifiable facts (dates, decisions, named action owners) separately from
+  paraphrased themes if the summary mixes them.
+
+### SharePoint / Teams / Microsoft 365
+
+1. Try the Microsoft Graph MCP first (`sharepoint_search`, `chat_message_search`,
+   `read_resource` with `file:///{driveId}/{itemId}`).
+2. If that fails (indexing lag, personal-OneDrive scope, permissions), ask the
+   user to download a local copy and drop the path.
+3. **Don't fake success.** If the content can't be reached, say so clearly and
+   offer the workaround.
+
+### VTT transcripts
+
+Parse to extract `<v Speaker>text</v>` tuples. Collapse consecutive turns by the
+same speaker. Compute participation share by word count for the attendees table.
+Save the raw VTT to `Artifacts/` alongside the meeting note.
+
+### DOCX / PDF / PPTX
+
+- DOCX: parse `word/document.xml` for paragraph text.
+- PDF: use the `pages` parameter to read in chunks if large; large PDFs require
+  explicit page ranges.
+- PPTX: read via Microsoft Graph if SharePoint-hosted; otherwise download locally.
+- Save originals to `Artifacts/` alongside the note when substantive.
 
 ## Conventions
 
 - **Language**: match the vault's documented language and the tone of its existing
   notes; default to British English.
 - **Tags**: 3–5 per note. Combine a type tag (`#resource`, `#area`, `#project`,
-  `#permanent`) with context and domain tags.
+  `#permanent`) with context (`#work`, `#personal`, `#private`) and domain tags.
 - **Wiki links**: `[[Note Name]]` for internal references. Link liberally — a link
   to a not-yet-written note is a useful breadcrumb, not an error.
 - **Frontmatter**: keep it lean. `tags: [...]` is usually enough. Don't add
@@ -139,22 +242,30 @@ was skipped and why. Keep it tight, and mention the ingest log entry if one was 
 - Don't ask clarifying questions reflexively — only when the destination or scope
   is genuinely ambiguous from the content itself.
 - Don't override vault-specific conventions; defer to the vault's `CLAUDE.md`.
+- **Don't fake reach.** If a tool can't access the content (auth-walled URL,
+  expired session, permissions, indexing lag), say so explicitly, offer the
+  workaround (download locally, paste content, switch MCP), and stop. Filing a
+  thin pointer is fine; filing a hallucinated extract is not.
+- **Don't propagate sensitive specifics** from folders tagged `#private` into
+  work-facing notes unless the user explicitly asks.
 
 ## Example walkthrough
 
 The user pastes a list of three agency contacts.
 
-1. `mcp__hebb__search_vault` for each agency name to find existing notes (and check
-   the ingest log if duplication is a risk).
-2. Destination is `3-Resources/Agencies/` — reference material, ongoing
+1. Anchor today's date and state it in the report.
+2. `mcp__hebb__search_vault` for each agency name to find existing notes (and
+   check the ingest log if duplication is a risk).
+3. Destination is `3-Resources/Agencies/` — reference material, ongoing
    relationships, will likely grow. If it had felt project-scoped, ask once.
-3. Create one note per agency under `3-Resources/Agencies/`, plus a small
+4. Create one note per agency under `3-Resources/Agencies/`, plus a small
    `Agencies.md` index that wiki-links them.
-4. Search the vault for related material; pull durable profiles and contacts, skip
+5. Search the vault for related material; pull durable profiles and contacts, skip
    stale resourcing chatter.
-5. Mark anything clearly past instead of dropping the history.
-6. `mcp__hebb__reindex_vault`.
-7. If the vault keeps an ingest log, append a row (date, "Agency contacts — pasted
+6. Mark anything clearly past instead of dropping the history.
+7. `mcp__hebb__reindex_vault`.
+8. If the vault keeps an ingest log, append a row (date, "Agency contacts — pasted
    text", type `reference`, destination `[[Agencies]]`, notes). Reindex again.
-8. Report which notes were filed where (clickable links), what was pulled, what was
-   skipped.
+9. Report today's filing date, which notes were filed where (clickable links),
+   what was pulled, what was skipped. Any actions raised stay in the canonical
+   note unless the user asks to promote them.

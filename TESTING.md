@@ -23,25 +23,27 @@ roadmap for building the pipeline lives in [PLAN.md](PLAN.md) (Phase 4).
 
 ## Current layers
 
-The whole suite (`go test ./...`) is ~65 tests and runs in ~5s, cold. All
+The whole suite (`go test ./...`) is ~73 tests and runs in ~5s, cold. All
 hermetic.
 
 | Layer | Where | Exercises | Real deps |
 |---|---|---|---|
-| Unit | `core` (parser, config, slugify), `install` (mcpjson, settings merge, bootstrap dry-run), `launchd` (render) | Pure logic and rendering | none |
+| Unit | `core` (parser, config, slugify), `install` (mcpjson, settings merge, bootstrap dry-run, VaultJobs gating), `launchd` (render) | Pure logic and rendering | none |
 | Integration (engine) | `core/index_test`, `context_test`, `watch_test`, `single_test` | Temp vault → `FullReindex` → real SQLite FTS5 → search / context / stats / incremental watch | SQLite FTS5, filesystem |
 | Surface | `mcp/server_test` (tool output + cross-tool tag consistency), `cli/*_test` (install/doctor via cobra), `web/server_test` (HTTP), `install/*_test` (wiring, conflict-safety, idempotency) | The strings/exit codes/files callers and Claude consume | filesystem |
+| Embed contract | root `plugin_test`, `assets_test` | The plugin manifest/`.mcp.json`/skill, and that the binary embeds the automation scripts VaultJobs depends on | embedded FS |
 | Static | `go vet`, `gofmt`; launchd plists validated with `plutil -lint` (macOS only, skipped elsewhere) | Vet, formatting, plist validity | toolchain |
-| Acceptance | **manual today** (the canary-fixture session test) | The built binary end to end | OS, real-ish env |
+| Acceptance | **scripted** (`scripts/acceptance.sh`, 40 checks); runs in CI Stage 2 and locally | The built binary end to end | OS, real-ish env |
 
-Counts as of writing: core 14, install 34, launchd 5, cli 6, web 1, mcp 5.
+Counts as of writing: core 15, install 32, launchd 6, cli 8, web 2, mcp 5, root (plugin + assets) 5.
 
-## The gap
+## Remaining gaps
 
-The acceptance layer is manual. It needs to become a scripted suite that drives
-the **built binary** (the artifact that ships), in a production-like
-environment, before any deploy. We also have no cross-platform or
-race-detector coverage yet.
+The original gap (a manual acceptance layer, no race or cross-platform coverage)
+is closed: `scripts/acceptance.sh` drives the built binary on macOS and Linux in
+CI, and Stage 1 runs `-race` plus a cross-compile matrix. What is still open:
+Stage 3 release automation is deferred (see PLAN.md Phase 4), and `staticcheck` /
+`golangci-lint` / `govulncheck` are not yet wired in.
 
 ## Pipeline: two stages
 
@@ -67,19 +69,19 @@ pre-commit/pre-push hooks.
 ### Stage 2 - Acceptance (production-like)
 
 Runs only after Stage 1 is green, on the target OSes (macOS and Linux runners),
-against the **natively built binary**, not `go test`. This is the automation of
-today's manual UAT.
+against the **natively built binary**, not `go test`. It is `scripts/acceptance.sh`
+(runnable locally and in CI) and automates the UAT.
 
-The acceptance harness (a script, runnable locally and in CI) does, against a
-throwaway fixture vault and a temp `HOME`:
+Against a throwaway fixture vault and a temp `HOME`, it:
 
-1. put the built `hebb` on `PATH`
-2. `hebb install --vault V --home H --data-dir D --launchd --launchd-dir L` → assert exit 0 and that the contracts, materialised assets, memory link and rendered plists exist
-3. `hebb doctor` → assert health (expected ok/warn set)
-4. `hebb index` + `hebb search <canary>` → assert the known notes come back
+1. puts the built `hebb` on `PATH`
+2. `hebb install --vault V --home H --data-dir D --launchd --launchd-dir L` → assert exit 0; default install is data-side (`.hebb/config.toml`, index, materialised automation, memory link, rendered plists) and writes **no** per-vault `.mcp.json`. A second run with `--mcp-json` asserts the plugin-less `.mcp.json` + settings are written on demand.
+3. `hebb doctor` → assert health (expected ok/warn set; no skills check, mcp.json reports plugin mode)
+4. `hebb search <canary>` → assert the known notes come back and the excluded dir is skipped
 5. `hebb serve --port <free>` → `curl /api/stats` and `/api/search` → assert the JSON
 6. `hebb mcp` over stdio → JSON-RPC `initialize`, `tools/list` (the 5 tools), `tools/call search_vault` (canary) and `get_context_for_topic` (tag consistency) → assert responses
 7. macOS only: `plutil -lint` the rendered plists
+8. run the materialised automation against the fixture: the `run-vault-digest.sh` launchd entrypoint (reindexes), `generate-vault-digest.py` (digest note), and `generate-action-review.py` (action review + JSON, owner/overdue flags) → assert their output
 
 Notes: `--load` (launchctl bootstrap) is **not** run in CI (no GUI session, and
 it would mutate the runner); acceptance renders and validates plists instead.

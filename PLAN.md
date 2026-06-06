@@ -47,7 +47,8 @@ workflow in `.github/workflows/ci.yml`.
 - ✅ **Stage 2 — acceptance (production-like), gated on Stage 1:** `scripts/acceptance.sh`
   drives the *built binary* against a throwaway vault + temp `HOME` on macOS and
   Linux: install → doctor → index/search (canary) → serve+curl the API → mcp over
-  stdio (initialize, tools/list, tools/call) → plutil-lint plists (macOS). 26 checks.
+  stdio (initialize, tools/list, tools/call) → plutil-lint plists (macOS) → run the
+  materialised automation scripts (digest + action-review) against the fixture. 40 checks.
   Automates the manual UAT; `--load` not run in CI. Runnable locally too.
 - ⬜ **Stage 3 — release (the deploy): deferred.** Hold until system testing is further along and the plugin-packaging decision (below) is made, since that would change what we distribute and shrink install. When ready: on a version tag past acceptance, publish a GitHub release with binaries, bump a Homebrew tap formula, optional npm.
 - ⬜ pre-commit/pre-push hooks mirroring Stage 1 (consistent local + CI); optional staticcheck; fuller README.

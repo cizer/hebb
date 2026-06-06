@@ -19,7 +19,7 @@ Three guarantees:
 
 The **generic** contract (PARA skeleton, baseline `CLAUDE.md`, note templates, conventions, empty memory seed) ships in the `hebb` repo; the **personal** layer (content, personalised `CLAUDE.md`, accumulated memory) is per-vault data.
 
-Layers: **Data** (per-vault content + memory + `.hebb/` config) · **Function** (`hebb`: core engine + thin CLI + MCP surface, installed once) · **Contracts** (per-vault `.hebb/config.toml`, the project-scoped `.mcp.json`, the MCP tool surface, direct file access, `CLAUDE.md`).
+Layers: **Data** (per-vault content + memory + `.hebb/` config) · **Function** (`hebb`: core engine + thin CLI + MCP surface, installed once; agent adapters = the Claude plugin / Codex config) · **Contracts** (per-vault `.hebb/config.toml`, the MCP tool surface, direct file access, `CLAUDE.md`; an opt-in per-vault `.mcp.json` for plugin-less use).
 
 ## Multi-vault model
 
@@ -32,7 +32,7 @@ Layers: **Data** (per-vault content + memory + `.hebb/` config) · **Function** 
   - Shared (function): the `hebb` binary (engine + CLI + MCP surface) plus the hebb plugin (agent adapter: MCP + skill). The binary embeds the automation/template assets and on `install` materialises the automation scripts once to the hebb data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`) for launchd. No repo checkout needed (a checkout is only a dev override via `--asset-root`).
   - Per-vault (data + its config): `.hebb/config.toml`, the index, memory, `CLAUDE.md`, enabled jobs, web port.
 - **Personal vs work:** `hebb new ~/vaults/personal` and `hebb new ~/vaults/work` are fully independent (different content, memory, contract, even web-UI ports so both run at once).
-- **Travels vs local:** commit `.hebb/config.toml` and `.mcp.json` so a cloned or synced vault self-identifies; gitignore `.hebb/index.db` and machine-local state.
+- **Travels vs local:** commit `.hebb/config.toml` so a cloned or synced vault self-identifies (and the opt-in `.mcp.json` if a vault uses the plugin-less wiring); gitignore `.hebb/index.db` and machine-local state.
 - Optional global config `~/.config/hebb/` for tool defaults and a registry of known vaults.
 
 ## Tech stack: Go (decided)
@@ -85,11 +85,11 @@ flowchart TB
 - Engine from today's `src/`: MCP server, indexer (`build-index.js`, `indexer.js`, `parser.js`), search (`search.js`), watcher (`watcher.js`), DB (`db.js`), web UI (`web.js` + `web/`). The Node reference to port to Go.
 - MCP tools: `search_vault`, `get_context_for_topic`, `expand_context`, `reindex_vault`, `vault_stats`.
 
-### Function currently OUTSIDE the repo (to be pulled into `hebb`)
-- Skills `~/.claude/skills/` (unversioned), automation scripts `vault/bin/`, launchd plists `~/Library/LaunchAgents/local.onevault.*`, Claude settings/permissions, and the not-yet-existing `vault-template/`.
+### Function pulled into `hebb` (was outside the repo)
+- Skills now ship in the plugin (`plugin/skills/vault-ingest`); automation scripts are migrated and genericised in `automation/`; launchd plists are rendered from `launchd/` templates per vault; `vault-template/` exists. Still external/manual: Claude settings/permissions (the plugin and `--mcp-json` cover the MCP wiring) and the live `~/Library/LaunchAgents/local.onevault.*` jobs, which retire at the Phase 5 cutover.
 
 ### Contracts (the seams)
-- Per-vault `.hebb/config.toml` and project-scoped `.mcp.json` (replacing the old global `.env`/`VAULT_PATH`).
+- Per-vault `.hebb/config.toml` (replacing the old global `.env`/`VAULT_PATH`); the agent seam is the plugin's MCP server (`HEBB_VAULT=${CLAUDE_PROJECT_DIR}`), with an opt-in per-vault `.mcp.json` for plugin-less clients.
 - Vault discovery by directory context (`--vault`/`HEBB_VAULT` override).
 - MCP tool surface (agent to engine); direct filesystem read/write (agent to data); `CLAUDE.md` and conventions.
 
@@ -116,6 +116,10 @@ Install `hebb` once (Homebrew/npm). Then, per vault:
 - Re-auth connectors. The only manual step.
 
 ## Migration path (current to target)
+
+_The original plan, kept for context. Steps 1-7 are done (plugin adopted,
+automation migrated, install data-side); step 8 is the Phase 5 cutover. See
+[PLAN.md](PLAN.md) for live status._
 
 1. Stand up `hebb` as a Go module; port the Node `onevault-mcp` engine into `core/`, with a thin `cli/` and an `mcp/` surface (goldmark, modernc SQLite FTS5, fsnotify, stdlib HTTP, mcp-go).
 2. Add vault discovery (`.hebb/` upward) and the `--vault`/`HEBB_VAULT` override.

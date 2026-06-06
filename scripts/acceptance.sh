@@ -94,13 +94,19 @@ if hebb install --vault "$VAULT" --home "$HOME_DIR" --data-dir "$DATA" \
 report "$rc" "install exits 0"
 sed 's/^/      /' "$WORK/install.out"
 [ -f "$VAULT/.hebb/config.toml" ]; report $? "config.toml written"
-[ -f "$VAULT/.mcp.json" ]; report $? ".mcp.json written"
-[ -f "$VAULT/.claude/settings.json" ]; report $? "project settings written"
+[ ! -e "$VAULT/.mcp.json" ]; report $? "no per-vault .mcp.json by default (plugin provides MCP)"
 [ -f "$VAULT/.hebb/index.db" ]; report $? "index built"
 [ -d "$VAULT/.hebb/memory" ]; report $? "memory dir under .hebb"
 ls "$HOME_DIR"/.claude/projects/*/memory >/dev/null 2>&1; report $? "memory linked into claude project dir"
 [ -L "$VAULT/.claude/skills/vault-ingest" ]; report $? "vault-ingest linked project-scoped (<vault>/.claude/skills)"
 ls "$LAUNCHD"/local.hebb.*.web.plist >/dev/null 2>&1; report $? "web launchd plist rendered"
+
+# --- plugin-less wiring (--mcp-json opt-in) -----------------------------------
+echo "==> install --mcp-json (opt-in plugin-less wiring)"
+hebb install --vault "$VAULT" --home "$HOME_DIR" --data-dir "$DATA" --mcp-json >/dev/null 2>&1
+[ -f "$VAULT/.mcp.json" ]; report $? "--mcp-json writes .mcp.json"
+[ -f "$VAULT/.claude/settings.json" ]; report $? "--mcp-json writes project settings"
+rm -f "$VAULT/.mcp.json"; rm -rf "$VAULT/.claude/settings.json"  # back to plugin mode for the rest
 
 # --- doctor -------------------------------------------------------------------
 echo "==> doctor"

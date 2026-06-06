@@ -24,6 +24,7 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 		MCPCommand: DefaultMCPCommand,
 		Home:       home,
 		AssetRoot:  assetRoot,
+		MCPJSON:    true, // exercise the plugin-less wiring (.mcp.json + settings)
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -104,7 +105,10 @@ func TestRunSkipsSkillsWithoutAssetRoot(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	mustExist(t, filepath.Join(vault, ".hebb", "config.toml"))
-	mustExist(t, filepath.Join(vault, ".claude", "settings.json"))
+	// Default install writes no .mcp.json/settings (plugin provides MCP).
+	if _, err := os.Stat(filepath.Join(vault, ".mcp.json")); err == nil {
+		t.Error("default install should not write .mcp.json")
+	}
 	for _, s := range rep.Steps {
 		if s.Name == "build" {
 			t.Error("skills should be skipped when AssetRoot is empty")

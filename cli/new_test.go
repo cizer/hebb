@@ -51,8 +51,6 @@ func TestNewFromScratch(t *testing.T) {
 		"templates/note.md",
 		"1-Projects", "2-Areas", "3-Resources", "4-Archives",
 		filepath.Join(".hebb", "config.toml"),
-		".mcp.json",
-		filepath.Join(".claude", "settings.json"),
 		filepath.Join(".hebb", "index.db"),
 		filepath.Join(".hebb", "memory"),
 	} {

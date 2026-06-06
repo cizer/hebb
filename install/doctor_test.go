@@ -25,8 +25,9 @@ func TestDoctorEmptyVault(t *testing.T) {
 	if c, _ := checkByName(checks, "config"); c.Status != "fail" {
 		t.Errorf("config on empty vault = %q, want fail", c.Status)
 	}
-	if c, _ := checkByName(checks, "mcp.json"); c.Status != "fail" {
-		t.Errorf("mcp.json on empty vault = %q, want fail", c.Status)
+	// mcp.json absent is fine now (the plugin provides the MCP server).
+	if c, _ := checkByName(checks, "mcp.json"); c.Status != "ok" {
+		t.Errorf("mcp.json on empty vault = %q, want ok (plugin mode)", c.Status)
 	}
 	if c, _ := checkByName(checks, "index"); c.Status != "warn" {
 		t.Errorf("index on empty vault = %q, want warn", c.Status)
@@ -56,6 +57,7 @@ func TestDoctorHealthyAfterInstall(t *testing.T) {
 		AssetRoot:  assetRoot,
 		HebbBin:    "/usr/local/bin/hebb",
 		LaunchdDir: launchdDir,
+		MCPJSON:    true, // so the mcp.json + settings checks have something to verify
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

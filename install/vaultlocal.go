@@ -21,13 +21,12 @@ func (r *Report) add(name, status string) {
 	r.Steps = append(r.Steps, Step{Name: name, Status: status})
 }
 
-// VaultLocal writes the per-vault contracts that live inside the vault
-// directory only, making no changes to the home directory or system: it
-// initialises .hebb/config.toml (created with defaults if absent, never
-// clobbered) and the project-scoped .mcp.json. It is idempotent.
-func VaultLocal(vaultPath, serverName, command string) (Report, error) {
+// VaultLocal initialises the per-vault config (.hebb/config.toml, created with
+// defaults if absent, never clobbered). It is idempotent. The project-scoped
+// .mcp.json is written separately and only on request (Options.MCPJSON): the
+// hebb plugin normally provides the MCP server.
+func VaultLocal(vaultPath string) (Report, error) {
 	var r Report
-
 	_, existed, err := core.LoadVaultConfig(vaultPath)
 	if err != nil {
 		return r, err
@@ -40,16 +39,6 @@ func VaultLocal(vaultPath, serverName, command string) (Report, error) {
 		r.add("config.toml", "created")
 	} else {
 		r.add("config.toml", "exists")
-	}
-
-	changed, err := WriteMCPJSON(vaultPath, serverName, command)
-	if err != nil {
-		return r, err
-	}
-	if changed {
-		r.add(".mcp.json", "wrote")
-	} else {
-		r.add(".mcp.json", "unchanged")
 	}
 	return r, nil
 }

@@ -8,9 +8,9 @@ import (
 	"github.com/cizer/hebb/core"
 )
 
-func TestVaultLocalCreatesContracts(t *testing.T) {
+func TestVaultLocalCreatesConfig(t *testing.T) {
 	vault := t.TempDir()
-	rep, err := VaultLocal(vault, DefaultMCPServerName, DefaultMCPCommand)
+	rep, err := VaultLocal(vault)
 	if err != nil {
 		t.Fatalf("VaultLocal: %v", err)
 	}
@@ -18,32 +18,26 @@ func TestVaultLocalCreatesContracts(t *testing.T) {
 	if _, existed, err := core.LoadVaultConfig(vault); err != nil || !existed {
 		t.Fatalf("config.toml not created (existed=%v, err=%v)", existed, err)
 	}
-	// .mcp.json present
-	if _, err := os.Stat(filepath.Join(vault, ".mcp.json")); err != nil {
-		t.Fatalf(".mcp.json not created: %v", err)
-	}
 	if statusOf(rep, "config.toml") != "created" {
 		t.Errorf("config.toml status = %q, want created", statusOf(rep, "config.toml"))
 	}
-	if statusOf(rep, ".mcp.json") != "wrote" {
-		t.Errorf(".mcp.json status = %q, want wrote", statusOf(rep, ".mcp.json"))
+	// VaultLocal does not write .mcp.json (the plugin provides the MCP server).
+	if _, err := os.Stat(filepath.Join(vault, ".mcp.json")); err == nil {
+		t.Error("VaultLocal should not write .mcp.json")
 	}
 }
 
 func TestVaultLocalIdempotent(t *testing.T) {
 	vault := t.TempDir()
-	if _, err := VaultLocal(vault, DefaultMCPServerName, DefaultMCPCommand); err != nil {
+	if _, err := VaultLocal(vault); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := VaultLocal(vault, DefaultMCPServerName, DefaultMCPCommand)
+	rep, err := VaultLocal(vault)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if statusOf(rep, "config.toml") != "exists" {
 		t.Errorf("2nd run config.toml = %q, want exists (must not clobber)", statusOf(rep, "config.toml"))
-	}
-	if statusOf(rep, ".mcp.json") != "unchanged" {
-		t.Errorf("2nd run .mcp.json = %q, want unchanged", statusOf(rep, ".mcp.json"))
 	}
 }
 

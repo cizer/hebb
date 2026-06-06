@@ -69,7 +69,9 @@ func Doctor(opts Options) []Check {
 func checkMCPJSON(add func(string, string, string), vaultPath string) {
 	b, err := os.ReadFile(filepath.Join(vaultPath, ".mcp.json"))
 	if err != nil {
-		add("mcp.json", "fail", "missing (run hebb install)")
+		// No per-vault .mcp.json is normal: the hebb plugin provides the MCP
+		// server. Only validate one if it exists (plugin-less / --mcp-json).
+		add("mcp.json", "ok", "none (plugin provides the MCP server)")
 		return
 	}
 	var m struct {
@@ -108,7 +110,7 @@ func checkIndex(add func(string, string, string), vaultPath string) {
 func checkSettings(add func(string, string, string), vaultPath, mcpName string) {
 	b, err := os.ReadFile(filepath.Join(vaultPath, ".claude", "settings.json"))
 	if err != nil {
-		add("settings", "warn", "no .claude/settings.json")
+		// No per-vault settings is normal in plugin mode; nothing to check.
 		return
 	}
 	var m map[string]any

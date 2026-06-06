@@ -32,15 +32,18 @@ func TestInstallCommandEndToEnd(t *testing.T) {
 
 	out := runInstall(t, vault)
 
+	// Default install is data-side: config + index, no per-vault .mcp.json
+	// (the plugin provides the MCP server).
 	for _, want := range []string{
 		filepath.Join(vault, ".hebb", "config.toml"),
-		filepath.Join(vault, ".mcp.json"),
-		filepath.Join(vault, ".claude", "settings.json"),
 		filepath.Join(vault, ".hebb", "index.db"),
 	} {
 		if _, err := os.Stat(want); err != nil {
 			t.Errorf("expected %s to exist after install: %v", want, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(vault, ".mcp.json")); err == nil {
+		t.Error("default install should not write .mcp.json")
 	}
 	if !regexp.MustCompile(`index\s+1 notes indexed`).MatchString(out) {
 		t.Errorf("expected index summary in output, got:\n%s", out)
@@ -57,8 +60,21 @@ func TestInstallCommandIdempotent(t *testing.T) {
 	if !regexp.MustCompile(`config\.toml\s+exists`).MatchString(out) {
 		t.Errorf("second install should report config.toml exists, got:\n%s", out)
 	}
-	if !regexp.MustCompile(`\.mcp\.json\s+unchanged`).MatchString(out) {
-		t.Errorf("second install should report .mcp.json unchanged, got:\n%s", out)
+}
+
+func TestInstallCommandMCPJSON(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runInstall(t, vault, "--mcp-json")
+	for _, want := range []string{
+		filepath.Join(vault, ".mcp.json"),
+		filepath.Join(vault, ".claude", "settings.json"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Errorf("--mcp-json should write %s: %v", want, err)
+		}
 	}
 }
 

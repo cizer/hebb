@@ -25,13 +25,15 @@ func TestDoctorCommandHealthy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runInstall(t, vault, "--home", home) // install builds config, mcp, settings, memory, index
+	runInstall(t, vault, "--home", home) // data-side install: config, index, memory (no .mcp.json/settings by default)
 
 	out, err := runDoctor(t, vault, home)
 	if err != nil {
 		t.Fatalf("doctor reported failure on a healthy vault: %v\n%s", err, out)
 	}
-	for _, want := range []string{"config", "mcp.json", "index", "settings", "memory"} {
+	// settings is omitted in plugin mode (no per-vault settings.json); mcp.json
+	// reports "ok / none (plugin)".
+	for _, want := range []string{"config", "mcp.json", "index", "memory"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor output missing %q check:\n%s", want, out)
 		}

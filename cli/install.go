@@ -22,6 +22,7 @@ type installParams struct {
 	dataDir     string
 	withLaunchd bool
 	load        bool
+	mcpJSON     bool
 }
 
 func installCmd() *cobra.Command {
@@ -54,6 +55,7 @@ func installCmd() *cobra.Command {
 func bindInstallFlags(c *cobra.Command, p *installParams) {
 	c.Flags().StringVar(&p.serverName, "mcp-name", install.DefaultMCPServerName, "MCP server name written into .mcp.json")
 	c.Flags().StringVar(&p.assetRoot, "asset-root", "", "dev override: link skills from this repo checkout instead of the bundled assets (default $HEBB_HOME)")
+	c.Flags().BoolVar(&p.mcpJSON, "mcp-json", false, "write a per-vault .mcp.json + settings for plugin-less use (otherwise the hebb plugin provides the MCP server)")
 	c.Flags().BoolVar(&p.withLaunchd, "launchd", false, "render the vault's launchd jobs into ~/Library/LaunchAgents")
 	c.Flags().BoolVar(&p.load, "load", false, "bootstrap rendered launchd jobs via launchctl (implies --launchd)")
 	c.Flags().StringVar(&p.home, "home", "", "home dir holding .claude (default: user home)")
@@ -98,6 +100,7 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		Assets:     hebbassets.Assets,
 		DataDir:    dataDir,
 		AssetRoot:  assetRoot,
+		MCPJSON:    p.mcpJSON,
 	})
 	if err != nil {
 		return err

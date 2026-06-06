@@ -19,6 +19,7 @@ type Options struct {
 	HebbBin    string // path to the hebb binary, for the web launchd job
 	LaunchdDir string // target LaunchAgents dir; "" disables launchd rendering
 	Load       bool   // if true, bootstrap rendered jobs via launchctl
+	MCPJSON    bool   // if true, write a per-vault .mcp.json + settings (plugin-less wiring)
 
 	// Asset source. The binary is standalone: Assets carries the embedded
 	// function content (skills/, automation/, vault-template/), materialised to
@@ -32,8 +33,9 @@ type Options struct {
 
 // Run performs the file-level install for a vault and returns a report of every
 // action. It does not build the index (the caller owns the engine/db). Steps:
-//   - vault-local contracts: .hebb/config.toml, .mcp.json
-//   - project settings:      <vault>/.claude/settings.json (MCP enable + allow)
+//   - vault config:          .hebb/config.toml (always)
+//   - plugin-less wiring (if MCPJSON): .mcp.json + <vault>/.claude/settings.json
+//     (the hebb plugin normally provides the MCP server instead)
 //   - assets:                materialise embedded function content to DataDir
 //     (unless --asset-root points at a live repo checkout)
 //   - skills:                symlink <assetDir>/skills/* into <vault>/.claude/skills (project-scoped)
@@ -42,16 +44,26 @@ type Options struct {
 //
 // Every step is idempotent.
 func Run(opts Options) (Report, error) {
-	rep, err := VaultLocal(opts.VaultPath, opts.MCPName, opts.MCPCommand)
+	rep, err := VaultLocal(opts.VaultPath)
 	if err != nil {
 		return rep, err
 	}
 
-	changed, err := WriteProjectSettings(opts.VaultPath, opts.MCPName)
-	if err != nil {
-		return rep, err
+	if opts.MCPJSON {
+		// Plugin-less wiring: write the per-vault MCP server + tool allow-list.
+		// Mutually exclusive with the hebb plugin, which provides a "hebb"
+		// server of the same name.
+		changed, err := WriteMCPJSON(opts.VaultPath, opts.MCPName, opts.MCPCommand)
+		if err != nil {
+			return rep, err
+		}
+		rep.add(".mcp.json", wroteOrUnchanged(changed))
+		sc, err := WriteProjectSettings(opts.VaultPath, opts.MCPName)
+		if err != nil {
+			return rep, err
+		}
+		rep.add("settings.json", wroteOrUnchanged(sc))
 	}
-	rep.add("settings.json", wroteOrUnchanged(changed))
 
 	assetDir, err := resolveAssetDir(&rep, opts)
 	if err != nil {

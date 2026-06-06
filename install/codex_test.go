@@ -141,6 +141,62 @@ command = "linear-mcp"
 	}
 }
 
+func TestRemoveCodexConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	original := `model = "o4-mini"
+
+[mcp_servers.github]
+command = "github-mcp-server"
+
+[mcp_servers.hebb]
+command = "hebb"
+args = ["mcp"]
+cwd = "/vaults/work"
+env = { HEBB_VAULT = "/vaults/work" }
+startup_timeout_sec = 20
+
+[mcp_servers.linear]
+command = "linear-mcp"
+`
+	if err := os.WriteFile(cfg, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, err := RemoveCodexConfig(cfg, "hebb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != "removed" {
+		t.Errorf("status = %q, want removed", status)
+	}
+	s, _ := os.ReadFile(cfg)
+	if strings.Contains(string(s), "hebb") || strings.Contains(string(s), "/vaults/work") {
+		t.Errorf("hebb block not fully removed:\n%s", s)
+	}
+	for _, keep := range []string{`model = "o4-mini"`, "[mcp_servers.github]", "[mcp_servers.linear]", "linear-mcp"} {
+		if !strings.Contains(string(s), keep) {
+			t.Errorf("removal dropped %q:\n%s", keep, s)
+		}
+	}
+	if strings.Contains(string(s), "\n\n\n") {
+		t.Errorf("removal left a triple newline:\n%s", s)
+	}
+}
+
+func TestRemoveCodexConfigAbsent(t *testing.T) {
+	// No file at all.
+	if status, err := RemoveCodexConfig(filepath.Join(t.TempDir(), "none.toml"), "hebb"); err != nil || status != "absent" {
+		t.Errorf("missing config: status=%q err=%v, want absent/nil", status, err)
+	}
+	// File present but no hebb block.
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, []byte("[mcp_servers.other]\ncommand = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := RemoveCodexConfig(cfg, "hebb"); err != nil || status != "absent" {
+		t.Errorf("no hebb block: status=%q err=%v, want absent/nil", status, err)
+	}
+}
+
 // Re-pointing an existing hebb block to a new vault replaces only that block.
 func TestWriteCodexConfigRepointsOwnBlock(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "config.toml")

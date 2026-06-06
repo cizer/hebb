@@ -44,7 +44,7 @@ func WriteCodexConfig(configPath, name, command, vaultPath string) (string, erro
 		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 			return "", err
 		}
-		header := "# Codex config. hebb manages the [mcp_servers." + codexKey(name) + "] block below.\n\n"
+		header := "# Codex config. hebb manages its MCP server block below (via `hebb codex`).\n\n"
 		if err := os.WriteFile(configPath, []byte(header+block), 0o644); err != nil {
 			return "", err
 		}
@@ -62,6 +62,57 @@ func WriteCodexConfig(configPath, name, command, vaultPath string) (string, erro
 		return "", err
 	}
 	return status, nil
+}
+
+// RemoveCodexConfig deletes the [mcp_servers.<name>] block from the Codex config
+// at configPath, preserving every other server, comment, and key. Returns
+// "removed" if a block was deleted, or "absent" if there was no config or no
+// matching block. The inverse of WriteCodexConfig, used by `hebb reset`.
+func RemoveCodexConfig(configPath, name string) (string, error) {
+	b, err := os.ReadFile(configPath)
+	if os.IsNotExist(err) {
+		return "absent", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	out, removed := removeCodexBlock(string(b), name)
+	if !removed {
+		return "absent", nil
+	}
+	if err := os.WriteFile(configPath, []byte(out), 0o644); err != nil {
+		return "", err
+	}
+	return "removed", nil
+}
+
+// removeCodexBlock strips the [mcp_servers.<name>] block (header to the next
+// table header or EOF) and returns the remaining content byte-for-byte, with any
+// resulting run of 3+ newlines collapsed to a single blank line.
+func removeCodexBlock(content, name string) (string, bool) {
+	parts := strings.SplitAfter(content, "\n")
+	start := -1
+	for i, p := range parts {
+		if isCodexServerHeader(strings.TrimSuffix(p, "\n"), name) {
+			start = i
+			break
+		}
+	}
+	if start == -1 {
+		return content, false
+	}
+	end := len(parts)
+	for i := start + 1; i < len(parts); i++ {
+		if strings.HasPrefix(strings.TrimSpace(parts[i]), "[") {
+			end = i
+			break
+		}
+	}
+	merged := strings.Join(parts[:start], "") + strings.Join(parts[end:], "")
+	for strings.Contains(merged, "\n\n\n") {
+		merged = strings.ReplaceAll(merged, "\n\n\n", "\n\n")
+	}
+	return merged, true
 }
 
 // mergeCodexBlock replaces an existing [mcp_servers.<name>] block, or appends

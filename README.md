@@ -23,6 +23,7 @@ Working today:
 - `hebb doctor` — read-only health check of a vault and its install; exits non-zero if anything is broken.
 - `hebb new <path>` — scaffold a fresh vault from the bundled template (PARA skeleton, baseline `CLAUDE.md` + `AGENTS.md`, a note template, a memory seed) and install it. Refuses to scaffold into a non-empty directory.
 - `hebb codex` — register this vault with the Codex CLI by merging an `[mcp_servers.hebb]` block into `~/.codex/config.toml` (idempotent, non-destructive; `--mcp-name` for a second vault). The Codex counterpart to the Claude plugin.
+- `hebb reset` — the inverse of `install`: un-wire a vault from the machine (memory symlink, launchd jobs, Codex block, opt-in `.mcp.json`, and the regenerable index). Dry run by default; `--force` to apply. Never removes vault content (notes, `.hebb/memory`, `.hebb/config.toml`).
 
 Vault selection: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.
 

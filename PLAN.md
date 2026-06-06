@@ -49,8 +49,7 @@ workflow in `.github/workflows/ci.yml`.
   Linux: install → doctor → index/search (canary) → serve+curl the API → mcp over
   stdio (initialize, tools/list, tools/call) → plutil-lint plists (macOS). 26 checks.
   Automates the manual UAT; `--load` not run in CI. Runnable locally too.
-- ⬜ **Stage 3 — release (the deploy):** on a version tag past acceptance, publish a
-  GitHub release with binaries, bump a Homebrew tap formula, optional npm.
+- ⬜ **Stage 3 — release (the deploy): deferred.** Hold until system testing is further along and the plugin-packaging decision (below) is made, since that would change what we distribute and shrink install. When ready: on a version tag past acceptance, publish a GitHub release with binaries, bump a Homebrew tap formula, optional npm.
 - ⬜ pre-commit/pre-push hooks mirroring Stage 1 (consistent local + CI); optional staticcheck; fuller README.
 
 ### Phase 5 — Cutover ⬜
@@ -58,13 +57,18 @@ workflow in `.github/workflows/ci.yml`.
 
 ## Resume point
 
-**Next: migrate automation scripts, then Phase 4 Stage 3 (release).** Phases 0-3 done. Skills are sorted for the vault layer: `vault-ingest` is the one generic, project-scoped vault skill (`build` and `publish-artifact` dropped as non-vault function), so a fresh vault's `doctor` reports `skills 1/1`. Still placeholders: `automation/` (daily-digest, action-review) — those launchd jobs stay gated until their scripts land. Nothing is wired into the live setup; `onevault-mcp` serves the live vault until the Phase 5 cutover. Run `new`/install/doctor against a throwaway dir with `--home`/`--data-dir`/`--launchd-dir` to exercise the full surface safely.
-
-**Open question:** Claude Code precedence is personal > project, and project skills install as symlinks into `<vault>/.claude/skills`. Whether Claude Code follows symlinks there is undocumented — verify by opening Claude in a hebb vault and checking the skill loads; if not, switch install to copy skill files instead of symlinking.
+**Next: continue system testing; evaluate plugin packaging (below). Release (Stage 3) is deferred until both are settled.** Phases 0-3 done. Skills are sorted for the vault layer: `vault-ingest` is the one generic, project-scoped vault skill (`build` and `publish-artifact` dropped as non-vault function), so a fresh vault's `doctor` reports `skills 1/1`. Still placeholders: `automation/` (daily-digest, action-review) — those launchd jobs stay gated until their scripts land. Nothing is wired into the live setup; `onevault-mcp` serves the live vault until the Phase 5 cutover. Run `new`/install/doctor against a throwaway dir with `--home`/`--data-dir`/`--launchd-dir` to exercise the full surface safely.
 
 ## Parked ideas
 
 Not committed to a phase; recorded for later.
+
+### Open decision: package the Claude-facing surface as a plugin
+Evaluate shipping a `hebb` Claude Code plugin for the agent-facing layer (skills, the MCP server, possibly slash commands and the parked context hook), wrapping the `hebb` binary which keeps the engine, CLI, and per-vault data (`install`/`new`/`doctor`, config, index, memory).
+- **Why:** plugin skills are namespaced (`hebb:vault-ingest`), which removes the personal>project shadowing problem and the undocumented symlink-following dependency entirely (this supersedes the earlier open question about symlinks in `<vault>/.claude/skills`). It also declares the MCP server once instead of a committed per-vault `.mcp.json`, and shrinks `install` (drops skill-symlinking + per-vault MCP/settings wiring; keeps config + index + memory).
+- **Not a replacement for:** the binary and its distribution (brew/npm still needed; plugins don't ship per-platform Go), or per-vault data setup.
+- **Caveat to verify:** how a plugin's MCP server is launched per project (cwd / vault resolution). hebb resolves the vault via `findVaultUp`, so it should work, but the server must no-op gracefully in non-vault dirs since a plugin is global.
+- **Decide before Stage 3 release**, since it changes what we distribute. Suggested spike: a plugin manifest declaring the MCP server + a namespaced skill, tested in a real vault.
 
 ### Deferred review findings (security/design review, 02-06-2026)
 Lower-priority items from the architecture/design/security review. The three high-value fixes (plist XML escaping, web Host-header guard against DNS rebinding, symlink containment in the indexer) are done and on `claude/architecture-design-security-review-B5xbX`. Remaining, in rough priority order:

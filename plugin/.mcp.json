@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "hebb": {
+      "type": "stdio",
+      "command": "hebb",
+      "args": ["mcp"],
+      "env": {
+        "HEBB_VAULT": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

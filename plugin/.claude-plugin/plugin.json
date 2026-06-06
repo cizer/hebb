@@ -1,0 +1,11 @@
+{
+  "name": "hebb",
+  "displayName": "hebb vault",
+  "description": "Index, search and ingest a markdown knowledge vault. Provides the hebb MCP server (search_vault, expand_context, get_context_for_topic, vault_stats, reindex_vault) and the vault-ingest skill. Requires the hebb binary on PATH.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/cizer/hebb",
+  "repository": "https://github.com/cizer/hebb",
+  "keywords": ["vault", "markdown", "search", "obsidian", "para"],
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/"
+}

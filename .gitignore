@@ -16,3 +16,6 @@
 
 # Throwaway plugin spike (not part of the build)
 /spike/
+
+# internal dev tracker, not for the public repo
+/PLAN.md

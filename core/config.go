@@ -14,7 +14,7 @@ type Config struct {
 }
 
 // defaultExcludeDirs are directory names skipped when walking a vault.
-var defaultExcludeDirs = []string{".obsidian", ".trash", ".hebb", ".git", ".onevault-mcp"}
+var defaultExcludeDirs = []string{".obsidian", ".trash", ".hebb", ".git"}
 
 // ResolveVault determines the vault path (flag, then $HEBB_VAULT, then the
 // nearest ancestor of the cwd containing .hebb/) and the index db path.

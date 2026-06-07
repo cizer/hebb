@@ -12,8 +12,8 @@ import (
 )
 
 // Serve opens the vault index, builds it, and runs the MCP server over stdio.
-// The tool surface matches the Node onevault-mcp so a project-scoped .mcp.json
-// can swap one for the other transparently.
+// The tool names are a stable contract: clients (the plugin, Codex, Desktop)
+// rely on them, so they are guarded by tests.
 func Serve(cfg core.Config, version string) error {
 	db, err := core.OpenDB(cfg.DBPath)
 	if err != nil {

@@ -31,10 +31,9 @@ func Slugify(s string) string {
 }
 
 // VaultJobs builds launchd job specs for the named jobs of a vault. The web job
-// is built in (hebb serve). The daily-digest and action-review jobs mirror the
-// onevault reference contract but are only included when their script exists
-// under <assetRoot>/automation, so no broken plists are written before the
-// automation scripts are migrated. Unknown names are skipped.
+// is built in (hebb serve). The daily-digest and action-review jobs are only
+// included when their script exists under <assetRoot>/automation, so no broken
+// plists are written if the automation scripts are absent. Unknown names are skipped.
 func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string) []launchd.Job {
 	logDir := filepath.Join(home, "Library", "Logs")
 	logPath := func(job string) string {

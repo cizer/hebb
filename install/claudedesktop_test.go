@@ -41,7 +41,7 @@ func TestWriteClaudeDesktopConfigCreatesAndPins(t *testing.T) {
 
 func TestWriteClaudeDesktopConfigPreservesOtherServers(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "claude_desktop_config.json")
-	orig := `{"globalShortcut":"Cmd+Space","mcpServers":{"onevault":{"command":"node","args":["server.js"]}}}`
+	orig := `{"globalShortcut":"Cmd+Space","mcpServers":{"github":{"command":"node","args":["server.js"]}}}`
 	if err := os.WriteFile(cfg, []byte(orig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +57,8 @@ func TestWriteClaudeDesktopConfigPreservesOtherServers(t *testing.T) {
 		t.Error("top-level key lost")
 	}
 	servers := root["mcpServers"].(map[string]any)
-	if _, ok := servers["onevault"]; !ok {
-		t.Error("the existing onevault server must survive")
+	if _, ok := servers["github"]; !ok {
+		t.Error("the existing github server must survive")
 	}
 	if _, ok := servers["hebb"]; !ok {
 		t.Error("hebb server should be added")
@@ -81,7 +81,7 @@ func TestWriteClaudeDesktopConfigIdempotent(t *testing.T) {
 
 func TestRemoveClaudeDesktopConfig(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "claude_desktop_config.json")
-	orig := `{"mcpServers":{"onevault":{"command":"node"},"hebb":{"command":"/abs/hebb"}}}`
+	orig := `{"mcpServers":{"github":{"command":"node"},"hebb":{"command":"/abs/hebb"}}}`
 	if err := os.WriteFile(cfg, []byte(orig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +99,8 @@ func TestRemoveClaudeDesktopConfig(t *testing.T) {
 	if _, ok := servers["hebb"]; ok {
 		t.Error("hebb should be removed")
 	}
-	if _, ok := servers["onevault"]; !ok {
-		t.Error("onevault must survive")
+	if _, ok := servers["github"]; !ok {
+		t.Error("github must survive")
 	}
 
 	// Absent cases: no file, and present-but-no-hebb.

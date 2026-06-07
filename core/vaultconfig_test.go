@@ -8,9 +8,9 @@ import (
 )
 
 func TestDefaultVaultConfig(t *testing.T) {
-	vc := DefaultVaultConfig("OneVault")
-	if vc.Name != "OneVault" {
-		t.Errorf("name = %q, want OneVault", vc.Name)
+	vc := DefaultVaultConfig("Work Vault")
+	if vc.Name != "Work Vault" {
+		t.Errorf("name = %q, want Work Vault", vc.Name)
 	}
 	if vc.WebPort != 4321 {
 		t.Errorf("web port = %d, want 4321", vc.WebPort)

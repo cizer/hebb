@@ -90,7 +90,7 @@ func TestToolSurface(t *testing.T) {
 		}
 		got[st.Tool.Name] = true
 	}
-	// Names are the drop-in contract with the Node onevault-mcp; guard them.
+	// The tool names are a stable client contract; guard them.
 	for _, want := range []string{"search_vault", "expand_context", "get_context_for_topic", "vault_stats", "reindex_vault"} {
 		if !got[want] {
 			t.Errorf("missing tool %q", want)

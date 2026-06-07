@@ -26,8 +26,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// schemaSQL matches the Node reference (onevault-mcp) so an index built by
-// either tool is identical: external-content FTS5 kept in sync by triggers.
+// schemaSQL defines the index: external-content FTS5 kept in sync by triggers.
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS notes (
   path TEXT PRIMARY KEY,

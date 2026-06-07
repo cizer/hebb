@@ -196,7 +196,7 @@ func TestTeardownRemovesClaudeDesktop(t *testing.T) {
 	if _, err := WriteClaudeDesktopConfig(desktop, DefaultMCPServerName, "/abs/hebb", opts.VaultPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WriteClaudeDesktopConfig(desktop, "onevault", "node", "/other"); err != nil {
+	if _, err := WriteClaudeDesktopConfig(desktop, "github", "node", "/other"); err != nil {
 		t.Fatal(err)
 	}
 	opts.DesktopConfig = desktop
@@ -208,7 +208,7 @@ func TestTeardownRemovesClaudeDesktop(t *testing.T) {
 	if strings.Contains(string(b), opts.VaultPath) {
 		t.Errorf("hebb desktop entry should be removed:\n%s", b)
 	}
-	if !strings.Contains(string(b), "onevault") {
+	if !strings.Contains(string(b), "github") {
 		t.Error("the sibling desktop server must survive")
 	}
 }

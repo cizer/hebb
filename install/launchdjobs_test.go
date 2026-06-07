@@ -11,7 +11,7 @@ import (
 
 func TestSlugify(t *testing.T) {
 	cases := map[string]string{
-		"OneVault":      "onevault",
+		"Team Vault":    "team-vault",
 		"My Work Vault": "my-work-vault",
 		"work_2025":     "work-2025",
 		"  Spaces  ":    "spaces",

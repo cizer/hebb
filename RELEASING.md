@@ -36,8 +36,13 @@ goreleaser release --snapshot --clean  # build artifacts into ./dist, no upload
 
 ## How users install
 
-- **Go users:** `go install github.com/cizer/hebb/cmd/hebb@latest` (needs the repo
-  public). Works the moment a tag exists.
+- **Install script (one-liner):** `install.sh` at the repo root detects OS/arch,
+  downloads the matching release archive, and installs to `~/.local/bin`. Public:
+  `curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh`.
+  Private: `gh api repos/cizer/hebb/contents/install.sh -H "Accept: application/vnd.github.raw" | sh`
+  (the script uses `gh` for the asset too). `HEBB_VERSION` / `HEBB_INSTALL_DIR` override.
+- **Go users:** `go install github.com/cizer/hebb/cmd/hebb@latest` (set
+  `GOPRIVATE=github.com/cizer/*` while private). Works the moment a tag exists.
 - **Binary:** download the archive for their platform from the GitHub Release and
   put `hebb` on `PATH`.
 - **Homebrew (optional):** disabled until set up. To enable: create a public

@@ -12,6 +12,27 @@ Go rewrite of the Node reference `onevault-mcp`. Design in [ARCHITECTURE.md](ARC
 
 **Phase 3 complete; plugin adopted** — `hebb new` scaffolds a fresh vault from the bundled template and installs it; `hebb install` and `hebb doctor` work end-to-end (config, launchd jobs, memory symlink, first index). The agent-facing layer (the MCP server and the `vault-ingest` skill) ships as the hebb Claude Code plugin in [`plugin/`](plugin/), so install is now purely data-side; `--mcp-json` writes a per-vault `.mcp.json` + settings for plugin-less use. Builds on Phase 1 parity with `onevault-mcp` (index, search, MCP server, web UI, file watcher). The daily-digest and action-review automation scripts are now migrated into [`automation/`](automation/), embedded in the binary and rendered as launchd jobs by `hebb install`. Not yet wired into a live machine; `onevault-mcp` keeps serving the live vault until the Phase 5 cutover.
 
+## Install
+
+Once the repo is public, the one-liner:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh
+```
+
+While the repo is private, the same script via your `gh` auth (it fetches the
+binary with `gh` too):
+
+```sh
+gh api repos/cizer/hebb/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
+```
+
+Or with Go: `go install github.com/cizer/hebb/cmd/hebb@latest` (set
+`GOPRIVATE=github.com/cizer/*` while private). The installer drops `hebb` in
+`~/.local/bin` (override `HEBB_INSTALL_DIR`); pin a version with
+`HEBB_VERSION=vX.Y.Z`. Then `hebb new <path>` or `hebb install` in an existing
+vault.
+
 ## Commands
 
 Working today:

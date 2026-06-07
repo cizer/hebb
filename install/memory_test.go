@@ -10,8 +10,9 @@ func TestClaudeProjectSlug(t *testing.T) {
 	// Matches Claude Code's per-project dir naming: every non-alphanumeric
 	// char becomes '-', case preserved, no collapsing.
 	cases := map[string]string{
-		"/Users/richie.mackay/personal/hebb": "-Users-richie-mackay-personal-hebb",
-		"/v/work":                            "-v-work",
+		// covers slash, space, dot, and case preservation
+		"/Users/example/Notes.d/My Vault": "-Users-example-Notes-d-My-Vault",
+		"/v/work":                         "-v-work",
 	}
 	for in, want := range cases {
 		if got := ClaudeProjectSlug(in); got != want {

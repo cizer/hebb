@@ -41,8 +41,9 @@ Counts as of writing: core 15, install 32, launchd 6, cli 8, web 2, mcp 5, root 
 
 The original gap (a manual acceptance layer, no race or cross-platform coverage)
 is closed: `scripts/acceptance.sh` drives the built binary on macOS and Linux in
-CI, and Stage 1 runs `-race` plus a cross-compile matrix. What is still open:
-Stage 3 release automation is deferred (see PLAN.md Phase 4), and `staticcheck` /
+CI, and Stage 1 runs `-race` plus a cross-compile matrix. Stage 3 release is
+wired as a `release` job in `ci.yml`, gated on `needs: [build, acceptance]` so it
+publishes only after both stages pass. What is still open: `staticcheck` /
 `golangci-lint` / `govulncheck` are not yet wired in.
 
 ## Pipeline: two stages

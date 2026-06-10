@@ -19,9 +19,10 @@ How a version of hebb is built and distributed. Test strategy is in
    git tag v0.1.0
    git push origin v0.1.0
    ```
-3. `.github/workflows/release.yml` fires on the `v*` tag: it re-runs the fast
-   suite (`go vet` + `go test ./...`) as a gate, then runs GoReleaser
-   (`release --clean`).
+3. The `v*` tag triggers `.github/workflows/ci.yml`. Its `release` job is gated
+   on `needs: [build, acceptance]`, so it runs only after Stage 1 and Stage 2
+   pass on the tagged commit (the release never runs in parallel with, or ahead
+   of, CI). The job then runs GoReleaser (`release --clean`).
 
 GoReleaser (`.goreleaser.yaml`) cross-compiles `darwin`/`linux` × `amd64`/`arm64`
 (CGO disabled — pure-Go SQLite), builds `.tar.gz` archives + `checksums.txt`, and
@@ -48,7 +49,8 @@ goreleaser release --snapshot --clean  # build artifacts into ./dist, no upload
 - **Homebrew (optional):** disabled until set up. To enable: create a public
   `cizer/homebrew-hebb` repo, add a `HOMEBREW_TAP_GITHUB_TOKEN` secret (PAT with
   `repo` scope on the tap), uncomment the `brews:` block in `.goreleaser.yaml`
-  and the env line in `release.yml`. Then `brew install cizer/hebb/hebb`.
+  and the `HOMEBREW_TAP_GITHUB_TOKEN` env line in the `release` job of
+  `.github/workflows/ci.yml`. Then `brew install cizer/hebb/hebb`.
 - **Claude Code plugin:** `/plugin marketplace add cizer/hebb` then
   `/plugin install hebb@hebb` (delivers MCP + skill config; still needs the
   binary on `PATH`).

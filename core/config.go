@@ -11,6 +11,7 @@ type Config struct {
 	VaultPath   string
 	DBPath      string
 	ExcludeDirs []string
+	Git         GitConfig // git-mode settings from the vault's [git] block
 }
 
 // defaultExcludeDirs are directory names skipped when walking a vault.
@@ -52,6 +53,9 @@ func ResolveVault(flagVault, flagDB string) (Config, error) {
 	}
 	if existed && len(vc.ExcludeDirs) > 0 {
 		cfg.ExcludeDirs = vc.ExcludeDirs
+	}
+	if existed {
+		cfg.Git = vc.Git
 	}
 	return cfg, nil
 }

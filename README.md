@@ -52,6 +52,7 @@ hebb codex                                  # register the vault with the Codex 
 - `hebb codex` — register the vault as a Codex MCP server (`~/.codex/config.toml`), non-destructively.
 - `hebb doctor` — read-only health check; non-zero exit if anything is broken.
 - `hebb reset` — un-wire a vault from the machine (memory link, launchd jobs, agent configs, index). Dry run by default; `--force` to apply. Never touches your notes.
+- `hebb sync` — commit, pull (rebase), and push the vault's markdown via git. Never force-pushes; a conflicting pull is aborted and reported. Enable `[git]` in `config.toml` to also auto-sync: pull when a hebb process starts, commit+push after edits settle.
 - `hebb index` — build or refresh the index (usually automatic).
 
 Vault selection everywhere: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.

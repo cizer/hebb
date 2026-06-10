@@ -15,11 +15,53 @@ import (
 // <vault>/.hebb/config.toml. It self-identifies a vault and configures the
 // parts of hebb that vary per vault (excludes, web port, enabled jobs/skills).
 type VaultConfig struct {
-	Name        string   `toml:"name"`
-	ExcludeDirs []string `toml:"exclude_dirs"`
-	WebPort     int      `toml:"web_port"`
-	Jobs        []string `toml:"jobs"`
-	Skills      []string `toml:"skills"`
+	Name        string    `toml:"name"`
+	ExcludeDirs []string  `toml:"exclude_dirs"`
+	WebPort     int       `toml:"web_port"`
+	Jobs        []string  `toml:"jobs"`
+	Skills      []string  `toml:"skills"`
+	Git         GitConfig `toml:"git"`
+}
+
+// GitConfig is the committed [git] block. Git mode keeps the vault's markdown in
+// sync with a remote (pull before work, commit + push after). It is off unless
+// enabled is true. AutoPull/AutoPush are pointers so an unset value defaults to
+// on (only meaningful when enabled), while an explicit false turns that half
+// off.
+type GitConfig struct {
+	Enabled         bool   `toml:"enabled"`
+	AutoPull        *bool  `toml:"auto_pull"`        // default true when enabled
+	AutoPush        *bool  `toml:"auto_push"`        // default true when enabled
+	DebounceSeconds int    `toml:"debounce_seconds"` // watcher quiet-period before a sync; default 10
+	CommitMessage   string `toml:"commit_message"`   // default "hebb: sync vault"
+}
+
+const defaultGitDebounceSeconds = 10
+
+// PullEnabled reports whether git mode should pull (on by default when enabled).
+func (g GitConfig) PullEnabled() bool {
+	return g.Enabled && (g.AutoPull == nil || *g.AutoPull)
+}
+
+// PushEnabled reports whether git mode should commit+push (on by default when enabled).
+func (g GitConfig) PushEnabled() bool {
+	return g.Enabled && (g.AutoPush == nil || *g.AutoPush)
+}
+
+// Debounce is the resolved quiet-period in seconds before the watcher syncs.
+func (g GitConfig) Debounce() int {
+	if g.DebounceSeconds > 0 {
+		return g.DebounceSeconds
+	}
+	return defaultGitDebounceSeconds
+}
+
+// Message is the resolved auto-commit message.
+func (g GitConfig) Message() string {
+	if g.CommitMessage != "" {
+		return g.CommitMessage
+	}
+	return defaultCommitMessage
 }
 
 // DefaultVaultConfig returns the baseline config for a vault of the given name.

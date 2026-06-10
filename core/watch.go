@@ -41,6 +41,13 @@ func Watch(cfg Config, db *sql.DB) (*Watcher, error) {
 		}
 		return nil
 	})
+	// Git mode: pull before work so the session starts from the latest remote
+	// state. Best-effort and non-blocking to the watcher; a conflict surfaces
+	// only via `hebb sync` (auto-commit/push happens on the debounce below).
+	if cfg.Git.PullEnabled() && IsGitRepo(cfg.VaultPath) {
+		_ = GitPull(cfg.VaultPath)
+	}
+
 	wt := &Watcher{w: fw, done: make(chan struct{})}
 	go wt.loop(cfg, db, excluded)
 	return wt, nil
@@ -55,6 +62,32 @@ func (wt *Watcher) loop(cfg Config, db *sql.DB, excluded map[string]bool) {
 			return ""
 		}
 		return filepath.ToSlash(r)
+	}
+
+	// Git mode: after content settles (a quiet period with no further changes),
+	// commit and push the whole burst as one coherent commit. A single shared
+	// timer, reset on every content event, debounces the burst. Best-effort:
+	// errors (e.g. a conflict on pull) are left for `hebb sync` to surface.
+	gitOn := cfg.Git.PushEnabled() && IsGitRepo(cfg.VaultPath)
+	var gitTimer *time.Timer
+	scheduleGitSync := func() {
+		if !gitOn {
+			return
+		}
+		mu.Lock()
+		if gitTimer != nil {
+			gitTimer.Stop()
+		}
+		gitTimer = time.AfterFunc(time.Duration(cfg.Git.Debounce())*time.Second, func() {
+			defer func() { _ = recover() }()
+			_, _ = GitSync(cfg.VaultPath, SyncOptions{
+				Commit:  true,
+				Pull:    cfg.Git.PullEnabled(),
+				Push:    true,
+				Message: cfg.Git.Message(),
+			})
+		})
+		mu.Unlock()
 	}
 	for {
 		select {
@@ -82,6 +115,7 @@ func (wt *Watcher) loop(cfg Config, db *sql.DB, excluded map[string]bool) {
 			}
 			if ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
 				_ = RemoveFile(db, rel)
+				scheduleGitSync()
 				continue
 			}
 			if ev.Op&(fsnotify.Write|fsnotify.Create) != 0 {
@@ -96,6 +130,7 @@ func (wt *Watcher) loop(cfg Config, db *sql.DB, excluded map[string]bool) {
 					_ = IndexFile(cfg, db, r)
 				})
 				mu.Unlock()
+				scheduleGitSync()
 			}
 		case _, ok := <-wt.w.Errors:
 			if !ok {

@@ -17,29 +17,96 @@ Multi-vault, like git is multi-repo: run `hebb` inside a vault directory, or pas
 
 ## Install
 
+hebb is a single static binary for **macOS or Linux** (arm64 or amd64). Pick one method:
+
+**Install script.** Downloads the matching release binary to `~/.local/bin`:
+
 ```sh
+# public repo:
 curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh
+
+# private repo (uses your GitHub CLI auth for both the script and the binary):
+gh api repos/cizer/hebb/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
 ```
 
-Installs `hebb` to `~/.local/bin` (override `HEBB_INSTALL_DIR`; pin a version with `HEBB_VERSION=vX.Y.Z`). With Go: `go install github.com/cizer/hebb/cmd/hebb@latest`. Requires macOS or Linux (arm64 or amd64).
+Override the target dir with `HEBB_INSTALL_DIR`, or pin a version with `HEBB_VERSION=vX.Y.Z`.
 
-## Quickstart
+**Go:** `go install github.com/cizer/hebb/cmd/hebb@latest` (set `GOPRIVATE=github.com/cizer/*` while the repo is private).
+
+**Homebrew:** planned, not yet enabled.
+
+Then make sure the install dir is on your `PATH`, and check the binary:
 
 ```sh
-hebb new ~/notes              # scaffold a vault (PARA folders + templates) and install it
+export PATH="$HOME/.local/bin:$PATH"   # add to your shell profile if it isn't already
+hebb --version
+```
+
+Later, upgrade in place with `hebb update`.
+
+## Set up a vault
+
+A *vault* is just a folder of markdown notes. hebb adds a `.hebb/` directory to it (like `.git` adds `.git/`) and wires it into your machine and agents. Start one of two ways.
+
+### A new vault
+
+```sh
+hebb new ~/notes
+```
+
+Scaffolds a PARA skeleton (`1-Projects/`, `2-Areas/`, `3-Resources/`, `4-Archives/`), a baseline `CLAUDE.md` and `AGENTS.md`, a note template, and an empty memory seed, then installs it. Refuses to scaffold into a non-empty directory, so it never overwrites existing files.
+
+### An existing folder of notes
+
+```sh
+hebb install --vault ~/existing-notes
+```
+
+Indexes the folder in place and wires it. Pass `--vault` the first time because the folder has no `.hebb/` yet for hebb to find. After that the vault self-identifies, so you can just `cd ~/existing-notes && hebb <command>`.
+
+### What `hebb install` does
+
+Both paths run `hebb install`. It is idempotent and never modifies your notes:
+
+- writes `.hebb/config.toml` (the committed, per-vault config) and builds the search index at `.hebb/index.db`;
+- symlinks the vault's agent memory (`.hebb/memory/`) into Claude's project directory;
+- installs hebb's skills into `~/.claude/skills` (`--no-skills` to skip);
+- offers an interactive picker to connect your agents (or pass `--codex` / `--claude-desktop` / `--mcp-json` explicitly, or `--no-interaction` to skip);
+- with `--launchd`, renders background jobs (`--load` also starts them).
+
+Check the result any time with `hebb doctor`, and browse the vault with `hebb serve` (local web UI on `127.0.0.1`).
+
+### Connect your agents
+
+The picker can do this for you, or wire each explicitly:
+
+- **Claude Code.** Install the plugin (works in every vault):
+  ```
+  /plugin marketplace add cizer/hebb
+  /plugin install hebb@hebb
+  ```
+  `hebb install` also drops the `vault-ingest` skill into `~/.claude/skills`, so it works even without the plugin.
+- **Codex.** `hebb codex` adds an `[mcp_servers.hebb]` entry to `~/.codex/config.toml` and installs the skills into `~/.agents/skills`.
+- **Claude Desktop.** `hebb install --claude-desktop` (restart Claude Desktop afterwards).
+- **Anything else that speaks MCP.** Point it at `hebb mcp`.
+
+See [Agents](#agents) for how each adapter works.
+
+### What to commit
+
+Commit `.hebb/config.toml` and your notes, so a cloned or synced vault self-identifies. The index (`.hebb/index.db`) is derived and rebuilt on demand, so gitignore it. Memory under `.hebb/memory/` travels with the vault. To keep the markdown synced automatically, enable `[git]` in `config.toml` (see `hebb sync` below).
+
+### Multiple vaults
+
+hebb is multi-vault like git is multi-repo: install the binary once, then create or attach as many vaults as you like. Each is independent. Every command resolves its vault from the current directory (nearest `.hebb/` above the cwd), or an explicit `--vault <path>`, or `$HEBB_VAULT`.
+
+### Try it
+
+```sh
 cd ~/notes
-echo "# Idea\nA note about search engines. #ideas" > 1-Projects/Idea.md
-hebb search "search engines"  # full-text search
-hebb serve                    # local web UI on 127.0.0.1
-```
-
-Wire your agents — `hebb install`/`hebb new` offer an interactive picker, or do it directly:
-
-```sh
-hebb codex                                  # register the vault with the Codex CLI
-# Claude Code plugin (search + the vault-ingest skill, all vaults):
-#   /plugin marketplace add cizer/hebb
-#   /plugin install hebb@hebb
+printf '# Search engines\nNotes on ranking and FTS. #ideas\n' > 1-Projects/Search.md
+hebb search "ranking"   # full-text search
+hebb serve              # browse at http://127.0.0.1:4321
 ```
 
 ## Commands

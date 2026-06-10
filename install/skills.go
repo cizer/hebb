@@ -53,6 +53,32 @@ func InstallSkills(skillsFS fs.FS, dir string) ([]string, error) {
 	return names, nil
 }
 
+// UpdateManagedSkills re-applies the bundled skills to dir, but only if hebb
+// already manages skills there (at least one bundled skill is present). When the
+// dir is managed it installs the full bundle, so a new skill in a release is
+// deployed and changed skills are refreshed; when it is not (an agent the user
+// doesn't use, or one they installed with --no-skills) it does nothing, so an
+// upgrade never forces skills onto an opted-out dir. Returns the skills applied.
+func UpdateManagedSkills(skillsFS fs.FS, dir string) ([]string, error) {
+	entries, err := fs.ReadDir(skillsFS, ".")
+	if err != nil {
+		return nil, err
+	}
+	managed := false
+	for _, e := range entries {
+		if e.IsDir() {
+			if _, err := os.Stat(filepath.Join(dir, e.Name())); err == nil {
+				managed = true
+				break
+			}
+		}
+	}
+	if !managed {
+		return nil, nil
+	}
+	return InstallSkills(skillsFS, dir)
+}
+
 // copyTree writes every file in src under dst, creating directories as needed
 // and skipping files whose content already matches.
 func copyTree(src fs.FS, dst string) error {

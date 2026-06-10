@@ -67,6 +67,49 @@ func TestInstallSkillsIsIdempotentAndPreservesOthers(t *testing.T) {
 	}
 }
 
+func TestUpdateManagedSkills(t *testing.T) {
+	// Unmanaged dir (no hebb skill present): update does nothing, never forces
+	// skills onto an opted-out / unused agent.
+	empty := t.TempDir()
+	names, err := UpdateManagedSkills(skillsFixture(), empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("update on an unmanaged dir = %v, want none", names)
+	}
+	if _, err := os.Stat(filepath.Join(empty, "vault-ingest")); err == nil {
+		t.Error("update must not newly install into an unmanaged dir")
+	}
+
+	// Managed dir (already has the skill): update refreshes it AND deploys a new
+	// skill added to the release bundle.
+	dir := t.TempDir()
+	if _, err := InstallSkills(skillsFixture(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vault-ingest", "SKILL.md"), []byte("STALE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A newer release bundle adds a second skill.
+	bundle := skillsFixture()
+	bundle["vault-triage/SKILL.md"] = &fstest.MapFile{Data: []byte("# vault-triage\n")}
+
+	names, err = UpdateManagedSkills(bundle, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 2 {
+		t.Fatalf("update applied %v, want both skills (refresh + new)", names)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "vault-ingest", "SKILL.md")); string(b) == "STALE" {
+		t.Error("existing skill was not refreshed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vault-triage", "SKILL.md")); err != nil {
+		t.Errorf("new skill in the release was not deployed to the managed dir: %v", err)
+	}
+}
+
 func TestInstallSkillsUpdatesChangedFile(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-seed an older version of the hebb skill.

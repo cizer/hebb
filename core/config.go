@@ -14,8 +14,10 @@ type Config struct {
 	Git         GitConfig // git-mode settings from the vault's [git] block
 }
 
-// defaultExcludeDirs are directory names skipped when walking a vault.
-var defaultExcludeDirs = []string{".obsidian", ".trash", ".hebb", ".git"}
+// defaultExcludeDirs are directory names skipped when walking a vault. These
+// hold tool machinery (Obsidian/git/hebb state, agent config), not notes, so
+// indexing their markdown would pollute search and context results.
+var defaultExcludeDirs = []string{".obsidian", ".trash", ".hebb", ".git", ".claude"}
 
 // ResolveVault determines the vault path (flag, then $HEBB_VAULT, then the
 // nearest ancestor of the cwd containing .hebb/) and the index db path.

@@ -61,6 +61,46 @@ func TestFullReindexAndSearch(t *testing.T) {
 	}
 }
 
+// TestReindexExcludesMachineryDirs proves tool-machinery dirs (here .claude)
+// are not indexed: their markdown (slash commands, agents, skills) must not
+// leak into search.
+func TestReindexExcludesMachineryDirs(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("note.md", "# Real\n\nordinary content")
+	write(".claude/commands/deploy.md", "# Deploy\n\nclaudemachinerytoken")
+	write(".claude/skills/x/SKILL.md", "# Skill\n\nclaudemachinerytoken")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	res, err := FullReindex(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Indexed != 1 {
+		t.Fatalf("indexed = %d, want 1 (.claude excluded)", res.Indexed)
+	}
+	if hits, _ := Search(db, "claudemachinerytoken", 10, "", ""); len(hits) != 0 {
+		t.Fatalf(".claude markdown leaked into the index: %+v", hits)
+	}
+}
+
 // TestIndexSkipsSymlinkedNotes ensures a symlinked .md is never followed and
 // indexed: a note symlinked to a file outside the vault could otherwise pull
 // host content (e.g. a secret) into the searchable index. Both the full walk

@@ -49,7 +49,7 @@ hebb codex                                  # register the vault with the Codex 
 - `hebb search <query>` — full-text search (`--tag`, `--path-prefix`, `--limit`).
 - `hebb mcp` — MCP server over stdio (the five tools above).
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, `$HEBB_WEB_PORT`).
-- `hebb codex` — register the vault as a Codex MCP server (`~/.codex/config.toml`), non-destructively.
+- `hebb codex` — register the vault as a Codex MCP server (`~/.codex/config.toml`) and install hebb's agent skills into Codex's skills dir (`~/.agents/skills`), non-destructively. `--no-skills` to skip the skills.
 - `hebb doctor` — read-only health check; non-zero exit if anything is broken.
 - `hebb reset` — un-wire a vault from the machine (memory link, launchd jobs, agent configs, index). Dry run by default; `--force` to apply. Never touches your notes.
 - `hebb sync` — commit, pull (rebase), and push the vault's markdown via git. Never force-pushes; a conflicting pull is aborted and reported. Enable `[git]` in `config.toml` to also auto-sync: pull when a hebb process starts, commit+push after edits settle.
@@ -63,7 +63,8 @@ Vault selection everywhere: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.he
 hebb is the engine; thin adapters connect it to each tool, all over the same MCP server:
 
 - **Claude Code** — the [`plugin/`](plugin/) (MCP server + the `vault-ingest` filing skill), installed once via the marketplace; works in every vault.
-- **Claude Desktop / Codex** — an MCP-server entry pinned to a vault, written by the `hebb install` picker (or `hebb codex`).
+- **Codex** — an MCP-server entry pinned to the vault plus the same skills materialised into `~/.agents/skills`, written by `hebb codex` (or the `hebb install` picker). The Codex counterpart to the plugin.
+- **Claude Desktop** — an MCP-server entry pinned to a vault, written by the `hebb install` picker.
 - **Anything else that speaks MCP** — point it at `hebb mcp`.
 
 ## How it works

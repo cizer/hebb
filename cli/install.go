@@ -3,8 +3,10 @@ package cli
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	hebbassets "github.com/cizer/hebb"
 	"github.com/cizer/hebb/core"
@@ -150,6 +152,14 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 			return err
 		}
 		fmt.Fprintf(out, "  %-16s %s (%s)\n", "codex", status, codexPath)
+		// Match `hebb codex`: also deliver the skills into Codex's skills dir.
+		if skillsFS, serr := fs.Sub(hebbassets.Assets, "plugin/skills"); serr == nil {
+			if names, ierr := install.InstallCodexSkills(skillsFS, install.CodexSkillsDir(home)); ierr != nil {
+				return ierr
+			} else if len(names) > 0 {
+				fmt.Fprintf(out, "  %-16s %s (%s)\n", "codex skills", strings.Join(names, ", "), install.CodexSkillsDir(home))
+			}
+		}
 	}
 	if p.claudeDesktop {
 		desktopPath := p.claudeDesktopCfg

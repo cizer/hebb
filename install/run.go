@@ -121,7 +121,7 @@ func renderLaunchd(rep *Report, opts Options, assetDir string) error {
 		return err
 	}
 	slug := Slugify(vc.Name)
-	jobs := VaultJobs(opts.VaultPath, slug, opts.HebbBin, assetDir, opts.Home, vc.WebPort, vc.Jobs)
+	jobs := VaultJobs(opts.VaultPath, slug, opts.HebbBin, assetDir, opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto)
 	changed, err := launchd.WriteJobs(jobs, opts.LaunchdDir)
 	if err != nil {
 		return err

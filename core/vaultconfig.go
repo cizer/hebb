@@ -15,12 +15,20 @@ import (
 // <vault>/.hebb/config.toml. It self-identifies a vault and configures the
 // parts of hebb that vary per vault (excludes, web port, enabled jobs/skills).
 type VaultConfig struct {
-	Name        string    `toml:"name"`
-	ExcludeDirs []string  `toml:"exclude_dirs"`
-	WebPort     int       `toml:"web_port"`
-	Jobs        []string  `toml:"jobs"`
-	Skills      []string  `toml:"skills"`
-	Git         GitConfig `toml:"git"`
+	Name        string       `toml:"name"`
+	ExcludeDirs []string     `toml:"exclude_dirs"`
+	WebPort     int          `toml:"web_port"`
+	Jobs        []string     `toml:"jobs"`
+	Skills      []string     `toml:"skills"`
+	Git         GitConfig    `toml:"git"`
+	Update      UpdateConfig `toml:"update"`
+}
+
+// UpdateConfig is the committed [update] block. The scheduled update-check job
+// reports a newer release by default; with auto = true it installs it (opt-in,
+// since self-replacing a binary unattended is a deliberate choice).
+type UpdateConfig struct {
+	Auto bool `toml:"auto"`
 }
 
 // GitConfig is the committed [git] block. Git mode keeps the vault's markdown in
@@ -70,7 +78,7 @@ func DefaultVaultConfig(name string) VaultConfig {
 		Name:        name,
 		ExcludeDirs: append([]string(nil), defaultExcludeDirs...),
 		WebPort:     defaultWebPort,
-		Jobs:        []string{"daily-digest", "action-review", "web"},
+		Jobs:        []string{"daily-digest", "action-review", "web", "update-check"},
 		Skills:      []string{"vault-ingest"},
 	}
 }

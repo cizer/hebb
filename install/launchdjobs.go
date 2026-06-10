@@ -30,11 +30,13 @@ func Slugify(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// VaultJobs builds launchd job specs for the named jobs of a vault. The web job
-// is built in (hebb serve). The daily-digest and action-review jobs are only
-// included when their script exists under <assetRoot>/automation, so no broken
-// plists are written if the automation scripts are absent. Unknown names are skipped.
-func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string) []launchd.Job {
+// VaultJobs builds launchd job specs for the named jobs of a vault. The web and
+// update-check jobs are built in (they run the hebb binary). The daily-digest
+// and action-review jobs are only included when their script exists under
+// <assetRoot>/automation, so no broken plists are written if the automation
+// scripts are absent. updateAuto makes the update-check job install updates
+// rather than only reporting them. Unknown names are skipped.
+func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string, updateAuto bool) []launchd.Job {
 	logDir := filepath.Join(home, "Library", "Logs")
 	logPath := func(job string) string {
 		return filepath.Join(logDir, "hebb-"+slug+"-"+job+".log")
@@ -89,6 +91,18 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				WorkingDir: vaultPath,
 				Schedule:   []launchd.CalInterval{{Weekday: -1, Hour: 7, Minute: 3}},
 				LogPath:    logPath("action-review"),
+			})
+		case "update-check":
+			args := []string{hebbBin, "update", "--check"}
+			if updateAuto {
+				args = []string{hebbBin, "update"}
+			}
+			jobs = append(jobs, launchd.Job{
+				Label:      label("update-check"),
+				Program:    args,
+				WorkingDir: vaultPath,
+				Schedule:   []launchd.CalInterval{{Weekday: 1, Hour: 9, Minute: 0}}, // Mondays 09:00
+				LogPath:    logPath("update-check"),
 			})
 		}
 	}

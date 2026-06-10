@@ -158,7 +158,7 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 	if dir == "" {
 		return
 	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs)
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto)
 	if len(jobs) == 0 {
 		return
 	}

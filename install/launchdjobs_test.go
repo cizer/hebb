@@ -34,7 +34,7 @@ func jobByLabel(jobs []launchd.Job, label string) (launchd.Job, bool) {
 
 func TestVaultJobsWebIsBuiltIn(t *testing.T) {
 	home := t.TempDir()
-	jobs := VaultJobs("/vaults/work", "work", "/usr/local/bin/hebb", t.TempDir(), home, 4399, []string{"web"})
+	jobs := VaultJobs("/vaults/work", "work", "/usr/local/bin/hebb", t.TempDir(), home, 4399, []string{"web"}, false)
 	j, ok := jobByLabel(jobs, "local.hebb.work.web")
 	if !ok {
 		t.Fatalf("web job not built; got %d jobs", len(jobs))
@@ -59,7 +59,7 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 
 	// Without the scripts present, automation jobs are skipped.
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest", "action-review"})
+		[]string{"daily-digest", "action-review"}, false)
 	if len(jobs) != 0 {
 		t.Errorf("expected automation jobs skipped when scripts absent, got %d", len(jobs))
 	}
@@ -75,7 +75,7 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 		}
 	}
 	jobs = VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest", "action-review"})
+		[]string{"daily-digest", "action-review"}, false)
 
 	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
 	if !ok {
@@ -98,8 +98,30 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 }
 
 func TestVaultJobsSkipsUnknown(t *testing.T) {
-	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"web", "bogus"})
+	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"web", "bogus"}, false)
 	if len(jobs) != 1 {
 		t.Errorf("unknown job name should be skipped, got %d jobs", len(jobs))
+	}
+}
+
+func TestVaultJobsUpdateCheck(t *testing.T) {
+	// Default: the scheduled job only checks (notifies).
+	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check"}, false)
+	j, ok := jobByLabel(jobs, "local.hebb.v.update-check")
+	if !ok {
+		t.Fatal("update-check job not built")
+	}
+	if got := strings.Join(j.Program, " "); !strings.Contains(got, "update --check") {
+		t.Errorf("default update-check should run 'update --check', got %q", got)
+	}
+	if len(j.Schedule) != 1 {
+		t.Errorf("update-check should have one schedule entry, got %d", len(j.Schedule))
+	}
+
+	// auto = true: the job applies the update instead.
+	jobs = VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check"}, true)
+	j, _ = jobByLabel(jobs, "local.hebb.v.update-check")
+	if got := strings.Join(j.Program, " "); !strings.Contains(got, "update") || strings.Contains(got, "--check") {
+		t.Errorf("auto update-check should run 'update' without --check, got %q", got)
 	}
 }

@@ -53,6 +53,7 @@ hebb codex                                  # register the vault with the Codex 
 - `hebb doctor` — read-only health check; non-zero exit if anything is broken.
 - `hebb reset` — un-wire a vault from the machine (memory link, launchd jobs, agent configs, index). Dry run by default; `--force` to apply. Never touches your notes.
 - `hebb sync` — commit, pull (rebase), and push the vault's markdown via git. Never force-pushes; a conflicting pull is aborted and reported. Enable `[git]` in `config.toml` to also auto-sync: pull when a hebb process starts, commit+push after edits settle.
+- `hebb update` — check for and install a newer hebb release (checksum-verified, atomic replace). `--check` only reports. Self-replaces only a binary hebb owns; a Homebrew or `go install` binary is left to its package manager. A scheduled `update-check` job notifies of new releases (set `[update] auto = true` to install them).
 - `hebb index` — build or refresh the index (usually automatic).
 
 Vault selection everywhere: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.

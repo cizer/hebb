@@ -7,24 +7,31 @@ import (
 	"path/filepath"
 )
 
-// Codex (the OpenAI CLI) reads Agent Skills (a SKILL.md per skill directory)
-// from, among other locations, $HOME/.agents/skills. That is the user-global
-// spot, the Codex counterpart to installing the hebb Claude Code plugin once for
-// every vault. hebb ships the same skill files to both: Claude via the plugin
-// (marketplace), Codex via materialising the embedded copy here.
+// hebb ships one set of agent skills (a SKILL.md per skill directory) and
+// installs the same files into every place an agent looks for them: Claude
+// Code's personal skills dir (~/.claude/skills) and Codex's skills dir
+// (~/.agents/skills). The Claude Code plugin publishes the same skills via the
+// marketplace, but that only reaches plugin-enabled Claude Code; installing into
+// the skills dirs directly makes them work everywhere. InstallSkills is the one
+// materialiser shared by every caller; only the target directory differs.
 
-// CodexSkillsDir is the user-global directory Codex reads skills from.
+// ClaudeSkillsDir is Claude Code's user-global (personal) skills directory.
+func ClaudeSkillsDir(home string) string {
+	return filepath.Join(home, ".claude", "skills")
+}
+
+// CodexSkillsDir is Codex's user-global skills directory.
 func CodexSkillsDir(home string) string {
 	return filepath.Join(home, ".agents", "skills")
 }
 
-// InstallCodexSkills materialises the bundled skills (skillsFS rooted at the
-// skills parent, each immediate subdirectory a skill with a SKILL.md) into dir.
-// hebb owns the skills it ships: it writes and updates their files and leaves
-// any other skill already in dir untouched. Unchanged files are skipped, so it
-// is idempotent and cheap to re-run (e.g. after `hebb update`). Returns the
-// names of the skills delivered.
-func InstallCodexSkills(skillsFS fs.FS, dir string) ([]string, error) {
+// InstallSkills materialises the bundled skills (skillsFS rooted at the skills
+// parent, each immediate subdirectory a skill with a SKILL.md) into dir. hebb
+// owns the skills it ships: it writes and updates their files and leaves any
+// other skill already in dir untouched. Unchanged files are skipped, so it is
+// idempotent and cheap to re-run (e.g. after `hebb update`). Returns the names
+// of the skills delivered.
+func InstallSkills(skillsFS fs.FS, dir string) ([]string, error) {
 	entries, err := fs.ReadDir(skillsFS, ".")
 	if err != nil {
 		return nil, err

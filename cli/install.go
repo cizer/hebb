@@ -32,6 +32,7 @@ type installParams struct {
 	noInteraction    bool
 	codexConfig      string // test override
 	claudeDesktopCfg string // test override
+	noSkills         bool   // skip installing agent skills into the skills dirs
 }
 
 func installCmd() *cobra.Command {
@@ -65,6 +66,7 @@ func bindInstallFlags(c *cobra.Command, p *installParams) {
 	c.Flags().StringVar(&p.serverName, "mcp-name", install.DefaultMCPServerName, "MCP server name written into .mcp.json")
 	c.Flags().StringVar(&p.assetRoot, "asset-root", "", "dev override: use this repo checkout's automation/ instead of the bundled assets (default $HEBB_HOME)")
 	c.Flags().BoolVar(&p.mcpJSON, "mcp-json", false, "write a per-vault .mcp.json + settings for plugin-less use (otherwise the hebb plugin provides the MCP server)")
+	c.Flags().BoolVar(&p.noSkills, "no-skills", false, "do not install hebb's agent skills into the skills dir(s)")
 	c.Flags().BoolVar(&p.codex, "codex", false, "register this vault as a Codex MCP server (~/.codex/config.toml)")
 	c.Flags().BoolVar(&p.claudeDesktop, "claude-desktop", false, "register this vault as a Claude Desktop MCP server")
 	c.Flags().BoolVar(&p.noInteraction, "no-interaction", false, "never prompt; wire only the agents named by flags")
@@ -125,6 +127,7 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		DataDir:    dataDir,
 		AssetRoot:  assetRoot,
 		MCPJSON:    p.mcpJSON,
+		SkipSkills: p.noSkills,
 	})
 	if err != nil {
 		return err
@@ -153,11 +156,13 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		}
 		fmt.Fprintf(out, "  %-16s %s (%s)\n", "codex", status, codexPath)
 		// Match `hebb codex`: also deliver the skills into Codex's skills dir.
-		if skillsFS, serr := fs.Sub(hebbassets.Assets, "plugin/skills"); serr == nil {
-			if names, ierr := install.InstallCodexSkills(skillsFS, install.CodexSkillsDir(home)); ierr != nil {
-				return ierr
-			} else if len(names) > 0 {
-				fmt.Fprintf(out, "  %-16s %s (%s)\n", "codex skills", strings.Join(names, ", "), install.CodexSkillsDir(home))
+		if !p.noSkills {
+			if skillsFS, serr := fs.Sub(hebbassets.Assets, "plugin/skills"); serr == nil {
+				if names, ierr := install.InstallSkills(skillsFS, install.CodexSkillsDir(home)); ierr != nil {
+					return ierr
+				} else if len(names) > 0 {
+					fmt.Fprintf(out, "  %-16s %s (%s)\n", "codex skills", strings.Join(names, ", "), install.CodexSkillsDir(home))
+				}
 			}
 		}
 	}

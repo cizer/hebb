@@ -3,6 +3,7 @@ package install
 import (
 	"io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/cizer/hebb/core"
 	"github.com/cizer/hebb/launchd"
@@ -20,6 +21,7 @@ type Options struct {
 	LaunchdDir string // target LaunchAgents dir; "" disables launchd rendering
 	Load       bool   // if true, bootstrap rendered jobs via launchctl
 	MCPJSON    bool   // if true, write a per-vault .mcp.json + settings (plugin-less wiring)
+	SkipSkills bool   // if true, do not install agent skills into ~/.claude/skills
 
 	// Asset source. The binary is standalone: Assets carries the embedded
 	// function content (automation/, vault-template/), materialised to DataDir on
@@ -79,6 +81,23 @@ func Run(opts Options) (Report, error) {
 			return rep, err
 		}
 		rep.add("memory", status)
+	}
+
+	// Install the agent skills into Claude Code's personal skills dir. The plugin
+	// also publishes them, but only reaches plugin-enabled Claude Code; a direct
+	// install makes them work everywhere. Skipped when the assets carry no skills
+	// (e.g. a test FS) so other install steps are unaffected.
+	if opts.Home != "" && !opts.SkipSkills && opts.Assets != nil {
+		if _, err := fs.Stat(opts.Assets, "plugin/skills"); err == nil {
+			skillsFS, _ := fs.Sub(opts.Assets, "plugin/skills")
+			names, err := InstallSkills(skillsFS, ClaudeSkillsDir(opts.Home))
+			if err != nil {
+				return rep, err
+			}
+			if len(names) > 0 {
+				rep.add("skills", strings.Join(names, ", "))
+			}
+		}
 	}
 
 	if opts.LaunchdDir != "" && opts.HebbBin != "" && opts.Home != "" {

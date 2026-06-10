@@ -58,7 +58,7 @@ func codexCmd() *cobra.Command {
 				if skillsDir == "" {
 					skillsDir = install.CodexSkillsDir(home)
 				}
-				names, err := install.InstallCodexSkills(skillsFS, skillsDir)
+				names, err := install.InstallSkills(skillsFS, skillsDir)
 				if err != nil {
 					return err
 				}

@@ -20,11 +20,17 @@ func TestCodexSkillsDir(t *testing.T) {
 	}
 }
 
-func TestInstallCodexSkills(t *testing.T) {
+func TestClaudeSkillsDir(t *testing.T) {
+	if got := ClaudeSkillsDir("/home/x"); got != filepath.Join("/home/x", ".claude", "skills") {
+		t.Errorf("ClaudeSkillsDir = %q", got)
+	}
+}
+
+func TestInstallSkills(t *testing.T) {
 	dir := t.TempDir()
-	names, err := InstallCodexSkills(skillsFixture(), dir)
+	names, err := InstallSkills(skillsFixture(), dir)
 	if err != nil {
-		t.Fatalf("InstallCodexSkills: %v", err)
+		t.Fatalf("InstallSkills: %v", err)
 	}
 	if len(names) != 1 || names[0] != "vault-ingest" {
 		t.Fatalf("names = %v, want [vault-ingest]", names)
@@ -36,7 +42,7 @@ func TestInstallCodexSkills(t *testing.T) {
 	}
 }
 
-func TestInstallCodexSkillsIsIdempotentAndPreservesOthers(t *testing.T) {
+func TestInstallSkillsIsIdempotentAndPreservesOthers(t *testing.T) {
 	dir := t.TempDir()
 	// A skill hebb does not own must survive.
 	other := filepath.Join(dir, "my-own-skill")
@@ -47,11 +53,11 @@ func TestInstallCodexSkillsIsIdempotentAndPreservesOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := InstallCodexSkills(skillsFixture(), dir); err != nil {
+	if _, err := InstallSkills(skillsFixture(), dir); err != nil {
 		t.Fatal(err)
 	}
 	// Re-run: still succeeds (idempotent).
-	if _, err := InstallCodexSkills(skillsFixture(), dir); err != nil {
+	if _, err := InstallSkills(skillsFixture(), dir); err != nil {
 		t.Fatalf("second install: %v", err)
 	}
 
@@ -61,7 +67,7 @@ func TestInstallCodexSkillsIsIdempotentAndPreservesOthers(t *testing.T) {
 	}
 }
 
-func TestInstallCodexSkillsUpdatesChangedFile(t *testing.T) {
+func TestInstallSkillsUpdatesChangedFile(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-seed an older version of the hebb skill.
 	old := filepath.Join(dir, "vault-ingest")
@@ -71,7 +77,7 @@ func TestInstallCodexSkillsUpdatesChangedFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(old, "SKILL.md"), []byte("OLD"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := InstallCodexSkills(skillsFixture(), dir); err != nil {
+	if _, err := InstallSkills(skillsFixture(), dir); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(filepath.Join(old, "SKILL.md"))

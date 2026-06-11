@@ -16,6 +16,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +24,15 @@ from pathlib import Path
 DEFAULT_OUTPUT = "2-Areas/_ACTION-REVIEW.md"
 DEFAULT_JSON_OUTPUT = "2-Areas/_ACTION-REVIEW.json"
 DEFAULT_REGISTER_NAME = "OPEN-ACTIONS.md"
+
+
+def normalize_status(status: str) -> str:
+    """Lower-case status with any leading emoji / symbols / whitespace stripped.
+
+    Registers vary: some use plain `Open` / `Done`, others decorate the status
+    (`🔴 Overdue`, `✅ Done`, `🟡 Needs review`). Normalise before comparing.
+    """
+    return re.sub(r"^[^a-z]+", "", status.lower()).strip()
 
 
 @dataclass(frozen=True)
@@ -52,7 +62,7 @@ class Action:
     @property
     def is_overdue(self) -> bool:
         date_value = self.date_value
-        return date_value is not None and date_value <= dt.date.today() and self.status.lower() != "done"
+        return date_value is not None and date_value <= dt.date.today() and normalize_status(self.status) != "done"
 
     @property
     def stable_id(self) -> str:
@@ -191,7 +201,7 @@ def collect_actions(
             action
             for register in registers
             for action in parse_register(register, vault_root, owner_filter)
-            if action.status.lower() != "done"
+            if normalize_status(action.status) != "done"
         ]
     )
 
@@ -256,10 +266,10 @@ def build_review(
     registers, actions = collect_actions(vault_root, output_path, register_name, owner_filter)
 
     today = dt.date.today()
-    overdue = [item for item in actions if item.status.lower() == "overdue" or item.is_overdue]
+    overdue = [item for item in actions if normalize_status(item.status) == "overdue" or item.is_overdue]
     mine = [item for item in actions if item.is_mine]
-    waiting = [item for item in actions if item.status.lower() == "waiting"]
-    needs_review = [item for item in actions if item.status.lower() == "needs review"]
+    waiting = [item for item in actions if normalize_status(item.status) == "waiting"]
+    needs_review = [item for item in actions if normalize_status(item.status) == "needs review"]
 
     register_lines = "\n".join(f"- {wiki_link(path.relative_to(vault_root))}" for path in registers)
     priority_block = extract_priority_block(output_path)

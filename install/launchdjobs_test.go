@@ -87,6 +87,19 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 	if !strings.Contains(strings.Join(digest.Program, " "), "--vault-root /vaults/work") {
 		t.Errorf("digest program missing vault: %v", digest.Program)
 	}
+	// The wrapper script honours PYTHON and HEBB_BIN; the job must pin both,
+	// because launchd's minimal PATH resolves python3 to the Xcode shim (no
+	// Full Disk Access) and does not include hebb's install dir at all.
+	env := map[string]string{}
+	for _, e := range digest.EnvVars {
+		env[e.Key] = e.Value
+	}
+	if env["PYTHON"] == "" || !filepath.IsAbs(env["PYTHON"]) {
+		t.Errorf("digest job should pin an absolute PYTHON, got %q", env["PYTHON"])
+	}
+	if env["HEBB_BIN"] != "hebb" {
+		t.Errorf("digest job should pin HEBB_BIN to the hebb binary, got %q", env["HEBB_BIN"])
+	}
 
 	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 	if !ok {

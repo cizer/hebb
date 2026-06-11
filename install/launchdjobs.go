@@ -77,8 +77,14 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				Label:      label("daily-digest"),
 				Program:    []string{script, "--vault-root", vaultPath},
 				WorkingDir: vaultPath,
-				Schedule:   days,
-				LogPath:    logPath("daily-digest"),
+				// launchd's minimal PATH resolves python3 to the Xcode shim
+				// (no Full Disk Access) and misses hebb entirely; pin both.
+				EnvVars: []launchd.EnvVar{
+					{Key: "PYTHON", Value: pythonPath()},
+					{Key: "HEBB_BIN", Value: hebbBin},
+				},
+				Schedule: days,
+				LogPath:  logPath("daily-digest"),
 			})
 		case "action-review":
 			script, ok := autoScript("generate-action-review.py")

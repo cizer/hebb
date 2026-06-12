@@ -27,6 +27,7 @@ type VaultConfig struct {
 	Update      UpdateConfig `toml:"update"`
 	Index       IndexConfig  `toml:"index"`
 	Ingest      IngestConfig `toml:"ingest"`
+	Notify      NotifyConfig `toml:"notify"`
 }
 
 // IngestConfig is the committed [ingest] block. It records ingest policy that
@@ -100,6 +101,49 @@ type JobEnv map[string]map[string]string
 type UpdateConfig struct {
 	Auto bool `toml:"auto"`
 }
+
+// NotifyConfig is the committed [notify] block. When enabled is true, hebb
+// posts a short summary to a webhook URL after headless job runs (daily-digest,
+// action-review, update-check) so output reaches the user without requiring an
+// interactive session.
+//
+// Secret placement trade-off: config.toml is committed by design, so the URL
+// is resolved from the environment first ($HEBB_NOTIFY_URL), then [notify] url.
+// Committing the URL is the vault owner's call and is fine for a private vault;
+// use $HEBB_NOTIFY_URL (injectable per job via [job_env]) to keep the URL out
+// of the committed file when the vault is shared or public.
+//
+// The URL is never echoed to logs or standard output at any level of verbosity.
+type NotifyConfig struct {
+	Enabled bool   `toml:"enabled"`
+	URL     string `toml:"url"`
+}
+
+// ResolveURL returns the webhook URL, preferring the $HEBB_NOTIFY_URL env var
+// over the committed [notify] url. Returns "" when neither is set.
+func (n NotifyConfig) ResolveURL() string {
+	if v := resolveNotifyURLFromEnv(); v != "" {
+		return v
+	}
+	return n.URL
+}
+
+// resolveNotifyURLFromEnv is split out so tests can avoid os.Getenv coupling.
+func resolveNotifyURLFromEnv() string {
+	return envGet("HEBB_NOTIFY_URL")
+}
+
+// envGet is a thin wrapper so the notify tests can swap it out without patching
+// os.Getenv. The real implementation just calls os.Getenv.
+var envGet = func(key string) string {
+	return os.Getenv(key)
+}
+
+// GetEnvGet returns the current envGet function (for test save/restore).
+func GetEnvGet() func(string) string { return envGet }
+
+// SetEnvGet replaces the envGet function (for test injection only).
+func SetEnvGet(f func(string) string) { envGet = f }
 
 // GitConfig is the committed [git] block. Git mode keeps the vault's markdown in
 // sync with a remote (pull before work, commit + push after). It is off unless
@@ -221,6 +265,15 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                   Committing the URL is the vault owner's call (fine for a\n")
 	buf.WriteString("#                   private vault); use this env table to keep it out of the\n")
 	buf.WriteString("#                   committed file when the vault is shared or public.\n")
+	buf.WriteString("#\n")
+	buf.WriteString("#   [notify]      - headless notification delivery via an incoming webhook\n")
+	buf.WriteString("#     enabled     - set to true to enable (default false)\n")
+	buf.WriteString("#     url         - webhook URL (POST application/json, body {\"text\": \"...\"})\n")
+	buf.WriteString("#                   Resolution order: $HEBB_NOTIFY_URL env var first, then this\n")
+	buf.WriteString("#                   field. Committing the URL here is fine for a private vault;\n")
+	buf.WriteString("#                   use [job_env] to inject $HEBB_NOTIFY_URL per job to keep\n")
+	buf.WriteString("#                   it out of the committed file when the vault is shared.\n")
+	buf.WriteString("#                   The URL is never echoed to logs or standard output.\n")
 	buf.WriteString("#\n")
 	buf.WriteString("#   [git]         - git-sync settings (enabled, auto_pull, auto_push, ...)\n")
 	buf.WriteString("#   [update]      - auto-update settings (auto = false by default)\n")

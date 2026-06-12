@@ -399,6 +399,129 @@ func TestGeneratedConfigDocumentsJobEnv(t *testing.T) {
 	}
 }
 
+// TestNotifyConfigParsesFromTOML proves [notify] parses correctly from TOML.
+func TestNotifyConfigParsesFromTOML(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[notify]
+enabled = true
+url = "https://hooks.example.com/abc"
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if !got.Notify.Enabled {
+		t.Error("[notify] enabled = false, want true")
+	}
+	if got.Notify.URL != "https://hooks.example.com/abc" {
+		t.Errorf("[notify] url = %q, want url", got.Notify.URL)
+	}
+}
+
+// TestNotifyConfigAbsent proves that an absent [notify] section results in
+// disabled notify with an empty URL.
+func TestNotifyConfigAbsent(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(`name = "Work"`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Notify.Enabled {
+		t.Error("absent [notify]: enabled = true, want false")
+	}
+	if got.Notify.URL != "" {
+		t.Errorf("absent [notify]: url = %q, want empty", got.Notify.URL)
+	}
+}
+
+// TestNotifyConfigResolveURLEnvOverride proves that $HEBB_NOTIFY_URL takes
+// priority over the committed [notify] url value.
+func TestNotifyConfigResolveURLEnvOverride(t *testing.T) {
+	// Patch envGet for this test only.
+	orig := envGet
+	defer func() { envGet = orig }()
+	envGet = func(key string) string {
+		if key == "HEBB_NOTIFY_URL" {
+			return "https://env-override.example.com/hook"
+		}
+		return ""
+	}
+
+	nc := NotifyConfig{Enabled: true, URL: "https://committed.example.com/hook"}
+	got := nc.ResolveURL()
+	if got != "https://env-override.example.com/hook" {
+		t.Errorf("ResolveURL = %q, want env override", got)
+	}
+}
+
+// TestNotifyConfigResolveURLFallsBackToConfig proves that when $HEBB_NOTIFY_URL
+// is absent the committed url is used.
+func TestNotifyConfigResolveURLFallsBackToConfig(t *testing.T) {
+	orig := envGet
+	defer func() { envGet = orig }()
+	envGet = func(string) string { return "" }
+
+	nc := NotifyConfig{Enabled: true, URL: "https://committed.example.com/hook"}
+	if nc.ResolveURL() != "https://committed.example.com/hook" {
+		t.Errorf("ResolveURL should fall back to committed url when env is absent")
+	}
+}
+
+// TestNotifyConfigSaveRoundTrip proves a VaultConfig with a [notify] section
+// survives a Save/Load round-trip.
+func TestNotifyConfigSaveRoundTrip(t *testing.T) {
+	vault := t.TempDir()
+	want := DefaultVaultConfig("RT")
+	want.Notify = NotifyConfig{Enabled: true, URL: "https://hooks.example.com/xyz"}
+	if err := want.Save(vault); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if !got.Notify.Enabled {
+		t.Error("round-trip notify.enabled = false, want true")
+	}
+	if got.Notify.URL != "https://hooks.example.com/xyz" {
+		t.Errorf("round-trip notify.url = %q, want url", got.Notify.URL)
+	}
+}
+
+// TestGeneratedConfigDocumentsNotify proves Save writes [notify] keys in
+// commented form in the generated config.toml header comment.
+func TestGeneratedConfigDocumentsNotify(t *testing.T) {
+	vault := t.TempDir()
+	vc := DefaultVaultConfig("Docs")
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(vault, ".hebb", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(b)
+	for _, want := range []string{"[notify]", "HEBB_NOTIFY_URL", "webhook"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated config.toml missing %q in commented defaults", want)
+		}
+	}
+}
+
 func TestResolveVaultHonorsConfigExcludeDirs(t *testing.T) {
 	vault := t.TempDir()
 	vc := DefaultVaultConfig("T")

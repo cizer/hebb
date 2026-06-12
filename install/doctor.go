@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/cizer/hebb/core"
+	"github.com/cizer/hebb/launchd"
 )
 
 // Check is the result of one diagnostic. Status is "ok", "warn", or "fail".
@@ -50,6 +53,18 @@ func Doctor(opts Options) []Check {
 		add("config", "ok", vc.Name)
 	}
 
+	// The binary path doctor compares wiring against: the running executable at
+	// doctor-run time, resolved through the same stable-symlink rule install uses
+	// (so a Cellar path is compared as its /opt/homebrew/bin symlink). Binary
+	// paths legitimately churn across upgrades, so a difference that still points
+	// at a working hebb is warn, not fail (see checkBinaryPath).
+	bin := opts.HebbBin
+	if bin == "" {
+		if exe, err := os.Executable(); err == nil {
+			bin = StableHebbBin(exe)
+		}
+	}
+
 	checkMCPJSON(add, opts.VaultPath)
 	checkIndex(add, opts.VaultPath, vc)
 	checkSettings(add, opts.VaultPath, opts.MCPName)
@@ -58,15 +73,40 @@ func Doctor(opts Options) []Check {
 		checkMemory(add, opts.Home, opts.VaultPath)
 	}
 
+	// Agent wiring drift: re-verify any entry pinned to this vault against what
+	// install would write today. Never-wired stays silent (no config, or no entry
+	// matching this vault's HEBB_VAULT).
+	checkClaudeDesktop(add, opts, bin)
+	checkCodex(add, opts)
+
 	if existed {
-		checkLaunchd(add, opts, vc)
-		checkLaunchdTCC(add, opts, vc)
+		checkLaunchd(add, opts, vc, bin)
+		checkLaunchdTCC(add, opts, vc, bin)
 	}
 	return checks
 }
 
+// checkBinaryPath classifies a command field that differs from the binary path
+// doctor would write today. Binary paths legitimately change across upgrades, so
+// a difference that still resolves to a working hebb is warn (re-run hebb
+// install), and only a command that points at nothing is fail. It never executes
+// the command (read-only, fast): "working" means the path exists and is a
+// regular executable file. Returns "ok" when path == want, "warn" when it
+// resolves to a working binary, or "fail".
+func checkBinaryPath(path, want string) string {
+	if path == want {
+		return "ok"
+	}
+	fi, err := os.Stat(path)
+	if err != nil || fi.IsDir() || fi.Mode().Perm()&0o111 == 0 {
+		return "fail"
+	}
+	return "warn"
+}
+
 func checkMCPJSON(add func(string, string, string), vaultPath string) {
-	b, err := os.ReadFile(filepath.Join(vaultPath, ".mcp.json"))
+	path := filepath.Join(vaultPath, ".mcp.json")
+	b, err := os.ReadFile(path)
 	if err != nil {
 		// No per-vault .mcp.json is normal: the hebb plugin provides the MCP
 		// server. Only validate one if it exists (plugin-less / --mcp-json).
@@ -78,6 +118,16 @@ func checkMCPJSON(add func(string, string, string), vaultPath string) {
 	}
 	if err := json.Unmarshal(b, &m); err != nil || len(m.MCPServers) == 0 {
 		add("mcp.json", "fail", "present but has no servers")
+		return
+	}
+	// Content comparison, not just presence: a .mcp.json that parses but whose
+	// command/args drifted from what install would write today is reported (the
+	// old presence check waved it through). RenderMCPJSON is deliberately
+	// machine-independent (no absolute paths), so this is exempt from the binary
+	// path-churn warn/fail split: any drift is a flat warn.
+	want, err := RenderMCPJSON(DefaultMCPServerName, DefaultMCPCommand)
+	if err == nil && !bytes.Equal(b, want) {
+		add("mcp.json", "warn", "differs from what install would write (run hebb install --mcp-json)")
 		return
 	}
 	add("mcp.json", "ok", fmt.Sprintf("%d server(s)", len(m.MCPServers)))
@@ -180,6 +230,178 @@ func checkMemory(add func(string, string, string), home, vaultPath string) {
 	}
 }
 
+// checkClaudeDesktop re-verifies any Claude Desktop MCP entry pinned to this
+// vault against what install would write today. It scans for the entry by its
+// HEBB_VAULT match (install records nowhere which agents were wired), so a
+// machine where Desktop was never wired (no config file, or no entry for this
+// vault) produces no finding: never-wired is silent. The Desktop entry pins the
+// absolute binary path (the app launches servers with a minimal PATH), the field
+// the observed round-trip dropped. Binary paths churn across upgrades, so a
+// command differing but resolving to a working hebb is warn (re-run hebb
+// install), and one pointing at nothing is fail. doctor never executes the
+// command. Args and env (other than the path) are compared exactly.
+func checkClaudeDesktop(add func(string, string, string), opts Options, bin string) {
+	path := opts.ClaudeDesktopConfig
+	if path == "" {
+		if opts.Home == "" {
+			return
+		}
+		path = DefaultClaudeDesktopConfigPath(opts.Home)
+	}
+	root, err := readJSONObject(path)
+	if err != nil {
+		// A malformed Desktop config we did wire into is worth surfacing, but only
+		// once we know it holds an entry for this vault; we cannot tell from a parse
+		// error, so stay silent (read-only, never-wired-is-silent posture).
+		return
+	}
+	servers, _ := root["mcpServers"].(map[string]any)
+	name, entry, found := findVaultPinnedServer(servers, opts.VaultPath)
+	if !found {
+		return
+	}
+	// "want" is what WriteClaudeDesktopConfig would write today with the doctor-run
+	// binary path. Comparing the decoded entry to it isolates the command field for
+	// the warn-vs-fail rule and compares args/env exactly.
+	command, _ := entry["command"].(string)
+	want := map[string]any{
+		"command": bin,
+		"args":    []any{"mcp"},
+		"env":     map[string]any{"HEBB_VAULT": opts.VaultPath},
+	}
+	// Compare everything but the command exactly; classify the command separately.
+	gotNoCmd := map[string]any{"args": entry["args"], "env": entry["env"]}
+	wantNoCmd := map[string]any{"args": want["args"], "env": want["env"]}
+	if !jsonEqual(gotNoCmd, wantNoCmd) {
+		add("claude-desktop", "warn", fmt.Sprintf("entry %q differs from what install would write (re-run hebb install)", name))
+		return
+	}
+	switch checkBinaryPath(command, bin) {
+	case "ok":
+		add("claude-desktop", "ok", "wired ("+name+")")
+	case "warn":
+		add("claude-desktop", "warn", fmt.Sprintf("command %q differs but resolves to a working hebb (re-run hebb install)", command))
+	default:
+		add("claude-desktop", "fail", fmt.Sprintf("command %q points at nothing (re-run hebb install)", command))
+	}
+}
+
+// findVaultPinnedServer returns the first MCP server entry (from a decoded
+// mcpServers map) whose env.HEBB_VAULT matches vaultPath, with its name. This is
+// how doctor distinguishes "wired into this vault" (verify it) from "never wired
+// / wired to a different vault" (silent).
+func findVaultPinnedServer(servers map[string]any, vaultPath string) (string, map[string]any, bool) {
+	for name, v := range servers {
+		entry, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		env, _ := entry["env"].(map[string]any)
+		if s, _ := env["HEBB_VAULT"].(string); s == vaultPath {
+			return name, entry, true
+		}
+	}
+	return "", nil, false
+}
+
+// checkCodex re-verifies any Codex MCP entry pinned to this vault against
+// RenderCodexServer output. Like the Desktop check it scans by HEBB_VAULT match,
+// so a machine where Codex was never wired produces no finding. Unlike Desktop,
+// the Codex entry pins the bare "hebb" command (resolved on PATH), so it is
+// machine-independent and exempt from the binary path-churn warn/fail split: any
+// drift from RenderCodexServer is a flat warn with the fix `hebb codex`. The
+// comparison decodes both the installed block and RenderCodexServer's output with
+// the same TOML parser the writer uses, the single source of truth.
+func checkCodex(add func(string, string, string), opts Options) {
+	path := opts.CodexConfig
+	if path == "" {
+		if opts.Home == "" {
+			return
+		}
+		path = filepath.Join(opts.Home, ".codex", "config.toml")
+	}
+	got, err := decodeCodexServers(path)
+	if err != nil {
+		return // absent or unreadable: never-wired is silent
+	}
+	name, gotEntry, found := findCodexVaultPinned(got, opts.VaultPath)
+	if !found {
+		return
+	}
+	// Decode RenderCodexServer's output with the same parser to get the canonical
+	// entry, then compare values (whitespace/formatting independent).
+	wantBlock := RenderCodexServer(name, DefaultMCPCommand, opts.VaultPath)
+	wantServers, err := decodeCodexServersString(wantBlock)
+	if err != nil {
+		return
+	}
+	wantEntry := wantServers[name]
+	if codexEntryEqual(gotEntry, wantEntry) {
+		add("codex", "ok", "wired ("+name+")")
+		return
+	}
+	add("codex", "warn", fmt.Sprintf("entry %q differs from what install would write (run hebb codex)", name))
+}
+
+// codexServer mirrors the fields RenderCodexServer writes, for value comparison.
+type codexServer struct {
+	Command string            `toml:"command"`
+	Args    []string          `toml:"args"`
+	Cwd     string            `toml:"cwd"`
+	Env     map[string]string `toml:"env"`
+	Timeout int               `toml:"startup_timeout_sec"`
+}
+
+func decodeCodexServers(path string) (map[string]codexServer, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return decodeCodexServersString(string(b))
+}
+
+func decodeCodexServersString(s string) (map[string]codexServer, error) {
+	var parsed struct {
+		MCPServers map[string]codexServer `toml:"mcp_servers"`
+	}
+	if _, err := toml.Decode(s, &parsed); err != nil {
+		return nil, err
+	}
+	return parsed.MCPServers, nil
+}
+
+func findCodexVaultPinned(servers map[string]codexServer, vaultPath string) (string, codexServer, bool) {
+	for name, s := range servers {
+		if s.Env["HEBB_VAULT"] == vaultPath {
+			return name, s, true
+		}
+	}
+	return "", codexServer{}, false
+}
+
+func codexEntryEqual(a, b codexServer) bool {
+	if a.Command != b.Command || a.Cwd != b.Cwd || a.Timeout != b.Timeout {
+		return false
+	}
+	if len(a.Args) != len(b.Args) {
+		return false
+	}
+	for i := range a.Args {
+		if a.Args[i] != b.Args[i] {
+			return false
+		}
+	}
+	if len(a.Env) != len(b.Env) {
+		return false
+	}
+	for k, v := range a.Env {
+		if b.Env[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 // resolvedAssetDir is the on-disk asset dir doctor compares against, read-only:
 // the --asset-root override if set, otherwise the data dir. Never materialises.
 func resolvedAssetDir(opts Options) string {
@@ -189,7 +411,16 @@ func resolvedAssetDir(opts Options) string {
 	return opts.DataDir
 }
 
-func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultConfig) {
+// checkLaunchd compares each installed plist against what VaultJobs renders
+// today, not just its presence: a plist whose [job_args], env, or schedule was
+// hand-edited (or left behind by an old install) is reported. Expected jobs are
+// rendered with the binary path at doctor-run time (bin) and the current
+// pythonPath(), replacing the literal "hebb"/install-time path the installed
+// plist embeds, so a naive diff cannot flag every healthy install. The warn-vs-
+// fail rule applies to Program[0] (binary paths churn across upgrades, so a path
+// resolving to a working hebb is warn, not fail); the rest of the plist (args,
+// env, schedule) must match exactly.
+func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultConfig, bin string) {
 	dir := opts.LaunchdDir
 	if dir == "" && opts.Home != "" {
 		dir = filepath.Join(opts.Home, "Library", "LaunchAgents")
@@ -197,17 +428,84 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 	if dir == "" {
 		return
 	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
+	if bin == "" {
+		bin = "hebb"
+	}
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
 	if len(jobs) == 0 {
 		return
 	}
 	present := 0
-	for _, j := range jobs {
-		if _, err := os.Stat(filepath.Join(dir, j.Label+".plist")); err == nil {
-			present++
+	status := "ok"
+	var notes []string
+	worst := func(s string) {
+		// Escalate ok -> warn -> fail, never downgrade.
+		if status == "fail" || s == "ok" {
+			return
+		}
+		if s == "fail" || status == "ok" {
+			status = s
 		}
 	}
-	add("launchd", okIf(present == len(jobs)), fmt.Sprintf("%d/%d plists", present, len(jobs)))
+	for _, j := range jobs {
+		plistPath := filepath.Join(dir, j.Label+".plist")
+		installed, err := os.ReadFile(plistPath)
+		if err != nil {
+			worst("warn")
+			notes = append(notes, j.Label+" missing")
+			continue
+		}
+		present++
+		s, note := compareLaunchdJob(j, installed)
+		if s != "ok" {
+			worst(s)
+			if note != "" {
+				notes = append(notes, j.Label+": "+note)
+			}
+		}
+	}
+	detail := fmt.Sprintf("%d/%d plists", present, len(jobs))
+	if len(notes) > 0 {
+		detail += " (" + strings.Join(notes, "; ") + ")"
+	}
+	add("launchd", status, detail)
+}
+
+// compareLaunchdJob compares an installed plist against the expected job render,
+// applying the Program[0] warn-vs-fail rule. It returns "ok" when the plist
+// matches exactly; "warn"/"fail" classified by checkBinaryPath when the only
+// difference is Program[0]; and "warn" for any other content difference (args,
+// env, schedule edited without re-running install). It re-renders the expected
+// plist with the installed Program[0] substituted in to isolate a pure path
+// difference from a content difference.
+func compareLaunchdJob(want launchd.Job, installed []byte) (string, string) {
+	wantBytes, err := launchd.Render(want)
+	if err != nil {
+		return "warn", "render error"
+	}
+	if bytes.Equal(installed, wantBytes) {
+		return "ok", ""
+	}
+	installedProg0, ok := plistProgram0Bytes(installed)
+	wantProg0 := ""
+	if len(want.Program) > 0 {
+		wantProg0 = want.Program[0]
+	}
+	if ok && installedProg0 != wantProg0 {
+		// Re-render the expected plist with the installed Program[0] swapped in;
+		// if it now matches, the only difference is the binary path, which the
+		// warn-vs-fail rule classifies. Otherwise there is genuine content drift.
+		probe := want
+		probe.Program = append([]string{installedProg0}, want.Program[1:]...)
+		if probeBytes, perr := launchd.Render(probe); perr == nil && bytes.Equal(installed, probeBytes) {
+			s := checkBinaryPath(installedProg0, wantProg0)
+			if s == "fail" {
+				return "fail", "Program[0] points at nothing: " + installedProg0 + " (re-run hebb install)"
+			}
+			return "warn", "Program[0] differs but resolves to a working hebb: " + installedProg0 + " (re-run hebb install)"
+		}
+	}
+	return "warn", "content differs from what install would write (re-run hebb install)"
 }
 
 // checkLaunchdTCC statically lints each of this vault's launchd jobs for a
@@ -218,10 +516,13 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 // lint only: it reads the rendered job specs and any installed plists, and never
 // bootstraps a launchctl job, keeping doctor read-only and fast.
 //
-// The expected jobs render with the literal "hebb" placeholder for the binary,
-// which is never a shell wrapper, so doctor's own rendering cannot trip the lint;
-// the field failure mode is caught by inspecting the installed plist's Program[0].
-func checkLaunchdTCC(add func(string, string, string), opts Options, vc core.VaultConfig) {
+// The expected jobs render with the binary path at doctor-run time (bin), which
+// is a grantable hebb binary, never a shell wrapper, so doctor's own rendering
+// cannot trip the lint; the field failure mode is caught by inspecting the
+// installed plist's Program[0]. (Item 3 replaced the literal "hebb" placeholder
+// the lint previously assumed; substituting the real binary path keeps the lint
+// free of false positives, since a hebb binary path is never a .sh or a shim.)
+func checkLaunchdTCC(add func(string, string, string), opts Options, vc core.VaultConfig, bin string) {
 	dir := opts.LaunchdDir
 	if dir == "" && opts.Home != "" {
 		dir = filepath.Join(opts.Home, "Library", "LaunchAgents")
@@ -229,7 +530,10 @@ func checkLaunchdTCC(add func(string, string, string), opts Options, vc core.Vau
 	if dir == "" {
 		return
 	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
+	if bin == "" {
+		bin = "hebb"
+	}
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
 	if len(jobs) == 0 {
 		return
 	}
@@ -276,15 +580,20 @@ func isShellWrapperProgram(prog string) bool {
 	return false
 }
 
-// plistProgram0 reads the first ProgramArguments string from a launchd plist,
-// read-only. It returns ok=false when the file is absent or has no program. It
-// scans for the ProgramArguments key then the next <string>, which suffices for
-// the plists launchd renders (no nested arrays before it).
+// plistProgram0 reads the first ProgramArguments string from a launchd plist
+// file, read-only. It returns ok=false when the file is absent or has no program.
 func plistProgram0(path string) (string, bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", false
 	}
+	return plistProgram0Bytes(b)
+}
+
+// plistProgram0Bytes reads the first ProgramArguments string from plist bytes. It
+// scans for the ProgramArguments key then the next <string>, which suffices for
+// the plists launchd renders (no nested arrays before it).
+func plistProgram0Bytes(b []byte) (string, bool) {
 	s := string(b)
 	i := strings.Index(s, "<key>ProgramArguments</key>")
 	if i < 0 {

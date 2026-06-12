@@ -23,6 +23,12 @@ type Options struct {
 	MCPJSON    bool   // if true, write a per-vault .mcp.json + settings (plugin-less wiring)
 	SkipSkills bool   // if true, do not install agent skills into ~/.claude/skills
 
+	// Agent config paths, used only by Doctor to re-verify wiring drift
+	// read-only. Empty means "use the conventional default under Home"; when
+	// that default file is absent the check stays silent (never-wired is silent).
+	CodexConfig         string // Codex config.toml (default: <home>/.codex/config.toml)
+	ClaudeDesktopConfig string // Claude Desktop config (default: macOS app support dir)
+
 	// Asset source. The binary is standalone: Assets carries the embedded
 	// function content (automation/, vault-template/), materialised to DataDir on
 	// install so launchd jobs can find their scripts. AssetRoot is a development

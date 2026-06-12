@@ -457,7 +457,7 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 	if bin == "" {
 		bin = "hebb"
 	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs, vc.JobEnv)
 	if len(jobs) == 0 {
 		return
 	}
@@ -559,7 +559,7 @@ func checkLaunchdTCC(add func(string, string, string), opts Options, vc core.Vau
 	if bin == "" {
 		bin = "hebb"
 	}
-	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs, vc.JobEnv)
 	if len(jobs) == 0 {
 		return
 	}

@@ -308,6 +308,97 @@ func TestGeneratedConfigDocumentsIngest(t *testing.T) {
 	}
 }
 
+// TestVaultConfigJobEnv proves [job_env] parses from TOML and round-trips through
+// Save/LoadVaultConfig correctly, mirroring the [job_args] tests.
+func TestVaultConfigJobEnv(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[job_env]
+action-review = { HEBB_NOTIFY_URL = "https://hooks.example.com/abc", MY_KEY = "my-value" }
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	env := got.JobEnv["action-review"]
+	if env == nil {
+		t.Fatal("job_env[action-review] = nil, want a map")
+	}
+	if env["HEBB_NOTIFY_URL"] != "https://hooks.example.com/abc" {
+		t.Errorf("HEBB_NOTIFY_URL = %q, want https://hooks.example.com/abc", env["HEBB_NOTIFY_URL"])
+	}
+	if env["MY_KEY"] != "my-value" {
+		t.Errorf("MY_KEY = %q, want my-value", env["MY_KEY"])
+	}
+}
+
+// TestVaultConfigJobEnvSaveRoundTrip proves a VaultConfig with a [job_env]
+// section survives a Save/Load round-trip.
+func TestVaultConfigJobEnvSaveRoundTrip(t *testing.T) {
+	vault := t.TempDir()
+	want := DefaultVaultConfig("RT")
+	want.JobEnv = JobEnv{
+		"action-review": {"HEBB_NOTIFY_URL": "https://hooks.example.com/abc"},
+	}
+	if err := want.Save(vault); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.JobEnv["action-review"]["HEBB_NOTIFY_URL"] != "https://hooks.example.com/abc" {
+		t.Errorf("round-trip job_env[action-review][HEBB_NOTIFY_URL] = %q, want url",
+			got.JobEnv["action-review"]["HEBB_NOTIFY_URL"])
+	}
+}
+
+// TestVaultConfigJobEnvAbsent proves LoadVaultConfig returns a nil/empty JobEnv
+// when the [job_env] block is absent, and the round-trip with no JobEnv works.
+func TestVaultConfigJobEnvAbsent(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(`name = "Work"`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if len(got.JobEnv) != 0 {
+		t.Errorf("absent [job_env]: JobEnv = %v, want empty", got.JobEnv)
+	}
+}
+
+// TestGeneratedConfigDocumentsJobEnv proves that Save writes the [job_env] keys
+// in commented form in the generated config.toml header comment.
+func TestGeneratedConfigDocumentsJobEnv(t *testing.T) {
+	vault := t.TempDir()
+	vc := DefaultVaultConfig("Docs")
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(vault, ".hebb", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(b)
+	for _, want := range []string{"[job_env]", "HEBB_NOTIFY_URL", "job_args"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated config.toml missing %q in commented defaults", want)
+		}
+	}
+}
+
 func TestResolveVaultHonorsConfigExcludeDirs(t *testing.T) {
 	vault := t.TempDir()
 	vc := DefaultVaultConfig("T")

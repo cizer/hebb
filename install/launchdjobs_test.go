@@ -34,7 +34,7 @@ func jobByLabel(jobs []launchd.Job, label string) (launchd.Job, bool) {
 
 func TestVaultJobsWebIsBuiltIn(t *testing.T) {
 	home := t.TempDir()
-	jobs := VaultJobs("/vaults/work", "work", "/usr/local/bin/hebb", t.TempDir(), home, 4399, []string{"web"}, false, nil)
+	jobs := VaultJobs("/vaults/work", "work", "/usr/local/bin/hebb", t.TempDir(), home, 4399, []string{"web"}, false, nil, nil)
 	j, ok := jobByLabel(jobs, "local.hebb.work.web")
 	if !ok {
 		t.Fatalf("web job not built; got %d jobs", len(jobs))
@@ -59,7 +59,7 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 
 	// Without the scripts present, automation jobs are skipped.
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest", "action-review"}, false, nil)
+		[]string{"daily-digest", "action-review"}, false, nil, nil)
 	if len(jobs) != 0 {
 		t.Errorf("expected automation jobs skipped when scripts absent, got %d", len(jobs))
 	}
@@ -75,7 +75,7 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 		}
 	}
 	jobs = VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest", "action-review"}, false, nil)
+		[]string{"daily-digest", "action-review"}, false, nil, nil)
 
 	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
 	if !ok {
@@ -132,7 +132,7 @@ func TestVaultJobsAppendsPerJobArgs(t *testing.T) {
 		"bogus":         {"--ignored"},
 	}
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"action-review", "web"}, false, jobArgs)
+		[]string{"action-review", "web"}, false, jobArgs, nil)
 
 	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 	if !ok {
@@ -156,7 +156,7 @@ func TestVaultJobsAppendsPerJobArgs(t *testing.T) {
 }
 
 func TestVaultJobsSkipsUnknown(t *testing.T) {
-	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"web", "bogus"}, false, nil)
+	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"web", "bogus"}, false, nil, nil)
 	if len(jobs) != 1 {
 		t.Errorf("unknown job name should be skipped, got %d jobs", len(jobs))
 	}
@@ -182,7 +182,7 @@ func TestVaultJobsNoShellProgram(t *testing.T) {
 
 	// The default jobs list from DefaultVaultConfig.
 	names := []string{"daily-digest", "action-review", "web", "update-check"}
-	jobs := VaultJobs("/vaults/work", "work", "/opt/homebrew/bin/hebb", assetRoot, home, 4321, names, false, nil)
+	jobs := VaultJobs("/vaults/work", "work", "/opt/homebrew/bin/hebb", assetRoot, home, 4321, names, false, nil, nil)
 	if len(jobs) != len(names) {
 		t.Fatalf("expected %d default jobs to render, got %d", len(names), len(jobs))
 	}
@@ -214,7 +214,7 @@ func TestVaultJobsDigestAppendsArgs(t *testing.T) {
 
 	jobArgs := map[string][]string{"daily-digest": {"--output", "2-Areas/_DIGEST.md"}}
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest"}, false, jobArgs)
+		[]string{"daily-digest"}, false, jobArgs, nil)
 	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
 	if !ok {
 		t.Fatal("daily-digest job not built")
@@ -226,9 +226,157 @@ func TestVaultJobsDigestAppendsArgs(t *testing.T) {
 	}
 }
 
+// TestVaultJobsJobEnvAppendsAfterBuiltIn proves that [job_env] entries render
+// into that job's EnvironmentVariables after the built-in env, deterministically
+// ordered. This mirrors the [job_args] test pattern.
+func TestVaultJobsJobEnvAppendsAfterBuiltIn(t *testing.T) {
+	home := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	jobEnv := map[string]map[string]string{
+		"daily-digest": {"HEBB_NOTIFY_URL": "https://hooks.example.com/abc", "EXTRA_KEY": "extra-val"},
+		"bogus":        {"IGNORED": "yes"},
+	}
+	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
+		[]string{"daily-digest"}, false, nil, jobEnv)
+
+	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+	if !ok {
+		t.Fatal("daily-digest job not built")
+	}
+	env := map[string]string{}
+	for _, e := range digest.EnvVars {
+		env[e.Key] = e.Value
+	}
+	// Built-in PYTHON must still be present.
+	if env["PYTHON"] == "" {
+		t.Error("built-in PYTHON env var missing after job_env injection")
+	}
+	// [job_env] extras must also be present.
+	if env["HEBB_NOTIFY_URL"] != "https://hooks.example.com/abc" {
+		t.Errorf("HEBB_NOTIFY_URL = %q, want url", env["HEBB_NOTIFY_URL"])
+	}
+	if env["EXTRA_KEY"] != "extra-val" {
+		t.Errorf("EXTRA_KEY = %q, want extra-val", env["EXTRA_KEY"])
+	}
+	// Built-in env must appear before user-supplied env (PYTHON is first).
+	if len(digest.EnvVars) < 2 || digest.EnvVars[0].Key != "PYTHON" {
+		t.Errorf("built-in env (PYTHON) should precede user env, got %v", digest.EnvVars)
+	}
+}
+
+// TestVaultJobsJobEnvOverridesBuiltIn proves that a [job_env] key matching a
+// built-in env key (e.g. PATH) replaces it with no duplicate key in the plist.
+// The spec says "user wins" and a plist EnvironmentVariables dict cannot hold
+// duplicate keys.
+func TestVaultJobsJobEnvOverridesBuiltIn(t *testing.T) {
+	home := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Override the built-in PYTHON env var.
+	jobEnv := map[string]map[string]string{
+		"daily-digest": {"PYTHON": "/custom/python3"},
+	}
+	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
+		[]string{"daily-digest"}, false, nil, jobEnv)
+
+	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+	if !ok {
+		t.Fatal("daily-digest job not built")
+	}
+	// Count PYTHON keys: must be exactly 1 (no duplicate).
+	count := 0
+	overrideValue := ""
+	for _, e := range digest.EnvVars {
+		if e.Key == "PYTHON" {
+			count++
+			overrideValue = e.Value
+		}
+	}
+	if count != 1 {
+		t.Errorf("PYTHON appears %d times in EnvVars, want exactly 1 (no duplicate keys)", count)
+	}
+	if overrideValue != "/custom/python3" {
+		t.Errorf("PYTHON override = %q, want /custom/python3 (user wins)", overrideValue)
+	}
+}
+
+// TestVaultJobsJobEnvNoEntryIsIdentical proves that jobs without a [job_env]
+// entry render byte-identically to today (no regression for absent config).
+func TestVaultJobsJobEnvNoEntryIsIdentical(t *testing.T) {
+	home := t.TempDir()
+	jobs1 := VaultJobs("/v", "v", "hebb", t.TempDir(), home, 4321, []string{"web"}, false, nil, nil)
+	jobs2 := VaultJobs("/v", "v", "hebb", t.TempDir(), home, 4321, []string{"web"}, false, nil, map[string]map[string]string{"other-job": {"KEY": "val"}})
+
+	if len(jobs1) != 1 || len(jobs2) != 1 {
+		t.Fatalf("expected 1 job each, got %d and %d", len(jobs1), len(jobs2))
+	}
+
+	b1, err1 := launchd.Render(jobs1[0])
+	b2, err2 := launchd.Render(jobs2[0])
+	if err1 != nil || err2 != nil {
+		t.Fatalf("render errors: %v %v", err1, err2)
+	}
+	if string(b1) != string(b2) {
+		t.Errorf("job without job_env entry should render byte-identically;\ngot  %q\nwant %q", b2, b1)
+	}
+}
+
+// TestVaultJobsJobEnvDeterministicOrder proves the env vars in a rendered plist
+// appear in deterministic order: built-in env first (in original order), then
+// user env sorted by key.
+func TestVaultJobsJobEnvDeterministicOrder(t *testing.T) {
+	home := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	jobEnv := map[string]map[string]string{
+		"daily-digest": {"Z_KEY": "z", "A_KEY": "a", "M_KEY": "m"},
+	}
+	// Run twice to confirm order is stable across calls.
+	for i := 0; i < 2; i++ {
+		jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
+			[]string{"daily-digest"}, false, nil, jobEnv)
+		digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+		if !ok {
+			t.Fatal("daily-digest job not built")
+		}
+		// Built-in PYTHON first, then A_KEY, M_KEY, Z_KEY (sorted).
+		wantOrder := []string{"PYTHON", "A_KEY", "M_KEY", "Z_KEY"}
+		if len(digest.EnvVars) != len(wantOrder) {
+			t.Fatalf("run %d: want %d env vars, got %d: %v", i+1, len(wantOrder), len(digest.EnvVars), digest.EnvVars)
+		}
+		for j, k := range wantOrder {
+			if digest.EnvVars[j].Key != k {
+				t.Errorf("run %d: EnvVars[%d].Key = %q, want %q", i+1, j, digest.EnvVars[j].Key, k)
+			}
+		}
+	}
+}
+
 func TestVaultJobsUpdateCheck(t *testing.T) {
 	// Default: the scheduled job only checks (notifies).
-	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check"}, false, nil)
+	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check"}, false, nil, nil)
 	j, ok := jobByLabel(jobs, "local.hebb.v.update-check")
 	if !ok {
 		t.Fatal("update-check job not built")
@@ -241,7 +389,7 @@ func TestVaultJobsUpdateCheck(t *testing.T) {
 	}
 
 	// auto = true: the job applies the update instead.
-	jobs = VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check"}, true, nil)
+	jobs = VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check"}, true, nil, nil)
 	j, _ = jobByLabel(jobs, "local.hebb.v.update-check")
 	if got := strings.Join(j.Program, " "); !strings.Contains(got, "update") || strings.Contains(got, "--check") {
 		t.Errorf("auto update-check should run 'update' without --check, got %q", got)

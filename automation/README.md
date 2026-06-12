@@ -39,3 +39,21 @@ rendered launchd program after the built-in flags. For example:
 [job_args]
 action-review = ["--owner", "Alex Doe", "--mine-output", "2-Areas/_MY-OPEN-ACTIONS.md"]
 ```
+
+Per-vault env: a vault injects extra environment variables into its jobs via the
+`[job_env]` table in `.hebb/config.toml`. Keys are job names; values are
+key/value string maps. Variables are merged after the job's built-in env; a
+user-supplied key matching a built-in key overrides it (user wins). The output
+is deterministic: built-in keys first (overridden in place), then extra keys
+alphabetically. The primary use is `$HEBB_NOTIFY_URL` for headless notification
+delivery (item 6). For example:
+
+```toml
+[job_env]
+action-review = { HEBB_NOTIFY_URL = "https://hooks.example.com/abc" }
+daily-digest  = { HEBB_NOTIFY_URL = "https://hooks.example.com/abc" }
+```
+
+Committing the webhook URL is the vault owner's call (fine for a private vault);
+use `[job_env]` to keep it out of the committed file when the vault is shared or
+public (set it in the environment or a secrets manager instead).

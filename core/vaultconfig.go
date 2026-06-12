@@ -22,6 +22,7 @@ type VaultConfig struct {
 	WebPort     int          `toml:"web_port"`
 	Jobs        []string     `toml:"jobs"`
 	JobArgs     JobArgs      `toml:"job_args"`
+	JobEnv      JobEnv       `toml:"job_env"`
 	Git         GitConfig    `toml:"git"`
 	Update      UpdateConfig `toml:"update"`
 	Index       IndexConfig  `toml:"index"`
@@ -81,6 +82,17 @@ func (i IndexConfig) AutoRefreshEnabled() bool {
 //	[job_args]
 //	action-review = ["--owner", "Alex Doe"]
 type JobArgs map[string][]string
+
+// JobEnv is the committed [job_env] block: extra environment variables injected
+// into a job's rendered launchd EnvironmentVariables, keyed by job name. Each
+// value is a string-to-string map of env key/value pairs.
+//
+// A [job_env] key matching a built-in env key overrides it (user wins). Entries
+// for job names not listed under jobs (or unknown to hebb) are ignored, e.g.
+//
+//	[job_env]
+//	action-review = { HEBB_NOTIFY_URL = "https://hooks.example.com/abc" }
+type JobEnv map[string]map[string]string
 
 // UpdateConfig is the committed [update] block. The scheduled update-check job
 // reports a newer release by default; with auto = true it installs it (opt-in,
@@ -195,6 +207,20 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                   Distinct from exclude_dirs: scratch_dirs keeps notes visible\n")
 	buf.WriteString("#                   in search, exclude_dirs removes them from the index entirely.\n")
 	buf.WriteString("#                   Example: scratch_dirs = [\"Daily/Scratch\", \"Inbox/Staging\"]\n")
+	buf.WriteString("#\n")
+	buf.WriteString("#   [job_args]    - extra CLI arguments per job, appended to the rendered launchd\n")
+	buf.WriteString("#                   program after built-in flags. Keys are job names.\n")
+	buf.WriteString("#                   Example: action-review = [\"--owner\", \"Alex Doe\"]\n")
+	buf.WriteString("#\n")
+	buf.WriteString("#   [job_env]     - extra environment variables per job, injected into the\n")
+	buf.WriteString("#                   rendered launchd EnvironmentVariables after built-in env.\n")
+	buf.WriteString("#                   A key matching a built-in env key overrides it (user wins).\n")
+	buf.WriteString("#                   Keys are job names; values are key=value string maps.\n")
+	buf.WriteString("#                   The env var $HEBB_NOTIFY_URL (item 6) is the primary use:\n")
+	buf.WriteString("#                   Example: action-review = { HEBB_NOTIFY_URL = \"https://hooks.example.com/abc\" }\n")
+	buf.WriteString("#                   Committing the URL is the vault owner's call (fine for a\n")
+	buf.WriteString("#                   private vault); use this env table to keep it out of the\n")
+	buf.WriteString("#                   committed file when the vault is shared or public.\n")
 	buf.WriteString("#\n")
 	buf.WriteString("#   [git]         - git-sync settings (enabled, auto_pull, auto_push, ...)\n")
 	buf.WriteString("#   [update]      - auto-update settings (auto = false by default)\n")

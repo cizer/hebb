@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -37,8 +38,13 @@ func Slugify(s string) string {
 // scripts are absent. updateAuto makes the update-check job install updates
 // rather than only reporting them. jobArgs carries the per-job extra arguments
 // from config.toml's [job_args]; they are appended to the matching job's
-// program. Unknown names are skipped.
-func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string, updateAuto bool, jobArgs map[string][]string) []launchd.Job {
+// program. jobEnv carries per-job extra environment variables from config.toml's
+// [job_env]; they are merged into the job's EnvVars after built-in env, with
+// user-supplied keys overriding built-in keys of the same name (user wins). The
+// merge produces a deterministic slice: built-in env order is preserved for
+// unoverridden keys, then user-supplied extra keys sorted alphabetically.
+// Unknown job names are skipped.
+func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string, updateAuto bool, jobArgs map[string][]string, jobEnv map[string]map[string]string) []launchd.Job {
 	logDir := filepath.Join(home, "Library", "Logs")
 	logPath := func(job string) string {
 		return filepath.Join(logDir, "hebb-"+slug+"-"+job+".log")
@@ -130,9 +136,60 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				job := &jobs[len(jobs)-1]
 				job.Program = append(job.Program, extra...)
 			}
+			// Per-job extra env from config.toml's [job_env] is merged after built-in
+			// env. A user-supplied key that matches a built-in key overrides it (user
+			// wins). The result is deterministic: built-in keys in original order
+			// (minus any overridden), then user-supplied extra keys sorted
+			// alphabetically. A plist EnvironmentVariables dict cannot hold duplicate
+			// keys, so we dedupe before building the slice.
+			if extra := jobEnv[name]; len(extra) > 0 {
+				job := &jobs[len(jobs)-1]
+				job.EnvVars = mergeEnvVars(job.EnvVars, extra)
+			}
 		}
 	}
 	return jobs
+}
+
+// mergeEnvVars merges built-in env (a slice) with user-supplied env (a map).
+// User-supplied keys override built-in keys of the same name (user wins). The
+// result is deterministic: built-in keys that are not overridden appear first in
+// their original order, followed by user-supplied extra keys (not present in
+// built-in) sorted alphabetically. This guarantees idempotent plist output.
+func mergeEnvVars(builtin []launchd.EnvVar, extra map[string]string) []launchd.EnvVar {
+	// Build a set of overridden built-in keys.
+	overrides := make(map[string]struct{}, len(extra))
+	for k := range extra {
+		overrides[k] = struct{}{}
+	}
+
+	// Collect built-in keys that are present in extra (for detecting new vs
+	// override) and keep original keys that are not overridden.
+	var result []launchd.EnvVar
+	builtinKeys := make(map[string]struct{}, len(builtin))
+	for _, e := range builtin {
+		builtinKeys[e.Key] = struct{}{}
+		if _, overridden := overrides[e.Key]; overridden {
+			// Replace with the user value.
+			result = append(result, launchd.EnvVar{Key: e.Key, Value: extra[e.Key]})
+		} else {
+			result = append(result, e)
+		}
+	}
+
+	// Append truly new user keys (not present in built-in) sorted alphabetically
+	// for determinism.
+	var newKeys []string
+	for k := range extra {
+		if _, inBuiltin := builtinKeys[k]; !inBuiltin {
+			newKeys = append(newKeys, k)
+		}
+	}
+	sort.Strings(newKeys)
+	for _, k := range newKeys {
+		result = append(result, launchd.EnvVar{Key: k, Value: extra[k]})
+	}
+	return result
 }
 
 // pythonPath resolves an absolute python3 (launchd has a minimal PATH), falling

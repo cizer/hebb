@@ -175,16 +175,24 @@ fi
 # Install materialised the automation scripts to $DATA/automation; run them the
 # way launchd would, against the canary vault, and confirm they produce output.
 echo "==> automation"
-[ -x "$DATA/automation/run-vault-digest.sh" ]; report $? "digest wrapper materialised + executable"
+[ -x "$DATA/automation/generate-vault-digest.py" ]; report $? "digest generator materialised + executable"
 [ -x "$DATA/automation/generate-action-review.py" ]; report $? "action-review materialised + executable"
+[ -x "$DATA/automation/run-vault-digest.sh" ]; report $? "deprecated digest wrapper still materialised (manual use)"
 
 # Daily digest: window = the day before the run date, so a run dated "tomorrow"
-# covers the canary notes created today. The wrapper also calls `hebb index`.
+# covers the canary notes created today. `hebb digest` reindexes in-process.
 TOMORROW="$(date -v+1d +%F 2>/dev/null || date -d 'tomorrow' +%F)"
 if command -v python3 >/dev/null 2>&1; then
-  # The launchd entrypoint: runs the generator (real window) then `hebb index`.
-  "$DATA/automation/run-vault-digest.sh" --vault-root "$VAULT" > "$WORK/wrapper.out" 2>&1
-  report $? "run-vault-digest.sh (launchd entrypoint) runs + reindexes"
+  # The launchd entrypoint is now the hebb binary: `hebb digest` runs the
+  # generator then refreshes the index in-process (no shell wrapper, so macOS
+  # TCC attributes Full Disk Access to a grantable identity). --data-dir points
+  # at the materialised automation/, mirroring how the rendered job resolves it.
+  hebb digest --vault-root "$VAULT" --data-dir "$DATA" > "$WORK/digest-job.out" 2>&1
+  report $? "hebb digest (launchd entrypoint) runs + reindexes"
+  # doctor must not warn that the rendered jobs use a shell-wrapper Program[0].
+  if has "$doc" "launchd-tcc"; then
+    if echo "$doc" | grep -q "warn .*launchd-tcc"; then report 1 "doctor launchd-tcc lint clean (grantable Program[0])"; else report 0 "doctor launchd-tcc lint clean (grantable Program[0])"; fi
+  fi
   # Deterministic generator run that targets the canary notes' day.
   python3 "$DATA/automation/generate-vault-digest.py" --vault-root "$VAULT" --date "$TOMORROW" > "$WORK/digest.out" 2>&1
   report $? "generate-vault-digest.py runs"

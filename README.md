@@ -123,6 +123,7 @@ hebb serve              # browse at http://127.0.0.1:4321
 - `hebb sync` — commit, pull (rebase), and push the vault's markdown via git. Never force-pushes; a conflicting pull is aborted and reported. Enable `[git]` in `config.toml` to also auto-sync: pull when a hebb process starts, commit+push after edits settle.
 - `hebb update` — check for and install a newer hebb release (checksum-verified, atomic replace), then re-apply the release's skills to whichever skills dirs already have them (so new and changed skills land on upgrade). `--check` only reports. Self-replaces only a binary hebb owns; a Homebrew or `go install` binary is left to its package manager. A scheduled `update-check` job notifies of new releases (set `[update] auto = true` to install them).
 - `hebb index` — build or refresh the index (usually automatic).
+- `hebb digest`: generate the daily vault digest, then refresh the index. The launchd `daily-digest` entrypoint: it is the hebb binary (not a shell wrapper) so macOS grants it Full Disk Access to read protected vault folders. Args after `--` pass through to the digest generator.
 
 Vault selection everywhere: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.
 

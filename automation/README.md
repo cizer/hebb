@@ -14,5 +14,16 @@ Every script takes its vault from `--vault-root`; nothing is hardcoded.
 
 Overrides: `run-vault-digest.sh` honours `PYTHON` and `HEBB_BIN` (launchd ships a
 minimal PATH). Both Python scripts take `--output`/`--json-output`; the action
-review also takes `--register-name` and `--owner` (the name highlighted under
-"My Actions"; empty by default).
+review also takes `--register-name`, `--owner` (the name highlighted under
+"My Actions"; empty by default), and `--mine-output` (off by default; with
+`--owner`, also writes a personal worklist of just the owner's actions,
+bucketed Overdue/Current/Waiting and sorted by due date).
+
+Per-vault flags: a vault passes extra arguments to its jobs via the
+`[job_args]` table in `.hebb/config.toml`; `hebb install` appends them to the
+rendered launchd program after the built-in flags. For example:
+
+```toml
+[job_args]
+action-review = ["--owner", "Alex Doe", "--mine-output", "2-Areas/_MY-OPEN-ACTIONS.md"]
+```

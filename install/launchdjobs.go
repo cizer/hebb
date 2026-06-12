@@ -35,8 +35,10 @@ func Slugify(s string) string {
 // and action-review jobs are only included when their script exists under
 // <assetRoot>/automation, so no broken plists are written if the automation
 // scripts are absent. updateAuto makes the update-check job install updates
-// rather than only reporting them. Unknown names are skipped.
-func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string, updateAuto bool) []launchd.Job {
+// rather than only reporting them. jobArgs carries the per-job extra arguments
+// from config.toml's [job_args]; they are appended to the matching job's
+// program. Unknown names are skipped.
+func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names []string, updateAuto bool, jobArgs map[string][]string) []launchd.Job {
 	logDir := filepath.Join(home, "Library", "Logs")
 	logPath := func(job string) string {
 		return filepath.Join(logDir, "hebb-"+slug+"-"+job+".log")
@@ -52,6 +54,7 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 
 	var jobs []launchd.Job
 	for _, name := range names {
+		before := len(jobs)
 		switch name {
 		case "web":
 			jobs = append(jobs, launchd.Job{
@@ -110,6 +113,14 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				Schedule:   []launchd.CalInterval{{Weekday: 1, Hour: 9, Minute: 0}}, // Mondays 09:00
 				LogPath:    logPath("update-check"),
 			})
+		}
+		// Per-job extra args from config.toml's [job_args] go at the end of the
+		// rendered program, after the built-in flags.
+		if len(jobs) > before {
+			if extra := jobArgs[name]; len(extra) > 0 {
+				job := &jobs[len(jobs)-1]
+				job.Program = append(job.Program, extra...)
+			}
 		}
 	}
 	return jobs

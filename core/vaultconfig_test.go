@@ -66,6 +66,29 @@ func TestLoadVaultConfigAbsent(t *testing.T) {
 	}
 }
 
+func TestVaultConfigJobArgs(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[job_args]
+action-review = ["--owner", "Alex Doe", "--mine-output", "2-Areas/_MY-OPEN-ACTIONS.md"]
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	want := []string{"--owner", "Alex Doe", "--mine-output", "2-Areas/_MY-OPEN-ACTIONS.md"}
+	if !reflect.DeepEqual(got.JobArgs["action-review"], want) {
+		t.Errorf("job_args[action-review] = %v, want %v", got.JobArgs["action-review"], want)
+	}
+}
+
 func TestLoadVaultConfigInvalid(t *testing.T) {
 	vault := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {

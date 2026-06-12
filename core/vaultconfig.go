@@ -20,9 +20,18 @@ type VaultConfig struct {
 	WebPort     int          `toml:"web_port"`
 	Jobs        []string     `toml:"jobs"`
 	Skills      []string     `toml:"skills"`
+	JobArgs     JobArgs      `toml:"job_args"`
 	Git         GitConfig    `toml:"git"`
 	Update      UpdateConfig `toml:"update"`
 }
+
+// JobArgs is the committed [job_args] block: extra command-line arguments
+// appended to a job's rendered launchd program, keyed by job name. Entries for
+// job names not listed under jobs (or unknown to hebb) are ignored, e.g.
+//
+//	[job_args]
+//	action-review = ["--owner", "Alex Doe"]
+type JobArgs map[string][]string
 
 // UpdateConfig is the committed [update] block. The scheduled update-check job
 // reports a newer release by default; with auto = true it installs it (opt-in,

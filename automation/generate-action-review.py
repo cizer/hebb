@@ -261,10 +261,13 @@ def extract_priority_block(output_path: Path) -> str:
 
 
 def build_review(
-    vault_root: Path, output_path: Path, register_name: str, owner_filter: str
+    vault_root: Path,
+    output_path: Path,
+    register_name: str,
+    owner_filter: str,
+    registers: list[Path],
+    actions: list[Action],
 ) -> tuple[str, str]:
-    registers, actions = collect_actions(vault_root, output_path, register_name, owner_filter)
-
     today = dt.date.today()
     overdue = [item for item in actions if normalize_status(item.status) == "overdue" or item.is_overdue]
     mine = [item for item in actions if item.is_mine]
@@ -333,6 +336,52 @@ Recommended sync boundary:
     return markdown, build_json(actions, registers, vault_root)
 
 
+def sort_by_due(actions: list[Action]) -> list[Action]:
+    return sorted(
+        actions,
+        key=lambda item: (
+            item.date_value or dt.date.max,
+            item.register_title,
+            item.action.lower(),
+        ),
+    )
+
+
+def build_mine(
+    vault_root: Path, register_name: str, owner_filter: str, actions: list[Action]
+) -> str:
+    """Personal worklist: only the owner's open actions, bucketed by urgency."""
+    mine = [item for item in actions if item.is_mine]
+    overdue = sort_by_due([item for item in mine if item.is_overdue or normalize_status(item.status) == "overdue"])
+    rest = [item for item in mine if item not in overdue]
+    waiting = sort_by_due([item for item in rest if normalize_status(item.status) == "waiting"])
+    current = sort_by_due([item for item in rest if item not in waiting])
+
+    return f"""# My Open Actions
+
+Personal worklist for **{owner_filter}**, generated from all `{register_name}` files in the vault.
+
+**Generated:** {dt.date.today().isoformat()}
+**Open actions:** {len(mine)} open ({len(overdue)} overdue, {len(current)} current, {len(waiting)} waiting)
+
+---
+
+## Overdue
+
+{markdown_table(overdue, vault_root)}
+---
+
+## Current
+
+{markdown_table(current, vault_root)}
+---
+
+## Waiting
+
+{markdown_table(waiting, vault_root)}
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vault-root", default=".", help="Path to the vault root")
@@ -340,18 +389,32 @@ def main() -> int:
     parser.add_argument("--json-output", default=DEFAULT_JSON_OUTPUT, help="Output JSON file (relative to vault root)")
     parser.add_argument("--register-name", default=DEFAULT_REGISTER_NAME, help="Action-register filename to scan for")
     parser.add_argument("--owner", default="", help="Owner name to highlight under 'My Actions' (matched as a substring; empty disables)")
+    parser.add_argument(
+        "--mine-output",
+        default="",
+        help="Also write a personal worklist of the owner's actions to this file (relative to vault root; empty disables; requires --owner)",
+    )
     args = parser.parse_args()
+
+    if args.mine_output and not args.owner:
+        parser.error("--mine-output requires --owner")
 
     vault_root = Path(args.vault_root).resolve()
     output_path = (vault_root / args.output).resolve()
     json_output_path = (vault_root / args.json_output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     json_output_path.parent.mkdir(parents=True, exist_ok=True)
-    markdown, json_export = build_review(vault_root, output_path, args.register_name, args.owner)
+    registers, actions = collect_actions(vault_root, output_path, args.register_name, args.owner)
+    markdown, json_export = build_review(vault_root, output_path, args.register_name, args.owner, registers, actions)
     output_path.write_text(markdown, encoding="utf-8")
     json_output_path.write_text(json_export, encoding="utf-8")
     print(f"Wrote {display_path(output_path, vault_root)}")
     print(f"Wrote {display_path(json_output_path, vault_root)}")
+    if args.mine_output:
+        mine_path = (vault_root / args.mine_output).resolve()
+        mine_path.parent.mkdir(parents=True, exist_ok=True)
+        mine_path.write_text(build_mine(vault_root, args.register_name, args.owner, actions), encoding="utf-8")
+        print(f"Wrote {display_path(mine_path, vault_root)}")
     return 0
 
 

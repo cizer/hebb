@@ -54,7 +54,7 @@ Platform mechanics worth knowing (Microsoft Graph specifics; analogous elsewhere
 
 ### 4. Chat pass
 
-Search chats across the window for substantive content. Be honest about coverage limits — date-bounded chat scans typically cover a bounded set of recent chats and may exclude channels or older messages; state the gap in the report rather than implying a full sweep. Search a few angles (key people, key topics, decision language, shared-file messages) rather than one query.
+Search chats across the window. **Prefer undated keyword/scoped queries** (e.g. `from:person`) and filter by returned timestamps: on Microsoft Graph the undated path uses the search index and reaches channels, DMs, and older chats, while date-bounded scans cover only a small set of recently-modified chats with no channels. Use the date-bounded path only for a queryless recency sweep, and state the coverage gap in the report. Search a few angles (key people, key topics, decision language, shared-file messages) rather than one query.
 
 - **Signal:** decisions, ownership/scope changes, substantive updates, AI recaps posted into meeting chats, shared documents worth pulling.
 - **Noise:** logistics, social chatter, reactions, link-only messages with no decision attached.

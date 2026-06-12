@@ -129,6 +129,13 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 // pythonPath resolves an absolute python3 (launchd has a minimal PATH), falling
 // back to the bare name if it cannot be located.
 func pythonPath() string {
+	return PythonPath()
+}
+
+// PythonPath resolves an absolute python3 (launchd has a minimal PATH), falling
+// back to the bare name if it cannot be located. Exported so `hebb digest` can
+// resolve the interpreter the same way the rendered launchd jobs do.
+func PythonPath() string {
 	if p, err := exec.LookPath("python3"); err == nil {
 		return p
 	}

@@ -20,11 +20,13 @@ retrieval and indexing surface, prefer them over raw directory listing or grep:
 - `get_context_for_topic` / `expand_context` assemble related notes by following
   `[[Wiki Links]]` and tags.
 - `vault_stats` size and coverage of the index.
-- `reindex_vault` refresh the index after writing notes.
+- `reindex_vault` force a full rebuild (rarely needed; see below).
 
-End any writing operation with `reindex_vault` so new content is searchable. From
-a shell you can also run `hebb search "<query>"` or `hebb serve` for a local web
-UI on 127.0.0.1.
+The index keeps itself fresh: new and changed notes are picked up automatically
+on the next search, and a file watcher reindexes edits as they happen, so you do
+not need to reindex after writing. Use `reindex_vault` only if results look stale
+despite that, or after bulk file moves. From a shell you can also run
+`hebb search "<query>"` or `hebb serve` for a local web UI on 127.0.0.1.
 
 ## Memory
 

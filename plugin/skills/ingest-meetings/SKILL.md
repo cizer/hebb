@@ -75,9 +75,9 @@ Vault-ingest conventions throughout. Two meeting-specific disciplines:
 
 **Actions discipline:** capture in the canonical note; ask once before promoting to any register; "leave actions for now" stands for the session.
 
-### 7. Reindex, log, report
+### 7. Log and report
 
-Reindex once after all writes (`mcp__hebb__reindex_vault` or the vault's reindex path). If the vault keeps an ingest log, append one meetings-sweep row recording the **cutoff** (end of the calendar window swept), what was filed/enriched/skipped, chat-coverage caveats, the run stage, and flagged items. Close with the date filed under, the stage, clickable links, what was skipped and why, and anything awaiting a decision.
+No manual reindex: writes (including the log row) are picked up by the index on the next search, and the file watcher reindexes live edits, so `mcp__hebb__reindex_vault` is only an escape hatch. If the vault keeps an ingest log, append one meetings-sweep row recording the **cutoff** (end of the calendar window swept), what was filed/enriched/skipped, chat-coverage caveats, the run stage, and flagged items. Close with the date filed under, the stage, clickable links, what was skipped and why, and anything awaiting a decision.
 
 ## Running it repeatedly (idempotency)
 

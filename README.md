@@ -14,6 +14,7 @@ Multi-vault, like git is multi-repo: run `hebb` inside a vault directory, or pas
 - **Connected recall, not just keywords.** hebb walks `[[wiki-links]]` and shared tags to gather a topic's context, so an agent gets the related notes, not just the literal hits.
 - **Local and fast.** Pure-Go SQLite FTS5 — no service, no cloud, no cgo. A single static binary; your vault never leaves your machine.
 - **Composable.** A CLI, a local web UI, an MCP server, a Claude Code plugin, and a file watcher over one engine. Use the parts you want.
+- **Self-refreshing index.** New and changed notes are picked up automatically on the next search, and the file watcher reindexes live edits, so agents never have to reindex after writing. `reindex_vault` stays as a manual escape hatch for a suspected-stale index or bulk file moves.
 
 ## Install
 

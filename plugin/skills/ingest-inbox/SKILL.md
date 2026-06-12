@@ -97,9 +97,9 @@ Apply vault-ingest conventions for everything: destinations, splitting entities,
 
 **Actions discipline.** Capture actions in the canonical note. Do not write them to a central action register without asking once. If the user has said "leave actions for now" in the session, treat it as standing and do not re-ask.
 
-### 6. Reindex
+### 6. Indexing is automatic
 
-End with `mcp__hebb__reindex_vault` (or the vault's reindex path), once after all writes including the log row.
+No manual reindex. New and changed notes (including the log row) are picked up by the index on the next search, and the file watcher reindexes live edits; `mcp__hebb__reindex_vault` is only an escape hatch for a suspected-stale index.
 
 ### 7. Log the sweep
 

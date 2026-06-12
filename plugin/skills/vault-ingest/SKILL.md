@@ -119,11 +119,13 @@ If told someone has left, a contract has lapsed, or a project has wound down, ma
 the historical record clearly ("Left", "Past engagements", "Status: closed")
 rather than removing it. The history is often why the current state makes sense.
 
-### 6. Reindex after writing
+### 6. Let the index refresh itself
 
-End the writing operation with `mcp__hebb__reindex_vault`. The search index is the
-primary retrieval path — a stale index means invisible content. Once per ingest
-operation is enough, not once per file.
+No manual reindex step. The search index keeps itself fresh: new and changed
+notes are picked up automatically on the next search, and a file watcher
+reindexes edits as they happen. `mcp__hebb__reindex_vault` exists as an escape
+hatch for a suspected-stale index or bulk file moves; you do not need it after a
+normal ingest.
 
 ### 7. Log the ingest (if the vault keeps one)
 
@@ -140,9 +142,9 @@ operation (not per file), newest at the top:
 - **Primary destination** — wiki link to the main note created.
 - **Notes** — a sentence or two on what got created and propagated.
 
-Reindex once more after writing the log entry — it's a vault write. The log is the
-source of truth for "have I ingested this before?"; search it first if duplication
-is a risk.
+The log is the source of truth for "have I ingested this before?"; search it
+first if duplication is a risk. (The log entry is picked up by the index like any
+other write; no reindex needed.)
 
 ### 8. Report what happened
 
@@ -263,9 +265,9 @@ The user pastes a list of three agency contacts.
 5. Search the vault for related material; pull durable profiles and contacts, skip
    stale resourcing chatter.
 6. Mark anything clearly past instead of dropping the history.
-7. `mcp__hebb__reindex_vault`.
-8. If the vault keeps an ingest log, append a row (date, "Agency contacts — pasted
-   text", type `reference`, destination `[[Agencies]]`, notes). Reindex again.
-9. Report today's filing date, which notes were filed where (clickable links),
+7. If the vault keeps an ingest log, append a row (date, "Agency contacts — pasted
+   text", type `reference`, destination `[[Agencies]]`, notes). The index picks up
+   the new notes and the log entry on its own.
+8. Report today's filing date, which notes were filed where (clickable links),
    what was pulled, what was skipped. Any actions raised stay in the canonical
    note unless the user asks to promote them.

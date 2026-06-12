@@ -88,6 +88,71 @@ action-review = ["--owner", "Alex Doe", "--mine-output", "2-Areas/_MY-OPEN-ACTIO
 	}
 }
 
+func TestIndexConfigAutoRefreshDefault(t *testing.T) {
+	// Absent [index] block: auto-refresh defaults on.
+	if !(IndexConfig{}).AutoRefreshEnabled() {
+		t.Error("absent [index]: AutoRefreshEnabled() = false, want true (default on)")
+	}
+	// Explicit false turns it off.
+	off := false
+	if (IndexConfig{AutoRefresh: &off}).AutoRefreshEnabled() {
+		t.Error("auto_refresh = false: AutoRefreshEnabled() = true, want false")
+	}
+	on := true
+	if !(IndexConfig{AutoRefresh: &on}).AutoRefreshEnabled() {
+		t.Error("auto_refresh = true: AutoRefreshEnabled() = false, want true")
+	}
+}
+
+func TestVaultConfigParsesIndexBlock(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[index]
+auto_refresh = false
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Index.AutoRefreshEnabled() {
+		t.Error("parsed auto_refresh = false but AutoRefreshEnabled() = true")
+	}
+}
+
+func TestResolveVaultAutoRefreshDefaultsOn(t *testing.T) {
+	// No config at all: cfg.AutoRefresh must default on.
+	vault := t.TempDir()
+	cfg, err := ResolveVault(vault, "")
+	if err != nil {
+		t.Fatalf("ResolveVault: %v", err)
+	}
+	if !cfg.AutoRefresh {
+		t.Error("no config: cfg.AutoRefresh = false, want true (default on)")
+	}
+
+	// Explicit off propagates to the resolved Config.
+	off := false
+	vc := DefaultVaultConfig("T")
+	vc.Index.AutoRefresh = &off
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = ResolveVault(vault, "")
+	if err != nil {
+		t.Fatalf("ResolveVault: %v", err)
+	}
+	if cfg.AutoRefresh {
+		t.Error("auto_refresh = false in config: cfg.AutoRefresh = true, want false")
+	}
+}
+
 func TestLoadVaultConfigInvalid(t *testing.T) {
 	vault := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {

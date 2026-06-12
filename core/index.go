@@ -3,10 +3,10 @@ package core
 import (
 	"database/sql"
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // IndexResult summarises a reindex.
@@ -15,46 +15,39 @@ type IndexResult struct {
 	Removed int
 }
 
-// FullReindex walks the vault, parses every markdown file and upserts the
-// index, removing entries whose files no longer exist on disk.
+// FullReindex walks the vault, parses changed markdown files and upserts the
+// index, removing entries whose files no longer exist on disk. Files whose
+// on-disk mtime matches the stored mtime are skipped without being re-parsed,
+// so a routine reindex over an unchanged vault is nearly free. Use
+// FullReindexForce to re-parse every file regardless (the manual escape hatch
+// for a suspected-corrupt index).
 func FullReindex(cfg Config, db *sql.DB) (IndexResult, error) {
-	excluded := map[string]bool{}
-	for _, d := range cfg.ExcludeDirs {
-		excluded[d] = true
-	}
+	return fullReindex(cfg, db, false)
+}
 
-	var files []string
-	walkErr := filepath.WalkDir(cfg.VaultPath, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries
-		}
-		// Never follow symlinks. WalkDir does not descend into symlinked dirs,
-		// but a symlinked .md file would otherwise be read and indexed - a note
-		// pointing at, say, ~/.ssh/id_rsa would pull host files into the
-		// searchable index. This matters most for synced or shared vaults.
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		if d.IsDir() {
-			if excluded[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(d.Name(), ".md") {
-			if rel, rerr := filepath.Rel(cfg.VaultPath, p); rerr == nil {
-				files = append(files, filepath.ToSlash(rel))
-			}
-		}
-		return nil
-	})
-	if walkErr != nil {
-		return IndexResult{}, walkErr
+// FullReindexForce re-parses every markdown file, ignoring stored mtimes. It is
+// the manual escape hatch behind the reindex_vault tool and the web reindex
+// endpoint: use it to rebuild from scratch when the index is suspected stale or
+// corrupt, not on the hot read path.
+func FullReindexForce(cfg Config, db *sql.DB) (IndexResult, error) {
+	return fullReindex(cfg, db, true)
+}
+
+func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
+	files, err := enumerateMarkdown(cfg)
+	if err != nil {
+		return IndexResult{}, err
 	}
 
 	existing, err := existingPaths(db)
 	if err != nil {
 		return IndexResult{}, err
+	}
+	var stored map[string]float64
+	if !force {
+		if stored, err = indexedMtimes(db); err != nil {
+			return IndexResult{}, err
+		}
 	}
 
 	tx, err := db.Begin()
@@ -79,17 +72,26 @@ func FullReindex(cfg Config, db *sql.DB) (IndexResult, error) {
 	indexed := 0
 	for _, rel := range files {
 		full := filepath.Join(cfg.VaultPath, filepath.FromSlash(rel))
-		content, rerr := os.ReadFile(full)
-		if rerr != nil {
-			continue
-		}
 		info, serr := os.Stat(full)
 		if serr != nil {
 			continue
 		}
+		mtime := float64(info.ModTime().UnixNano()) / 1e6
+		// Skip files whose on-disk mtime matches the stored mtime: nothing changed,
+		// so there is nothing to re-parse. existing is left untouched so the file
+		// is not treated as removed below.
+		if !force {
+			if prev, known := stored[rel]; known && prev == mtime {
+				delete(existing, rel)
+				continue
+			}
+		}
+		content, rerr := readFile(full)
+		if rerr != nil {
+			continue
+		}
 		n := ParseNote(string(content), rel)
 		fmJSON, _ := json.Marshal(n.Frontmatter)
-		mtime := float64(info.ModTime().UnixNano()) / 1e6
 		if _, err := upsert.Exec(rel, n.Title, n.Body, strings.Join(n.Tags, " "), string(fmJSON), mtime); err != nil {
 			return IndexResult{}, err
 		}
@@ -114,6 +116,17 @@ func FullReindex(cfg Config, db *sql.DB) (IndexResult, error) {
 			return IndexResult{}, err
 		}
 		removed++
+	}
+
+	// Record the moment the index was last walked end-to-end. vault_stats and
+	// doctor read this back to report freshness; it is written on every
+	// FullReindex (changed-only or forced) because both fully reconcile the walk
+	// against disk.
+	if _, err := tx.Exec(
+		`INSERT OR REPLACE INTO index_meta (key, value) VALUES ('last_full_reindex_at', ?)`,
+		time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		return IndexResult{}, err
 	}
 
 	if err := tx.Commit(); err != nil {

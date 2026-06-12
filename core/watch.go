@@ -12,10 +12,65 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// WatcherHealth is a point-in-time snapshot of a watcher's liveness, exposed so
+// surfaces can report whether incremental indexing is actually running rather
+// than assuming it. Alive is false once the loop has exited (channel closed or
+// Close called) or when the watcher never started; StartErr carries the reason
+// in the never-started case. Errors counts fsnotify error-channel events, which
+// were previously drained and discarded, hiding silent watcher death.
+type WatcherHealth struct {
+	Alive       bool
+	LastEventAt time.Time
+	Errors      int
+	StartErr    string
+}
+
+// FailedWatcherHealth is the health snapshot for a watcher that never started.
+// Surfaces that discard the Watch startup error record this so vault_stats and
+// doctor can still report that incremental indexing is not running.
+func FailedWatcherHealth(err error) WatcherHealth {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	return WatcherHealth{Alive: false, StartErr: msg}
+}
+
 // Watcher incrementally updates the index as markdown files change.
 type Watcher struct {
 	w    *fsnotify.Watcher
 	done chan struct{}
+
+	// health is read by surface handlers (vault_stats) concurrently with the
+	// watcher loop writing it, so every access goes through mu.
+	mu     sync.Mutex
+	health WatcherHealth
+}
+
+// Health returns a snapshot of the watcher's liveness, safe to call from any
+// goroutine.
+func (wt *Watcher) Health() WatcherHealth {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.health
+}
+
+func (wt *Watcher) markEvent() {
+	wt.mu.Lock()
+	wt.health.LastEventAt = time.Now()
+	wt.mu.Unlock()
+}
+
+func (wt *Watcher) markError() {
+	wt.mu.Lock()
+	wt.health.Errors++
+	wt.mu.Unlock()
+}
+
+func (wt *Watcher) markStopped() {
+	wt.mu.Lock()
+	wt.health.Alive = false
+	wt.mu.Unlock()
 }
 
 // Watch starts watching the vault tree, reindexing single files on change and
@@ -48,12 +103,15 @@ func Watch(cfg Config, db *sql.DB) (*Watcher, error) {
 		_ = GitPull(cfg.VaultPath)
 	}
 
-	wt := &Watcher{w: fw, done: make(chan struct{})}
+	wt := &Watcher{w: fw, done: make(chan struct{}), health: WatcherHealth{Alive: true}}
 	go wt.loop(cfg, db, excluded)
 	return wt, nil
 }
 
 func (wt *Watcher) loop(cfg Config, db *sql.DB, excluded map[string]bool) {
+	// Whatever exits this loop (Close, a closed channel), the watcher is no longer
+	// keeping the index fresh, so report it dead. Surfaces read this to warn.
+	defer wt.markStopped()
 	debounce := map[string]*time.Timer{}
 	var mu sync.Mutex
 	relOf := func(p string) string {
@@ -113,6 +171,7 @@ func (wt *Watcher) loop(cfg Config, db *sql.DB, excluded map[string]bool) {
 			if rel == "" {
 				continue
 			}
+			wt.markEvent()
 			if ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
 				_ = RemoveFile(db, rel)
 				scheduleGitSync()
@@ -136,6 +195,10 @@ func (wt *Watcher) loop(cfg Config, db *sql.DB, excluded map[string]bool) {
 			if !ok {
 				return
 			}
+			// Count fsnotify errors rather than discarding them. A rising count is
+			// the only signal that the watcher is struggling (e.g. inotify watch
+			// limit), which surfaces report through WatcherHealth.
+			wt.markError()
 		}
 	}
 }

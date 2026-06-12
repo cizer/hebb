@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS links (
   target TEXT NOT NULL,
   PRIMARY KEY (source_path, target)
 );
+CREATE TABLE IF NOT EXISTS index_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   title, body, tags,
   content='notes', content_rowid='rowid',

@@ -24,6 +24,23 @@ type VaultConfig struct {
 	JobArgs     JobArgs      `toml:"job_args"`
 	Git         GitConfig    `toml:"git"`
 	Update      UpdateConfig `toml:"update"`
+	Index       IndexConfig  `toml:"index"`
+}
+
+// IndexConfig is the committed [index] block. auto_refresh governs only the
+// read-time staleness pass (RefreshChanged on a search, context or stats read):
+// on by default, an explicit false leaves reads to the watcher alone. It does
+// not affect watcher health reporting, which is unconditional. AutoRefresh is a
+// pointer so an unset value defaults to on while an explicit false turns it off,
+// mirroring the GitConfig pattern.
+type IndexConfig struct {
+	AutoRefresh *bool `toml:"auto_refresh"` // default true
+}
+
+// AutoRefreshEnabled reports whether read-time RefreshChanged should run (on by
+// default; only an explicit auto_refresh = false disables it).
+func (i IndexConfig) AutoRefreshEnabled() bool {
+	return i.AutoRefresh == nil || *i.AutoRefresh
 }
 
 // JobArgs is the committed [job_args] block: extra command-line arguments

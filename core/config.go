@@ -12,12 +12,22 @@ type Config struct {
 	DBPath      string
 	ExcludeDirs []string
 	Git         GitConfig // git-mode settings from the vault's [git] block
+	// AutoRefresh enables the read-time staleness pass (RefreshChanged) on the
+	// MCP and CLI read paths. Resolved from the [index] block; on by default.
+	AutoRefresh bool
 }
 
 // defaultExcludeDirs are directory names skipped when walking a vault. These
 // hold tool machinery (Obsidian/git/hebb state, agent config), not notes, so
 // indexing their markdown would pollute search and context results.
 var defaultExcludeDirs = []string{".obsidian", ".trash", ".hebb", ".git", ".claude"}
+
+// DefaultExcludeDirs returns a copy of the directory names skipped when walking
+// a vault, so callers (e.g. doctor's staleness walk) can reproduce the indexing
+// walk exactly when a config omits exclude_dirs.
+func DefaultExcludeDirs() []string {
+	return append([]string(nil), defaultExcludeDirs...)
+}
 
 // ResolveVault determines the vault path (flag, then $HEBB_VAULT, then the
 // nearest ancestor of the cwd containing .hebb/) and the index db path.
@@ -48,7 +58,7 @@ func ResolveVault(flagVault, flagDB string) (Config, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return Config{}, err
 	}
-	cfg := Config{VaultPath: abs, DBPath: dbPath, ExcludeDirs: defaultExcludeDirs}
+	cfg := Config{VaultPath: abs, DBPath: dbPath, ExcludeDirs: defaultExcludeDirs, AutoRefresh: true}
 	vc, existed, err := LoadVaultConfig(abs)
 	if err != nil {
 		return Config{}, err
@@ -58,6 +68,7 @@ func ResolveVault(flagVault, flagDB string) (Config, error) {
 	}
 	if existed {
 		cfg.Git = vc.Git
+		cfg.AutoRefresh = vc.Index.AutoRefreshEnabled()
 	}
 	return cfg, nil
 }

@@ -18,7 +18,7 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	if fi, err := os.Lstat(full); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return RemoveFile(db, rel)
 	}
-	content, err := os.ReadFile(full)
+	content, err := readFile(full)
 	if err != nil {
 		return RemoveFile(db, rel)
 	}

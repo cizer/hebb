@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // SearchResult is a single FTS hit.
@@ -98,6 +99,22 @@ func buildFTSQuery(query string) string {
 		return `"` + query + `"`
 	}
 	return strings.Join(terms, " ")
+}
+
+// LastFullReindex returns the timestamp of the most recent full index walk
+// (changed-only or forced), parsed from index_meta. ok is false when the index
+// has never been walked (e.g. a freshly created db). The stored value is RFC3339
+// UTC, written by FullReindex.
+func LastFullReindex(db *sql.DB) (t time.Time, ok bool) {
+	var v string
+	if err := db.QueryRow("SELECT value FROM index_meta WHERE key = 'last_full_reindex_at'").Scan(&v); err != nil {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 // TagCount is a tag and its frequency.

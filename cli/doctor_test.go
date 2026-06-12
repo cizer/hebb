@@ -6,15 +6,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cizer/hebb/install"
 )
 
-func runDoctor(t *testing.T, vault, home string) (string, error) {
+func runDoctor(t *testing.T, vault, home string, extra ...string) (string, error) {
 	t.Helper()
 	root := newRoot("test")
 	var buf bytes.Buffer
 	root.SetOut(&buf)
 	root.SetErr(&buf)
-	root.SetArgs([]string{"doctor", "--vault", vault, "--home", home})
+	args := append([]string{"doctor", "--vault", vault, "--home", home}, extra...)
+	root.SetArgs(args)
 	err := root.Execute()
 	return buf.String(), err
 }
@@ -49,5 +52,34 @@ func TestDoctorCommandFailsOnEmptyVault(t *testing.T) {
 	}
 	if !strings.Contains(out, "FAIL") {
 		t.Errorf("expected a FAIL marker in output:\n%s", out)
+	}
+}
+
+// TestDoctorCommandAgentFlags proves the hidden --claude-desktop-config flag is
+// wired through to the agent drift check at the CLI surface: a Desktop config
+// pinned to this vault with a non-existent command is surfaced as a FAIL and
+// makes doctor exit non-zero, while a config that was never wired (the default
+// path, absent) produces no agent finding and a clean exit.
+func TestDoctorCommandAgentFlags(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# A\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runInstall(t, vault, "--home", home)
+
+	// A Desktop config pinned to this vault whose command points at nothing.
+	desktopCfg := filepath.Join(t.TempDir(), "claude_desktop_config.json")
+	broken := filepath.Join(t.TempDir(), "gone", "hebb")
+	if _, err := install.WriteClaudeDesktopConfig(desktopCfg, install.DefaultMCPServerName, broken, vault); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runDoctor(t, vault, home, "--claude-desktop-config", desktopCfg)
+	if err == nil {
+		t.Errorf("doctor should exit non-zero on a broken Desktop command:\n%s", out)
+	}
+	if !strings.Contains(out, "claude-desktop") || !strings.Contains(out, "FAIL") {
+		t.Errorf("expected a claude-desktop FAIL in output:\n%s", out)
 	}
 }

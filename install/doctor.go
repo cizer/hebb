@@ -80,10 +80,36 @@ func Doctor(opts Options) []Check {
 	checkCodex(add, opts)
 
 	if existed {
+		checkIngestStage(add, vc)
 		checkLaunchd(add, opts, vc, bin)
 		checkLaunchdTCC(add, opts, vc, bin)
 	}
 	return checks
+}
+
+// checkIngestStage warns when the vault config carries an ingest stage that is
+// unsupported (>= 4; headless ingest is not yet implemented) or outside the
+// valid 1-4 range. Stage 0 or negative is stored as-is and triggers the warning
+// because GetStage clamps only the accessor, leaving the raw value visible here.
+func checkIngestStage(add func(string, string, string), vc core.VaultConfig) {
+	s := vc.Ingest.Stage
+	if s == 0 {
+		// Zero means the [ingest] section was absent or stage was not set:
+		// GetStage() will return 1, which is the safe default. No warning.
+		return
+	}
+	if s >= 1 && s <= 3 {
+		return
+	}
+	if s == 4 {
+		add("ingest-stage", "warn",
+			"ingest stage 4 (headless) is not yet supported; the skill will not run headless. "+
+				"Set [ingest] stage to 1-3 in .hebb/config.toml.")
+		return
+	}
+	add("ingest-stage", "warn",
+		fmt.Sprintf("ingest stage %d is outside the valid range 1-4. "+
+			"Set [ingest] stage to 1-3 in .hebb/config.toml.", s))
 }
 
 // checkBinaryPath classifies a command field that differs from the binary path

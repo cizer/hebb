@@ -644,6 +644,46 @@ func TestDoctorAgentChecksReadOnly(t *testing.T) {
 	}
 }
 
+// TestDoctorIngestStageWarns proves Doctor emits an ingest-stage warn when the
+// vault config carries a stage >= 4 (headless not yet supported) or a negative
+// value (explicitly out of range). Stage 0 means the section is absent or
+// stage was not set, which the accessor clamps to 1 and is not a warning. Stage
+// 1-3 are valid and produce no finding.
+func TestDoctorIngestStageWarns(t *testing.T) {
+	cases := []struct {
+		stage  int
+		wantOK bool // true means no ingest-stage check or status=ok
+	}{
+		{stage: 0, wantOK: true}, // absent/default: accessor clamps to 1, no warning
+		{stage: 1, wantOK: true},
+		{stage: 2, wantOK: true},
+		{stage: 3, wantOK: true},
+		{stage: 4, wantOK: false},  // headless not yet supported: warn
+		{stage: 5, wantOK: false},  // out of range: warn
+		{stage: -1, wantOK: false}, // explicitly negative: out of range, warn
+	}
+	for _, tc := range cases {
+		vc := core.DefaultVaultConfig("W")
+		vc.Ingest.Stage = tc.stage
+		vault := t.TempDir()
+		if err := vc.Save(vault); err != nil {
+			t.Fatal(err)
+		}
+		checks := Doctor(Options{VaultPath: vault, MCPName: DefaultMCPServerName})
+		c, hasCheck := checkByName(checks, "ingest-stage")
+		if tc.wantOK {
+			// Either no check or status ok.
+			if hasCheck && c.Status != "ok" {
+				t.Errorf("stage=%d: ingest-stage=%q (%s), want ok or absent", tc.stage, c.Status, c.Detail)
+			}
+		} else {
+			if !hasCheck || c.Status != "warn" {
+				t.Errorf("stage=%d: ingest-stage=%v/%q (%s), want warn", tc.stage, hasCheck, c.Status, c.Detail)
+			}
+		}
+	}
+}
+
 // strconvQuote renders a Go-quoted string for inline TOML basic strings in tests.
 func strconvQuote(s string) string { return strconv.Quote(s) }
 

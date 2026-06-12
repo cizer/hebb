@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -163,6 +164,147 @@ func TestLoadVaultConfigInvalid(t *testing.T) {
 	}
 	if _, _, err := LoadVaultConfig(vault); err == nil {
 		t.Error("expected error for malformed TOML, got nil")
+	}
+}
+
+// TestIngestConfigStageDefault proves the IngestConfig accessor returns 1 when
+// the [ingest] section is absent and clamps below-range values to 1.
+func TestIngestConfigStageDefault(t *testing.T) {
+	// Absent section (zero value): accessor returns 1.
+	var ic IngestConfig
+	if ic.GetStage() != 1 {
+		t.Errorf("absent [ingest]: GetStage() = %d, want 1", ic.GetStage())
+	}
+	// Explicitly zero: clamps to 1.
+	ic.Stage = 0
+	if ic.GetStage() != 1 {
+		t.Errorf("stage=0: GetStage() = %d, want 1 (below-range clamp)", ic.GetStage())
+	}
+	// Negative: clamps to 1.
+	ic.Stage = -1
+	if ic.GetStage() != 1 {
+		t.Errorf("stage=-1: GetStage() = %d, want 1 (below-range clamp)", ic.GetStage())
+	}
+	// In range: returned as-is.
+	for _, want := range []int{1, 2, 3, 4} {
+		ic.Stage = want
+		if ic.GetStage() != want {
+			t.Errorf("stage=%d: GetStage() = %d, want %d", want, ic.GetStage(), want)
+		}
+	}
+}
+
+// TestIngestConfigParsesFromTOML proves that [ingest] stage and scratch_dirs
+// round-trip through Save/LoadVaultConfig correctly.
+func TestIngestConfigParsesFromTOML(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[ingest]
+stage = 2
+scratch_dirs = ["Daily/Scratch", "Inbox/Staging"]
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Ingest.GetStage() != 2 {
+		t.Errorf("stage = %d, want 2", got.Ingest.GetStage())
+	}
+	wantDirs := []string{"Daily/Scratch", "Inbox/Staging"}
+	if !reflect.DeepEqual(got.Ingest.ScratchDirs, wantDirs) {
+		t.Errorf("scratch_dirs = %v, want %v", got.Ingest.ScratchDirs, wantDirs)
+	}
+}
+
+// TestIngestConfigAbsentSection proves LoadVaultConfig returns stage 1 and no
+// scratch_dirs when the [ingest] block is entirely absent.
+func TestIngestConfigAbsentSection(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(`name = "Work"`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Ingest.GetStage() != 1 {
+		t.Errorf("absent [ingest]: GetStage() = %d, want 1", got.Ingest.GetStage())
+	}
+	if len(got.Ingest.ScratchDirs) != 0 {
+		t.Errorf("absent [ingest]: scratch_dirs = %v, want empty", got.Ingest.ScratchDirs)
+	}
+}
+
+// TestIngestConfigBelowRangeClamp proves that a stage value below 1 in the
+// config file is clamped to 1 by the accessor.
+func TestIngestConfigBelowRangeClamp(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte("name = \"Work\"\n\n[ingest]\nstage = 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Ingest.GetStage() != 1 {
+		t.Errorf("stage=0 in config: GetStage() = %d, want 1 (clamped)", got.Ingest.GetStage())
+	}
+}
+
+// TestIngestConfigSaveRoundTrip proves that a VaultConfig with an [ingest]
+// section survives a Save/Load round-trip.
+func TestIngestConfigSaveRoundTrip(t *testing.T) {
+	vault := t.TempDir()
+	want := DefaultVaultConfig("RT")
+	want.Ingest = IngestConfig{
+		Stage:       3,
+		ScratchDirs: []string{"Daily/Scratch", "Inbox/Staging"},
+	}
+	if err := want.Save(vault); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Ingest.GetStage() != 3 {
+		t.Errorf("round-trip stage = %d, want 3", got.Ingest.GetStage())
+	}
+	if !reflect.DeepEqual(got.Ingest.ScratchDirs, want.Ingest.ScratchDirs) {
+		t.Errorf("round-trip scratch_dirs = %v, want %v", got.Ingest.ScratchDirs, want.Ingest.ScratchDirs)
+	}
+}
+
+// TestGeneratedConfigDocumentsIngest proves that Save writes the [ingest] keys
+// in commented form in the generated config.toml header comment.
+func TestGeneratedConfigDocumentsIngest(t *testing.T) {
+	vault := t.TempDir()
+	vc := DefaultVaultConfig("Docs")
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(vault, ".hebb", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(b)
+	for _, want := range []string{"[ingest]", "scratch_dirs", "stage", "exclude_dirs"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated config.toml missing %q in commented defaults", want)
+		}
 	}
 }
 

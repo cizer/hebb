@@ -118,7 +118,7 @@ hebb serve              # browse at http://127.0.0.1:4321
 - `hebb mcp` — MCP server over stdio (the five tools above).
 - `hebb serve` — local web search UI on 127.0.0.1 (`--port`, `$HEBB_WEB_PORT`).
 - `hebb codex` — register the vault as a Codex MCP server (`~/.codex/config.toml`) and install hebb's agent skills into Codex's skills dir (`~/.agents/skills`), non-destructively. `--no-skills` to skip the skills.
-- `hebb doctor` — read-only health check; non-zero exit if anything is broken.
+- `hebb doctor` — read-only health check (config, `.mcp.json`, index, settings, memory, Codex and Claude Desktop wiring, launchd); content-compares each against what install would write today and reports drift, warning on a binary path that still resolves to a working hebb and failing on one that points at nothing. Never runs a configured command; non-zero exit if anything is broken.
 - `hebb reset` — un-wire a vault from the machine (memory link, launchd jobs, agent configs, index). Dry run by default; `--force` to apply. Never touches your notes.
 - `hebb sync` — commit, pull (rebase), and push the vault's markdown via git. Never force-pushes; a conflicting pull is aborted and reported. Enable `[git]` in `config.toml` to also auto-sync: pull when a hebb process starts, commit+push after edits settle.
 - `hebb update` — check for and install a newer hebb release (checksum-verified, atomic replace), then re-apply the release's skills to whichever skills dirs already have them (so new and changed skills land on upgrade). `--check` only reports. Self-replaces only a binary hebb owns; a Homebrew or `go install` binary is left to its package manager. A scheduled `update-check` job notifies of new releases (set `[update] auto = true` to install them).

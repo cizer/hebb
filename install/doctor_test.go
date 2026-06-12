@@ -177,6 +177,113 @@ func TestDoctorWarnsOnStaleIndex(t *testing.T) {
 	}
 }
 
+// TestDoctorLintsShellWrapperProgram proves the TCC lint warns when an installed
+// plist's Program[0] is a shell wrapper (the field failure mode), names the Full
+// Disk Access grant step, and stays read-only (no launchd job is spawned). A
+// grantable binary Program[0] produces no such finding.
+func TestDoctorLintsShellWrapperProgram(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	launchdDir := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Present so the daily-digest job renders (and so its label is one doctor
+	// looks for installed plists under).
+	for _, f := range []string{"generate-vault-digest.py", "run-vault-digest.sh"} {
+		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := core.DefaultVaultConfig("Work").Save(vault); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		Home:       home,
+		AssetRoot:  assetRoot,
+		LaunchdDir: launchdDir,
+	}
+
+	// Write an old-style daily-digest plist whose Program[0] is the shell wrapper.
+	slug := Slugify("Work")
+	label := "local.hebb." + slug + ".daily-digest"
+	wrapper := filepath.Join(autoDir, "run-vault-digest.sh")
+	plist := "<?xml version=\"1.0\"?>\n<plist><dict>\n" +
+		"<key>Label</key><string>" + label + "</string>\n" +
+		"<key>ProgramArguments</key><array>\n" +
+		"  <string>" + wrapper + "</string>\n" +
+		"  <string>--vault-root</string>\n  <string>" + vault + "</string>\n" +
+		"</array>\n</dict></plist>\n"
+	if err := os.WriteFile(filepath.Join(launchdDir, label+".plist"), []byte(plist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := Doctor(opts)
+	c, ok := checkByName(checks, "launchd-tcc")
+	if !ok {
+		t.Fatalf("expected a launchd-tcc check, got: %v", checks)
+	}
+	if c.Status != "warn" {
+		t.Errorf("shell-wrapper Program[0]: status=%q, want warn (detail=%q)", c.Status, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "Full Disk Access") {
+		t.Errorf("lint detail must name the Full Disk Access grant step, got: %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, label) {
+		t.Errorf("lint detail should name the offending job %q, got: %q", label, c.Detail)
+	}
+}
+
+// TestDoctorTCCLintCleanOnGrantableProgram proves the lint does not false-positive
+// when installed plists use a grantable binary Program[0], and that doctor's own
+// expected-job rendering (which uses the "hebb" placeholder) never trips it.
+func TestDoctorTCCLintCleanOnGrantableProgram(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	launchdDir := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"generate-vault-digest.py", "generate-action-review.py"} {
+		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := core.DefaultVaultConfig("Work").Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	// Install renders the jobs (Program[0] = the binary path) and writes the plists.
+	if _, err := Run(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		MCPCommand: DefaultMCPCommand,
+		Home:       home,
+		HebbBin:    "/usr/local/bin/hebb",
+		AssetRoot:  assetRoot,
+		LaunchdDir: launchdDir,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	checks := Doctor(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		Home:       home,
+		AssetRoot:  assetRoot,
+		LaunchdDir: launchdDir,
+	})
+	if c, ok := checkByName(checks, "launchd-tcc"); ok && c.Status != "ok" {
+		t.Errorf("grantable Program[0]: launchd-tcc=%q (%s), want ok or absent", c.Status, c.Detail)
+	}
+}
+
 func TestAnyFailed(t *testing.T) {
 	if AnyFailed([]Check{{Status: "ok"}, {Status: "warn"}}) {
 		t.Error("warn/ok should not count as failed")

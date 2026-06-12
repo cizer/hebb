@@ -14,7 +14,7 @@ func doctorCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check vault and install health",
-		Long:  "Inspect a vault and its install (config, .mcp.json, index, settings,\nmemory, launchd) and report each. Read-only; repairs nothing.",
+		Long:  "Inspect a vault and its install (config, .mcp.json, index, settings,\nmemory, launchd, launchd-tcc) and report each. Read-only; repairs nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Resolve the vault path without opening the index (read-only).
 			cfg, err := core.ResolveVault(flagVault, flagDB)

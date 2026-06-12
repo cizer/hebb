@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cizer/hebb/core"
 )
@@ -59,6 +60,7 @@ func Doctor(opts Options) []Check {
 
 	if existed {
 		checkLaunchd(add, opts, vc)
+		checkLaunchdTCC(add, opts, vc)
 	}
 	return checks
 }
@@ -207,6 +209,111 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 	}
 	add("launchd", okIf(present == len(jobs)), fmt.Sprintf("%d/%d plists", present, len(jobs)))
 }
+
+// checkLaunchdTCC statically lints each of this vault's launchd jobs for a
+// Program[0] that macOS TCC cannot attribute a Full Disk Access grant to: a
+// shell script (.sh) or an interpreter shim (/bin/sh, /bin/bash, /usr/bin/env).
+// Such a job's child interpreter blocks indefinitely on the first read into a
+// protected vault folder, which is invisible (no error, no exit). It is a static
+// lint only: it reads the rendered job specs and any installed plists, and never
+// bootstraps a launchctl job, keeping doctor read-only and fast.
+//
+// The expected jobs render with the literal "hebb" placeholder for the binary,
+// which is never a shell wrapper, so doctor's own rendering cannot trip the lint;
+// the field failure mode is caught by inspecting the installed plist's Program[0].
+func checkLaunchdTCC(add func(string, string, string), opts Options, vc core.VaultConfig) {
+	dir := opts.LaunchdDir
+	if dir == "" && opts.Home != "" {
+		dir = filepath.Join(opts.Home, "Library", "LaunchAgents")
+	}
+	if dir == "" {
+		return
+	}
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), "hebb", resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs)
+	if len(jobs) == 0 {
+		return
+	}
+	var offenders []string
+	for _, j := range jobs {
+		// Lint the rendered program (defensive; the placeholder never trips it),
+		// then the installed plist's program, which is where a stale shell-wrapper
+		// install shows up.
+		prog0 := ""
+		if len(j.Program) > 0 {
+			prog0 = j.Program[0]
+		}
+		if installed, ok := plistProgram0(filepath.Join(dir, j.Label+".plist")); ok {
+			prog0 = installed
+		}
+		if isShellWrapperProgram(prog0) {
+			offenders = append(offenders, j.Label)
+		}
+	}
+	if len(offenders) == 0 {
+		add("launchd-tcc", "ok", "no shell-wrapper job programs")
+		return
+	}
+	add("launchd-tcc", "warn", fmt.Sprintf(
+		"shell-wrapper Program[0] in %s: launchd cannot grant it Full Disk Access, so the job hangs on protected folders. "+
+			"Re-run hebb install (the daily-digest job now runs the hebb binary), then grant the binary access in "+
+			"System Settings > Privacy & Security > Full Disk Access.",
+		strings.Join(offenders, ", ")))
+}
+
+// isShellWrapperProgram reports whether prog is a shell script or interpreter
+// shim that macOS TCC cannot attribute a file-access grant to.
+func isShellWrapperProgram(prog string) bool {
+	if prog == "" {
+		return false
+	}
+	if strings.HasSuffix(prog, ".sh") {
+		return true
+	}
+	switch prog {
+	case "/bin/sh", "/bin/bash", "/usr/bin/env":
+		return true
+	}
+	return false
+}
+
+// plistProgram0 reads the first ProgramArguments string from a launchd plist,
+// read-only. It returns ok=false when the file is absent or has no program. It
+// scans for the ProgramArguments key then the next <string>, which suffices for
+// the plists launchd renders (no nested arrays before it).
+func plistProgram0(path string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	s := string(b)
+	i := strings.Index(s, "<key>ProgramArguments</key>")
+	if i < 0 {
+		return "", false
+	}
+	rest := s[i:]
+	start := strings.Index(rest, "<string>")
+	if start < 0 {
+		return "", false
+	}
+	rest = rest[start+len("<string>"):]
+	end := strings.Index(rest, "</string>")
+	if end < 0 {
+		return "", false
+	}
+	return xmlUnescape(rest[:end]), true
+}
+
+// xmlUnescape reverses the five XML metacharacter escapes the launchd template
+// applies, so a Program[0] containing them lints against its real value.
+var xmlUnescaper = strings.NewReplacer(
+	"&amp;", "&",
+	"&lt;", "<",
+	"&gt;", ">",
+	"&quot;", `"`,
+	"&apos;", "'",
+)
+
+func xmlUnescape(s string) string { return xmlUnescaper.Replace(s) }
 
 func isSymlink(path string) bool {
 	fi, err := os.Lstat(path)

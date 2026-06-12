@@ -216,6 +216,24 @@ EOF
   json="$(cat "$VAULT/2-Areas/_ACTION-REVIEW.json" 2>/dev/null)"
   has "$json" '"overdue": true'; report $? "action review flags the overdue action"
   has "$json" '"mine": true'; report $? "action review flags the owner's action"
+
+  # Personal worklist: --mine-output (off by default) writes a second note with
+  # only the owner's actions, bucketed Overdue/Current/Waiting with a counts line.
+  [ ! -f "$VAULT/2-Areas/_MY-OPEN-ACTIONS.md" ]; report $? "mine output off by default"
+  cat >> "$VAULT/2-Areas/Team/OPEN-ACTIONS.md" <<EOF
+| Waiting | Chase vendor | [[Alex Doe]] | 2999-01-01 | 2019-12-01 | [[Standup]] |
+| Open | Draft plan | [[Alex Doe]] | 2999-02-01 | 2019-12-01 | [[Standup]] |
+| Open | Not my task | [[Sam Roe]] | 2999-03-01 | 2019-12-01 | [[Standup]] |
+EOF
+  python3 "$DATA/automation/generate-action-review.py" --vault-root "$VAULT" --owner "Alex Doe" \
+    --mine-output "2-Areas/_MY-OPEN-ACTIONS.md" > "$WORK/mine.out" 2>&1
+  report $? "generate-action-review.py runs with --mine-output"
+  mine="$(cat "$VAULT/2-Areas/_MY-OPEN-ACTIONS.md" 2>/dev/null)"
+  has "$mine" "3 open (1 overdue, 1 current, 1 waiting)"; report $? "mine output counts line"
+  has "$mine" "Ship $CANARY"; report $? "mine output lists the overdue action"
+  has "$mine" "Chase vendor"; report $? "mine output lists the waiting action"
+  has "$mine" "Draft plan"; report $? "mine output lists the current action"
+  if has "$mine" "Not my task"; then report 1 "other owners excluded from mine output"; else report 0 "other owners excluded from mine output"; fi
 else
   echo "  skip  python3 unavailable"
 fi

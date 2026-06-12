@@ -57,3 +57,31 @@ daily-digest  = { HEBB_NOTIFY_URL = "https://hooks.example.com/abc" }
 Committing the webhook URL is the vault owner's call (fine for a private vault);
 use `[job_env]` to keep it out of the committed file when the vault is shared or
 public (set it in the environment or a secrets manager instead).
+
+## Headless notifications
+
+Scheduled jobs post a one-line summary to a webhook after their note write when
+`[notify]` is enabled in `.hebb/config.toml`. Compatible with Slack and
+Discord-style incoming webhooks (POST `application/json`, body `{"text": "..."}`).
+
+```toml
+[notify]
+enabled = true
+url     = "https://hooks.example.com/your-webhook"
+```
+
+URL resolution: `$HEBB_NOTIFY_URL` is checked first (injectable per job via
+`[job_env]`), then `[notify] url`. This means the URL can be kept out of the
+committed file for shared or public vaults. The URL is never echoed to logs or
+standard output.
+
+Delivery is best-effort: a webhook failure is logged but never blocks or fails the
+note write. `hebb doctor` warns when `[notify] enabled = true` but no URL resolves.
+
+- `daily-digest`: sends note path and indexed note count via `hebb digest` (in Go).
+- `action-review`: shells out to `hebb notify` after writing the review note; uses
+  `$HEBB_BIN` (pinned by the rendered launchd job) so it works without hebb on PATH.
+- `update-check`: sends available version via `hebb update --check` (in Go).
+
+`hebb notify "text"` sends a one-line message directly: useful for testing or
+custom scripts. Exits non-zero on HTTP failure.

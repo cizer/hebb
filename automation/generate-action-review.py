@@ -16,7 +16,9 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -415,7 +417,40 @@ def main() -> int:
         mine_path.parent.mkdir(parents=True, exist_ok=True)
         mine_path.write_text(build_mine(vault_root, args.register_name, args.owner, actions), encoding="utf-8")
         print(f"Wrote {display_path(mine_path, vault_root)}")
+
+    # Headless notification: shell out to `hebb notify` so the script gains no
+    # HTTP dependency. Completely optional: skipped when $HEBB_BIN is absent and
+    # hebb is not on PATH, or when the binary exits non-zero (notify disabled or
+    # no URL configured). Delivery failure never blocks or fails the note write.
+    open_count = sum(1 for a in actions if normalize_status(a.status) != "done")
+    _notify_action_review(str(display_path(output_path, vault_root)), open_count, args.vault_root)
+
     return 0
+
+
+def _notify_action_review(note_path: str, open_count: int, vault_root: str) -> None:
+    """Shell out to `hebb notify` with a one-line action-review summary.
+
+    Reads $HEBB_BIN for the binary path (injected by the rendered launchd job
+    as the pinned absolute path); falls back to the bare 'hebb' name so it
+    works when hebb is on PATH. If the binary is absent or the notify config is
+    not enabled/has no URL, hebb notify exits non-zero and we log and continue.
+    The note path and count are the only content; no HTTP dependency is added.
+    """
+    hebb_bin = os.environ.get("HEBB_BIN", "hebb")
+    summary = f"action-review: {open_count} open actions ({note_path})"
+    try:
+        result = subprocess.run(
+            [hebb_bin, "--vault", vault_root, "notify", summary],
+            capture_output=True,
+            timeout=35,
+        )
+        if result.returncode != 0:
+            # Not an error: notify may be disabled or have no URL configured.
+            pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        # hebb not on PATH or timed out: silently skip notification.
+        pass
 
 
 def display_path(path: Path, vault_root: Path) -> Path | str:

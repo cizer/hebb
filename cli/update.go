@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 
 	hebbassets "github.com/cizer/hebb"
+	"github.com/cizer/hebb/core"
 	"github.com/cizer/hebb/install"
 	"github.com/spf13/cobra"
 )
@@ -50,6 +52,19 @@ func updateCmd(version string) *cobra.Command {
 				return nil
 			}
 			fmt.Fprintf(out, "a newer hebb is available: %s (current %s)\n", tag, version)
+
+			// Headless notification: best-effort, never blocks the update path.
+			// The README's claim that update-check "notifies" becomes true here.
+			vc, _, _ := core.LoadVaultConfig(resolveVaultPath())
+			if vc.Notify.Enabled {
+				if notifyURL := vc.Notify.ResolveURL(); notifyURL != "" {
+					summary := fmt.Sprintf("hebb update available: %s (current %s)", tag, version)
+					if err := SendNotification(notifyURL, summary); err != nil {
+						log.Printf("update-check: notify failed: %v", err)
+					}
+				}
+			}
+
 			if checkOnly {
 				fmt.Fprintln(out, "run 'hebb update' to install it")
 				return nil

@@ -114,6 +114,15 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 	if len(review.Schedule) != 1 || review.Schedule[0].Hour != 7 || review.Schedule[0].Minute != 3 {
 		t.Errorf("action-review should be daily 07:03, got %+v", review.Schedule)
 	}
+	// HEBB_BIN is pinned so the script can invoke `hebb notify` after writing
+	// its note: launchd's minimal PATH may not resolve the bare "hebb" name.
+	reviewEnv := map[string]string{}
+	for _, e := range review.EnvVars {
+		reviewEnv[e.Key] = e.Value
+	}
+	if reviewEnv["HEBB_BIN"] != "hebb" {
+		t.Errorf("action-review should pin HEBB_BIN = hebb, got %q", reviewEnv["HEBB_BIN"])
+	}
 }
 
 func TestVaultJobsAppendsPerJobArgs(t *testing.T) {

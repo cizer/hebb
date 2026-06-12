@@ -687,6 +687,62 @@ func TestDoctorIngestStageWarns(t *testing.T) {
 // strconvQuote renders a Go-quoted string for inline TOML basic strings in tests.
 func strconvQuote(s string) string { return strconv.Quote(s) }
 
+// TestDoctorNotifyCheck proves checkNotify warns when [notify] is enabled but
+// no URL resolves (neither $HEBB_NOTIFY_URL nor [notify] url is set), and
+// produces no finding when notify is disabled or a URL is present.
+func TestDoctorNotifyCheck(t *testing.T) {
+	// Enabled but no URL: warn.
+	vc := core.DefaultVaultConfig("W")
+	vc.Notify.Enabled = true
+	// Ensure no env override is present (patch envGet to clear it).
+	origEnvGet := core.GetEnvGet()
+	core.SetEnvGet(func(key string) string { return "" })
+	defer core.SetEnvGet(origEnvGet)
+
+	var checks []Check
+	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
+	checkNotify(add, vc)
+	c, ok := checkByName(checks, "notify")
+	if !ok || c.Status != "warn" {
+		t.Errorf("enabled with no URL: status=%q present=%v, want warn", c.Status, ok)
+	}
+	if !strings.Contains(c.Detail, "HEBB_NOTIFY_URL") {
+		t.Errorf("warn detail should mention HEBB_NOTIFY_URL, got %q", c.Detail)
+	}
+
+	// Enabled with a committed URL: no finding.
+	checks = nil
+	vc.Notify.URL = "https://hooks.example.com/abc"
+	checkNotify(add, vc)
+	if _, ok := checkByName(checks, "notify"); ok {
+		t.Error("enabled with URL should produce no finding")
+	}
+
+	// Enabled with $HEBB_NOTIFY_URL set: no finding.
+	checks = nil
+	vc.Notify.URL = ""
+	core.SetEnvGet(func(key string) string {
+		if key == "HEBB_NOTIFY_URL" {
+			return "https://env.example.com/hook"
+		}
+		return ""
+	})
+	checkNotify(add, vc)
+	if _, ok := checkByName(checks, "notify"); ok {
+		t.Error("enabled with $HEBB_NOTIFY_URL set should produce no finding")
+	}
+
+	// Disabled: no finding regardless of URL state.
+	checks = nil
+	core.SetEnvGet(func(string) string { return "" })
+	vc.Notify.Enabled = false
+	vc.Notify.URL = ""
+	checkNotify(add, vc)
+	if _, ok := checkByName(checks, "notify"); ok {
+		t.Error("disabled notify should produce no finding")
+	}
+}
+
 func TestAnyFailed(t *testing.T) {
 	if AnyFailed([]Check{{Status: "ok"}, {Status: "warn"}}) {
 		t.Error("warn/ok should not count as failed")

@@ -81,6 +81,7 @@ func Doctor(opts Options) []Check {
 
 	if existed {
 		checkIngestStage(add, vc)
+		checkNotify(add, vc)
 		checkLaunchd(add, opts, vc, bin)
 		checkLaunchdTCC(add, opts, vc, bin)
 	}
@@ -110,6 +111,20 @@ func checkIngestStage(add func(string, string, string), vc core.VaultConfig) {
 	add("ingest-stage", "warn",
 		fmt.Sprintf("ingest stage %d is outside the valid range 1-4. "+
 			"Set [ingest] stage to 1-3 in .hebb/config.toml.", s))
+}
+
+// checkNotify warns when [notify] is enabled but no URL resolves. It is
+// read-only and never makes a test POST: the URL may require auth the binary
+// cannot provide without user interaction. The check follows the same
+// read-only posture as all other doctor checks.
+func checkNotify(add func(string, string, string), vc core.VaultConfig) {
+	if !vc.Notify.Enabled {
+		return
+	}
+	if vc.Notify.ResolveURL() == "" {
+		add("notify", "warn",
+			"[notify] enabled = true but no URL is set: set $HEBB_NOTIFY_URL or [notify] url in .hebb/config.toml")
+	}
 }
 
 // checkBinaryPath classifies a command field that differs from the binary path

@@ -110,8 +110,14 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				continue
 			}
 			jobs = append(jobs, launchd.Job{
-				Label:      label("action-review"),
-				Program:    []string{pythonPath(), script, "--vault-root", vaultPath},
+				Label:   label("action-review"),
+				Program: []string{pythonPath(), script, "--vault-root", vaultPath},
+				// HEBB_BIN is pinned so the script can invoke `hebb notify` after
+				// writing its note: launchd's minimal PATH may not resolve the bare
+				// "hebb" name. The script reads $HEBB_BIN (defaulting to "hebb" when
+				// absent) and shells out non-destructively, so it works unchanged when
+				// hebb or the notify config is absent.
+				EnvVars:    []launchd.EnvVar{{Key: "HEBB_BIN", Value: hebbBin}},
 				WorkingDir: vaultPath,
 				Schedule:   []launchd.CalInterval{{Weekday: -1, Hour: 7, Minute: 3}},
 				LogPath:    logPath("action-review"),

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +87,18 @@ func digestCmd() *cobra.Command {
 				return fmt.Errorf("index refresh failed: %w", err)
 			}
 			fmt.Fprintf(out, "digest: done (%d notes indexed, %d removed)\n", res.Indexed, res.Removed)
+
+			// Headless notification: best-effort, never blocks or fails the digest.
+			// Send only when [notify] is enabled and a URL resolves.
+			vc, _, _ := core.LoadVaultConfig(cfg.VaultPath)
+			if vc.Notify.Enabled {
+				if url := vc.Notify.ResolveURL(); url != "" {
+					summary := fmt.Sprintf("digest: %d notes indexed (%s)", res.Indexed, cfg.VaultPath)
+					if err := SendNotification(url, summary); err != nil {
+						log.Printf("digest: notify failed (delivery failure does not affect the note): %v", err)
+					}
+				}
+			}
 			return nil
 		},
 	}

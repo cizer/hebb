@@ -69,7 +69,7 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 	if err := os.MkdirAll(autoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"run-vault-digest.sh", "generate-action-review.py"} {
+	for _, f := range []string{"generate-vault-digest.py", "generate-action-review.py"} {
 		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -84,12 +84,18 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 	if len(digest.Schedule) != 5 {
 		t.Errorf("daily-digest should run 5 weekdays, got %d entries", len(digest.Schedule))
 	}
-	if !strings.Contains(strings.Join(digest.Program, " "), "--vault-root /vaults/work") {
-		t.Errorf("digest program missing vault: %v", digest.Program)
+	// Program[0] is the grantable hebb binary running the digest subcommand, not
+	// the run-vault-digest.sh wrapper: macOS TCC attributes Full Disk Access to
+	// Program[0], and a shell interpreter has no grantable identity.
+	if digest.Program[0] != "hebb" {
+		t.Errorf("digest Program[0] should be the hebb binary, got %q", digest.Program[0])
 	}
-	// The wrapper script honours PYTHON and HEBB_BIN; the job must pin both,
-	// because launchd's minimal PATH resolves python3 to the Xcode shim (no
-	// Full Disk Access) and does not include hebb's install dir at all.
+	if !strings.Contains(strings.Join(digest.Program, " "), "digest --vault-root /vaults/work") {
+		t.Errorf("digest program should run `digest --vault-root <vault>`: %v", digest.Program)
+	}
+	// PYTHON stays (launchd's minimal PATH resolves python3 to the Xcode shim,
+	// which has no Full Disk Access); HEBB_BIN goes (hebb is now Program[0] and
+	// invokes itself).
 	env := map[string]string{}
 	for _, e := range digest.EnvVars {
 		env[e.Key] = e.Value
@@ -97,8 +103,8 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 	if env["PYTHON"] == "" || !filepath.IsAbs(env["PYTHON"]) {
 		t.Errorf("digest job should pin an absolute PYTHON, got %q", env["PYTHON"])
 	}
-	if env["HEBB_BIN"] != "hebb" {
-		t.Errorf("digest job should pin HEBB_BIN to the hebb binary, got %q", env["HEBB_BIN"])
+	if _, ok := env["HEBB_BIN"]; ok {
+		t.Errorf("digest job should no longer pin HEBB_BIN; hebb is Program[0], got %v", env)
 	}
 
 	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
@@ -153,6 +159,70 @@ func TestVaultJobsSkipsUnknown(t *testing.T) {
 	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"web", "bogus"}, false, nil)
 	if len(jobs) != 1 {
 		t.Errorf("unknown job name should be skipped, got %d jobs", len(jobs))
+	}
+}
+
+// TestVaultJobsNoShellProgram asserts the TCC-hardening invariant over the full
+// default jobs list: no rendered stock job may have a shell script or interpreter
+// shim as Program[0], because macOS TCC attributes file-access permission to
+// Program[0] and a shell wrapper has no grantable identity (SPEC item 2).
+func TestVaultJobsNoShellProgram(t *testing.T) {
+	home := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Both automation scripts present, so daily-digest and action-review render.
+	for _, f := range []string{"run-vault-digest.sh", "generate-vault-digest.py", "generate-action-review.py"} {
+		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The default jobs list from DefaultVaultConfig.
+	names := []string{"daily-digest", "action-review", "web", "update-check"}
+	jobs := VaultJobs("/vaults/work", "work", "/opt/homebrew/bin/hebb", assetRoot, home, 4321, names, false, nil)
+	if len(jobs) != len(names) {
+		t.Fatalf("expected %d default jobs to render, got %d", len(names), len(jobs))
+	}
+
+	badPrefixes := []string{"/bin/sh", "/bin/bash", "/usr/bin/env"}
+	for _, j := range jobs {
+		prog0 := j.Program[0]
+		if strings.HasSuffix(prog0, ".sh") {
+			t.Errorf("job %s has a shell script as Program[0]: %q", j.Label, prog0)
+		}
+		for _, p := range badPrefixes {
+			if prog0 == p || strings.HasPrefix(prog0, p+" ") {
+				t.Errorf("job %s has an interpreter shim as Program[0]: %q", j.Label, prog0)
+			}
+		}
+	}
+}
+
+func TestVaultJobsDigestAppendsArgs(t *testing.T) {
+	home := t.TempDir()
+	assetRoot := t.TempDir()
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	jobArgs := map[string][]string{"daily-digest": {"--output", "2-Areas/_DIGEST.md"}}
+	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
+		[]string{"daily-digest"}, false, jobArgs)
+	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+	if !ok {
+		t.Fatal("daily-digest job not built")
+	}
+	// The built-in flags come first, the [job_args] extras last.
+	want := []string{"hebb", "digest", "--vault-root", "/vaults/work", "--output", "2-Areas/_DIGEST.md"}
+	if got := strings.Join(digest.Program, " "); got != strings.Join(want, " ") {
+		t.Errorf("digest program = %q, want %q", got, strings.Join(want, " "))
 	}
 }
 

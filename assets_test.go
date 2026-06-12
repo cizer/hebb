@@ -11,9 +11,9 @@ import (
 // the daily-digest / action-review jobs from ever rendering.
 func TestAssetsShipAutomationScripts(t *testing.T) {
 	for _, name := range []string{
-		"automation/run-vault-digest.sh",       // daily-digest entrypoint
-		"automation/generate-vault-digest.py",  // called by the wrapper
+		"automation/generate-vault-digest.py",  // daily-digest job (run by `hebb digest`)
 		"automation/generate-action-review.py", // action-review job
+		"automation/run-vault-digest.sh",       // retained for manual use only
 	} {
 		if _, err := fs.Stat(Assets, name); err != nil {
 			t.Errorf("embedded assets missing %q: %v", name, err)

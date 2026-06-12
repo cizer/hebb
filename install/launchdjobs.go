@@ -68,8 +68,9 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				LogPath:    logPath("web"),
 			})
 		case "daily-digest":
-			script, ok := autoScript("run-vault-digest.sh")
-			if !ok {
+			// Gate on the generator the `hebb digest` subcommand runs, so no broken
+			// plist is written when the automation scripts are absent.
+			if _, ok := autoScript("generate-vault-digest.py"); !ok {
 				continue
 			}
 			var days []launchd.CalInterval
@@ -77,14 +78,22 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				days = append(days, launchd.CalInterval{Weekday: wd, Hour: 8, Minute: 0})
 			}
 			jobs = append(jobs, launchd.Job{
-				Label:      label("daily-digest"),
-				Program:    []string{script, "--vault-root", vaultPath},
+				Label: label("daily-digest"),
+				// Program[0] is the grantable hebb binary, not the run-vault-digest.sh
+				// wrapper: macOS TCC attributes file-access permission to Program[0],
+				// and a shell interpreter (env/bash) has no grantable identity, so the
+				// child python's open() into a protected vault folder blocks
+				// indefinitely. Running `hebb digest` makes Program[0] a binary the
+				// user can grant Full Disk Access to, then the binary invokes python
+				// itself. This was the one stock job that silently failed for weeks in
+				// the field (SPEC item 2).
+				Program:    []string{hebbBin, "digest", "--vault-root", vaultPath},
 				WorkingDir: vaultPath,
-				// launchd's minimal PATH resolves python3 to the Xcode shim
-				// (no Full Disk Access) and misses hebb entirely; pin both.
+				// PYTHON stays: launchd's minimal PATH resolves python3 to the Xcode
+				// shim (no Full Disk Access), so `hebb digest` reads this pin to find a
+				// real interpreter. HEBB_BIN is gone now that hebb is Program[0].
 				EnvVars: []launchd.EnvVar{
 					{Key: "PYTHON", Value: pythonPath()},
-					{Key: "HEBB_BIN", Value: hebbBin},
 				},
 				Schedule: days,
 				LogPath:  logPath("daily-digest"),

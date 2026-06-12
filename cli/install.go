@@ -106,6 +106,11 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		launchdDir = filepath.Join(home, "Library", "LaunchAgents")
 	}
 	hebbBin, _ := os.Executable()
+	// Prefer a stable symlink (e.g. /opt/homebrew/bin/hebb) over a versioned
+	// Cellar path when both resolve to the same binary, so the launchd jobs'
+	// Program[0] survives a Homebrew upgrade with its TCC Full Disk Access grant
+	// intact. Non-Cellar binaries are left unchanged.
+	hebbBin = install.StableHebbBin(hebbBin)
 
 	// Interactive agent picker: only when the user named no agent explicitly,
 	// didn't opt out, and stdin is a terminal (so CI/headless/tests never block).

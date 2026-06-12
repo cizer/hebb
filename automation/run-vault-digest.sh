@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 #
+# DEPRECATED as the launchd entrypoint. The daily-digest job now runs
+# `hebb digest --vault-root <vault>` directly, because macOS TCC attributes
+# Full Disk Access to the launchd job's Program[0]: a shell wrapper has no
+# grantable identity, so the child python's reads into a protected vault folder
+# block indefinitely. Prefer `hebb digest` for scheduled and manual runs alike.
+# This wrapper is retained only for manual use where a shell is convenient.
+#
 # Generate the daily vault-activity digest, then refresh the hebb search index.
-# Invoked by launchd (local.hebb.<vault>.daily-digest) on weekdays at 08:00 as:
+# Manual use:
 #
 #   run-vault-digest.sh --vault-root <vault>
 #

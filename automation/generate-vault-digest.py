@@ -7,8 +7,9 @@ run covers Friday/Saturday/Sunday, every other weekday covers the prior day.
 
 Vault-agnostic: every path is relative to --vault-root and overridable. Shipped
 in the hebb binary and materialised by `hebb install`; scheduled via launchd
-(local.hebb.<vault>.daily-digest). The companion run-vault-digest.sh runs this
-then reindexes with `hebb index`.
+(local.hebb.<vault>.daily-digest). The daily-digest job runs `hebb digest`,
+which invokes this generator then refreshes the index in-process; the
+run-vault-digest.sh wrapper is retained for manual use only.
 """
 
 from __future__ import annotations

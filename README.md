@@ -97,6 +97,8 @@ See [Agents](#agents) for how each adapter works.
 
 Commit `.hebb/config.toml` and your notes, so a cloned or synced vault self-identifies. The index (`.hebb/index.db`) is derived and rebuilt on demand, so gitignore it. Memory under `.hebb/memory/` travels with the vault. To keep the markdown synced automatically, enable `[git]` in `config.toml` (see `hebb sync` below).
 
+Key `config.toml` fields: `name`, `exclude_dirs` (skip directories from the index entirely), `web_port`, `jobs`, `job_args`; `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), and `[ingest]` (ingest policy). The `[ingest]` block carries fields that must travel with the vault, not live in per-user agent memory: `stage` (automation trust level 1-3; defaults to 1) and `scratch_dirs` (vault-root-relative path prefixes that remain searchable but are never treated as ingest sources, distinct from `exclude_dirs` which removes notes from the index entirely). `hebb doctor` warns when stage is 4 or above (headless, not yet supported) or negative.
+
 ### Multiple vaults
 
 hebb is multi-vault like git is multi-repo: install the binary once, then create or attach as many vaults as you like. Each is independent. Every command resolves its vault from the current directory (nearest `.hebb/` above the cwd), or an explicit `--vault <path>`, or `$HEBB_VAULT`.

@@ -25,7 +25,7 @@ The goal is three things, in descending order of how safe they are to capture au
 
 Email comes from the connected mail MCP (e.g. Microsoft Graph: `outlook_email_search`, `read_resource`). Connector MCPs are typically **interactively authenticated**, so this skill works inside a live session, not on a headless cron binary. That auth gap is usually the single thing standing between this skill and full automation.
 
-Run mode is staged. Each stage is a deliberate decision by the user, not a drift:
+Run mode is staged. The current stage is recorded in `[ingest] stage` in `.hebb/config.toml`; read it there before each sweep. An absent or zero value means stage 1. Each stage is a deliberate decision by the user, not a drift:
 
 - **Stage 1: approve everything.** Triage, build a filing plan, present it, and write nothing until the user approves the whole plan. The safe default while trust is being built.
 - **Stage 2: auto-file updates, gate the rest.** Once update filing is reliably good, file clear updates without asking and stop only for durable facts and actions.
@@ -76,7 +76,7 @@ For each, decide what it yields:
 - **Durable info** for a dossier or team note (apply the people and dating rules from the vault `CLAUDE.md`).
 - **Actions** raised (capture inside the canonical note, flag in an "Actions raised" or "Items worth a glance" section).
 
-Resolve names and references against existing vault notes before writing. Name resolution is where this skill earns its keep and also where it can fail silently, so surface every uncertain identity in the plan rather than guessing into a dossier.
+Resolve names and references against existing vault notes before writing. Name resolution is where this skill earns its keep and also where it can fail silently, so surface every uncertain identity in the plan rather than guessing into a dossier. When the vault keeps person notes, check the note for an explicit pronouns line before using gendered pronouns; default to they/them when absent.
 
 ### 4. Build the filing plan and present it (approval gate)
 
@@ -134,3 +134,4 @@ When in doubt between creating a new note and appending, append. Fragmentation i
 - Do not blend sensitive content (compensation, HR, personal) into work-facing notes.
 - Do not duplicate vault-ingest's filing logic or re-explain PARA. Defer to it.
 - Do not create a holding or inbox folder in the vault. File at creation.
+- Do not treat paths listed under `[ingest] scratch_dirs` in `.hebb/config.toml` as ingest sources. Those paths are searchable but are transient pads, not filing destinations.

@@ -16,7 +16,7 @@ The **generic** parts (a PARA skeleton, a baseline `CLAUDE.md`/`AGENTS.md`, note
 
 hebb is multi-vault like `git` is multi-repo: installed once, with each vault self-contained and self-describing.
 
-- **Per-vault marker (`.hebb/`).** Each vault has a `.hebb/` directory at its root, like `.git`: `config.toml` (name, exclude dirs, web port, enabled jobs), the derived `index.db`, and `memory/` (the agent's memory for this vault — under `.hebb/` so it's hidden from Obsidian and excluded from the index, but still travels with the vault).
+- **Per-vault marker (`.hebb/`).** Each vault has a `.hebb/` directory at its root, like `.git`: `config.toml` (name, exclude dirs, web port, enabled jobs, ingest policy), the derived `index.db`, and `memory/` (the agent's memory for this vault — under `.hebb/` so it's hidden from Obsidian and excluded from the index, but still travels with the vault).
 - **Directory-context operation.** hebb walks up from the working directory to the nearest `.hebb/`, like `git`. A `--vault <path>` flag and `$HEBB_VAULT` override cover automation and headless runs.
 - **Travels vs local.** Commit `.hebb/config.toml` and your notes so a synced or cloned vault self-identifies; the `index.db` is derived and gitignored, rebuilt on demand.
 
@@ -64,7 +64,7 @@ flowchart TB
 
 ## Contracts (the seams)
 
-- **`.hebb/config.toml`** — the committed, per-vault contract (name, excludes, web port, jobs).
+- **`.hebb/config.toml`** — the committed, per-vault contract (name, excludes, web port, jobs, ingest policy). Key blocks: `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), `[ingest]` (stage 1-3 and scratch_dirs: vault-root-relative path prefixes that stay searchable but are never ingest sources, distinct from `exclude_dirs` which removes notes from the index entirely).
 - **MCP tool surface** — `search_vault`, `get_context_for_topic`, `expand_context`, `vault_stats`, `reindex_vault`: how an agent reaches the engine.
 - **Direct filesystem access** — the agent reads and writes the markdown itself; hebb never sits in front of the files.
 - **`CLAUDE.md` / `AGENTS.md`** — per-vault conventions the agent follows.

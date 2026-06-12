@@ -22,7 +22,7 @@ Same value hierarchy as ingest-inbox, in descending order of how safe each is to
 
 Content comes from the connected MCP — for Microsoft 365 that is calendar search (find meetings), resource reads (event details, transcripts, chat messages), and chat search. Connector MCPs are typically interactively authenticated, so this skill runs in a live session, not headless.
 
-Run mode follows the **same four-stage model as ingest-inbox** (Stage 1 approve-everything → Stage 2 auto-file updates → Stage 3 propose facts/actions as a digest → Stage 4 headless, blocked on a standalone platform credential + a data-sensitivity sign-off). The two skills share the stage; do not advance one without the other unless the user says so. State the current stage in the report.
+Run mode follows the **same four-stage model as ingest-inbox** (Stage 1 approve-everything → Stage 2 auto-file updates → Stage 3 propose facts/actions as a digest → Stage 4 headless, blocked on a standalone platform credential + a data-sensitivity sign-off). The current stage is recorded in `[ingest] stage` in `.hebb/config.toml`; an absent or zero value means stage 1. The two skills share the stage; do not advance one without the other unless the user says so. State the current stage in the report.
 
 ## Workflow
 
@@ -68,10 +68,11 @@ Present the plan before writing: meetings found (with transcript/recap/none stat
 
 ### 6. Write on approval
 
-Vault-ingest conventions throughout. Two meeting-specific disciplines:
+Vault-ingest conventions throughout. Three meeting-specific disciplines:
 
 - **Transcripts are verbatim and candid.** They carry profanity, personal chat, and offhand remarks about colleagues. File the professional substance; leave the candour in the raw transcript (preserved in `Artifacts/` for provenance). Never promote a candid remark about a person into a dossier as a durable fact without the user's explicit judgement — flag it in the plan instead.
 - **Personal or sensitive content** in transcripts (health, family, compensation) follows the vault's private-visibility rules or is omitted and reported.
+- **Pronouns.** When the vault keeps person notes, check the note for an explicit pronouns line before using gendered pronouns; default to they/them when absent.
 
 **Actions discipline:** capture in the canonical note; ask once before promoting to any register; "leave actions for now" stands for the session.
 
@@ -97,3 +98,4 @@ When in doubt, append. Fragmentation is the failure mode to avoid.
 - Do not file verbatim candour or promote offhand personal remarks into dossiers.
 - Do not advance the run stage on its own; stages are shared with ingest-inbox and changed only by the user.
 - Do not auto-promote actions, duplicate vault-ingest's filing logic, or create holding folders.
+- Do not treat paths listed under `[ingest] scratch_dirs` in `.hebb/config.toml` as ingest sources. Those paths are searchable but are transient pads, not filing destinations.

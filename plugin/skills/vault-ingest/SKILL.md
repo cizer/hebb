@@ -214,6 +214,13 @@ Parse to extract `<v Speaker>text</v>` tuples. Collapse consecutive turns by the
 same speaker. Compute participation share by word count for the attendees table.
 Save the raw VTT to `Artifacts/` alongside the meeting note.
 
+**Candour guardrail.** Verbatim transcripts are candid: they contain profanity,
+personal remarks, and offhand comments about colleagues. File the professional
+substance; never auto-promote a candid personal remark into a durable person note.
+The candid material belongs in the raw artefact (`Artifacts/`), not in a dossier.
+Flag anything that warrants a dossier update and wait for the user's explicit
+judgement before writing it.
+
 ### DOCX / PDF / PPTX
 
 - DOCX: parse `word/document.xml` for paragraph text.
@@ -226,6 +233,8 @@ Save the raw VTT to `Artifacts/` alongside the meeting note.
 
 - **Language**: match the vault's documented language and the tone of its existing
   notes; default to British English.
+- **Person notes**: if the vault keeps person notes, check the note for an explicit
+  pronouns line before using gendered pronouns; default to they/them when absent.
 - **Tags**: 3–5 per note. Combine a type tag (`#resource`, `#area`, `#project`,
   `#permanent`) with context (`#work`, `#personal`, `#private`) and domain tags.
 - **Wiki links**: `[[Note Name]]` for internal references. Link liberally — a link
@@ -250,6 +259,10 @@ Save the raw VTT to `Artifacts/` alongside the meeting note.
   thin pointer is fine; filing a hallucinated extract is not.
 - **Don't propagate sensitive specifics** from folders tagged `#private` into
   work-facing notes unless the user explicitly asks.
+- **Don't treat scratch_dirs as ingest sources.** Paths listed under `[ingest]
+  scratch_dirs` in `.hebb/config.toml` are indexed and searchable, but they are
+  transient pads, not filing destinations. Never file new material into them or
+  pull content from them as if it were signal.
 
 ## Example walkthrough
 

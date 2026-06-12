@@ -15,8 +15,8 @@ func TestDefaultVaultConfig(t *testing.T) {
 	if vc.WebPort != 4321 {
 		t.Errorf("web port = %d, want 4321", vc.WebPort)
 	}
-	if len(vc.ExcludeDirs) == 0 || len(vc.Jobs) == 0 || len(vc.Skills) == 0 {
-		t.Errorf("defaults should populate exclude_dirs/jobs/skills, got %+v", vc)
+	if len(vc.ExcludeDirs) == 0 || len(vc.Jobs) == 0 {
+		t.Errorf("defaults should populate exclude_dirs/jobs, got %+v", vc)
 	}
 }
 
@@ -27,7 +27,6 @@ func TestVaultConfigRoundTrip(t *testing.T) {
 		ExcludeDirs: []string{".obsidian", ".git"},
 		WebPort:     4399,
 		Jobs:        []string{"web"},
-		Skills:      []string{"build"},
 	}
 	if err := want.Save(vault); err != nil {
 		t.Fatalf("Save: %v", err)

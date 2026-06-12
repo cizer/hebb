@@ -87,11 +87,17 @@ func searchCmd() *cobra.Command {
 		Short: "Search the vault",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			_, db, err := openVault()
+			cfg, db, err := openVault()
 			if err != nil {
 				return err
 			}
 			defer db.Close()
+			// Refresh before querying so a note written moments ago (with no prior
+			// hebb index) is found: the CLI is the most exposed read path and has no
+			// watcher of its own. Stat-only over an unchanged vault, so cheap.
+			if cfg.AutoRefresh {
+				_, _ = core.RefreshChanged(cfg, db)
+			}
 			results, err := core.Search(db, strings.Join(args, " "), limit, tag, prefix)
 			if err != nil {
 				return err

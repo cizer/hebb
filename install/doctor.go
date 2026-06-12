@@ -1,6 +1,7 @@
 package install
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -49,7 +50,7 @@ func Doctor(opts Options) []Check {
 	}
 
 	checkMCPJSON(add, opts.VaultPath)
-	checkIndex(add, opts.VaultPath)
+	checkIndex(add, opts.VaultPath, vc)
 	checkSettings(add, opts.VaultPath, opts.MCPName)
 
 	if opts.Home != "" {
@@ -80,7 +81,7 @@ func checkMCPJSON(add func(string, string, string), vaultPath string) {
 	add("mcp.json", "ok", fmt.Sprintf("%d server(s)", len(m.MCPServers)))
 }
 
-func checkIndex(add func(string, string, string), vaultPath string) {
+func checkIndex(add func(string, string, string), vaultPath string, vc core.VaultConfig) {
 	dbPath := filepath.Join(vaultPath, ".hebb", "index.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		add("index", "warn", "no index (run hebb index)")
@@ -96,11 +97,47 @@ func checkIndex(add func(string, string, string), vaultPath string) {
 	switch {
 	case err != nil:
 		add("index", "warn", err.Error())
+		return
 	case notes == 0:
 		add("index", "warn", "index is empty (run hebb index)")
-	default:
-		add("index", "ok", fmt.Sprintf("%d notes", notes))
+		return
 	}
+	// Staleness: the newest .md on disk is newer than anything indexed. The walk
+	// uses the same exclude_dirs and symlink filter as indexing, so a newer file
+	// under an excluded dir or behind a symlink (which the index would never
+	// hold) cannot raise a false warning.
+	if stale, detail := indexStale(vaultPath, vc, db); stale {
+		add("index", "warn", detail)
+		return
+	}
+	add("index", "ok", fmt.Sprintf("%d notes", notes))
+}
+
+// staleMtimeEpsilonMillis is the slack allowed before calling the index stale,
+// guarding against sub-millisecond float jitter between a file's stored mtime
+// and its re-stat'd value. A genuine edit moves the mtime by far more.
+const staleMtimeEpsilonMillis = 1.0
+
+// indexStale reports whether the newest indexable .md on disk post-dates the
+// newest indexed note. Returns a one-line detail for the warning when true.
+func indexStale(vaultPath string, vc core.VaultConfig, db *sql.DB) (bool, string) {
+	excludes := vc.ExcludeDirs
+	if len(excludes) == 0 {
+		excludes = core.DefaultExcludeDirs()
+	}
+	cfg := core.Config{VaultPath: vaultPath, ExcludeDirs: excludes}
+	newest, ok := core.NewestMarkdownMtime(cfg)
+	if !ok {
+		return false, ""
+	}
+	indexedMax, ok := core.MaxIndexedMtime(db)
+	if !ok {
+		return false, ""
+	}
+	if newest > indexedMax+staleMtimeEpsilonMillis {
+		return true, "index stale: a newer note exists on disk (run hebb index, or it refreshes on next search)"
+	}
+	return false, ""
 }
 
 func checkSettings(add func(string, string, string), vaultPath, mcpName string) {

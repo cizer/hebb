@@ -29,8 +29,13 @@ func Serve(cfg core.Config, port int, vaultName string) error {
 	if _, err := core.FullReindex(cfg, db); err != nil {
 		return err
 	}
+	// Record the watcher's health rather than discarding a startup failure: the
+	// loopback UI rebuilds on demand via /api/reindex, but a dead watcher means
+	// edits are not picked up live, so the failure must not be silent.
 	if w, werr := core.Watch(cfg, db); werr == nil {
 		defer w.Close()
+	} else {
+		fmt.Printf("watcher not running: %s\n", core.FailedWatcherHealth(werr).StartErr)
 	}
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	fmt.Printf("hebb search  ->  http://%s\nvault: %s  ·  db: %s\n", addr, vaultName, cfg.DBPath)
@@ -110,7 +115,7 @@ func newMux(cfg core.Config, db *sql.DB, vaultName string) http.Handler {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
-		res, err := core.FullReindex(cfg, db)
+		res, err := core.FullReindexForce(cfg, db)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

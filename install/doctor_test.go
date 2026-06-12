@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cizer/hebb/core"
 )
@@ -105,6 +106,74 @@ func TestDoctorMemoryFlagsStaleLink(t *testing.T) {
 	c, _ := checkByName(checks, "memory")
 	if c.Status != "warn" || !strings.Contains(c.Detail, "elsewhere") {
 		t.Errorf("stale link: status=%q detail=%q, want warn + 'elsewhere'", c.Status, c.Detail)
+	}
+}
+
+// TestDoctorWarnsOnStaleIndex proves checkIndex flags a note newer on disk than
+// anything indexed, and that excluded/symlinked files cannot cause a false
+// staleness warning (they use the same walk as indexing).
+func TestDoctorWarnsOnStaleIndex(t *testing.T) {
+	vault := t.TempDir()
+	writeNote := func(rel, body string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeNote("a.md", "# A\n\nbody")
+	// Save a config so checkLaunchd and config check behave, and excludes resolve.
+	if err := core.DefaultVaultConfig("T").Save(vault); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := core.ResolveVault(vault, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// Healthy: index is current.
+	checks := Doctor(Options{VaultPath: vault, MCPName: DefaultMCPServerName})
+	if c, _ := checkByName(checks, "index"); c.Status != "ok" {
+		t.Errorf("fresh index: status=%q detail=%q, want ok", c.Status, c.Detail)
+	}
+
+	// Now write a newer note without reindexing: doctor should warn.
+	future := time.Now().Add(time.Hour)
+	writeNote("b.md", "# B\n\nnewer body")
+	if err := os.Chtimes(filepath.Join(vault, "b.md"), future, future); err != nil {
+		t.Fatal(err)
+	}
+	checks = Doctor(Options{VaultPath: vault, MCPName: DefaultMCPServerName})
+	if c, _ := checkByName(checks, "index"); c.Status != "warn" || !strings.Contains(c.Detail, "stale") {
+		t.Errorf("stale index: status=%q detail=%q, want warn + 'stale'", c.Status, c.Detail)
+	}
+
+	// A newer file under an excluded dir must NOT raise staleness. Reindex first
+	// so the visible notes are current again.
+	cfg, _ = core.ResolveVault(vault, "")
+	db, _ = core.OpenDB(cfg.DBPath)
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	writeNote(".obsidian/excluded.md", "# X\n\nshould not count")
+	if err := os.Chtimes(filepath.Join(vault, ".obsidian", "excluded.md"), future, future); err != nil {
+		t.Fatal(err)
+	}
+	checks = Doctor(Options{VaultPath: vault, MCPName: DefaultMCPServerName})
+	if c, _ := checkByName(checks, "index"); c.Status != "ok" {
+		t.Errorf("newer excluded-dir note: status=%q detail=%q, want ok (must not trigger staleness)", c.Status, c.Detail)
 	}
 }
 

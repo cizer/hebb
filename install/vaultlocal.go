@@ -33,10 +33,19 @@ func VaultLocal(vaultPath string) (Report, error) {
 	}
 	if !existed {
 		vc := core.DefaultVaultConfig(filepath.Base(vaultPath))
+		status := "created"
+		// A git repo: turn on git-sync by default, so a synced vault stays in
+		// sync without the user having to flip a flag. Only done on create; an
+		// existing config (where the user may have deliberately set enabled =
+		// false) is never overridden.
+		if core.IsGitRepo(vaultPath) {
+			vc.Git.Enabled = true
+			status = "created (git-sync on)"
+		}
 		if err := vc.Save(vaultPath); err != nil {
 			return r, err
 		}
-		r.add("config.toml", "created")
+		r.add("config.toml", status)
 	} else {
 		r.add("config.toml", "exists")
 	}

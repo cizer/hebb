@@ -2,6 +2,7 @@ package install
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -38,6 +39,30 @@ func TestVaultLocalIdempotent(t *testing.T) {
 	}
 	if statusOf(rep, "config.toml") != "exists" {
 		t.Errorf("2nd run config.toml = %q, want exists (must not clobber)", statusOf(rep, "config.toml"))
+	}
+}
+
+func TestVaultLocalEnablesGitInRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	vault := t.TempDir()
+	if err := exec.Command("git", "-C", vault, "init").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	rep, err := VaultLocal(vault)
+	if err != nil {
+		t.Fatalf("VaultLocal: %v", err)
+	}
+	vc, _, err := core.LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vc.Git.Enabled {
+		t.Error("expected [git] enabled = true when the vault is a git repo")
+	}
+	if got := statusOf(rep, "config.toml"); got != "created (git-sync on)" {
+		t.Errorf("config.toml status = %q, want \"created (git-sync on)\"", got)
 	}
 }
 

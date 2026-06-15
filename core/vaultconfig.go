@@ -32,8 +32,8 @@ type VaultConfig struct {
 }
 
 // HealthConfig is the committed [health] block. It governs the thresholds used
-// by the Phase 1 vault-health detectors (hebb health). Zero values are replaced
-// by sensible defaults via the accessor methods.
+// by the Phase 1 and Phase 2a vault-health detectors (hebb health). Zero values
+// are replaced by sensible defaults via the accessor methods.
 type HealthConfig struct {
 	// ProjectStaleDays is the number of days without modification after which a
 	// note under 1-Projects/ is flagged as a PARA-drift candidate. Default 180.
@@ -41,6 +41,27 @@ type HealthConfig struct {
 	// SizeThreshold is the estimated token count (len(body)/4) above which a
 	// note is a candidate for the oversized detector. Default 1200.
 	SizeThreshold int `toml:"size_threshold"`
+
+	// Phase 2a graph-health fields.
+
+	// ConnectiveFolders is the set of vault-root-relative folder prefixes whose
+	// notes are expected to be well-connected. Degree-0 (orphan) and degree-1
+	// (leaf) notes in these folders that are also older than OrphanStaleDays are
+	// flagged. Default: ["2-Areas", "3-Resources"].
+	ConnectiveFolders []string `toml:"connective_folders"`
+	// ExpectedOrphanFolders is the set of vault-root-relative folder prefixes
+	// where sparse connectivity is normal (fresh capture, journals, archives).
+	// Notes under these prefixes are never flagged as orphans or leaves.
+	// Default: ["Journal", "Notes", "4-Archives"].
+	ExpectedOrphanFolders []string `toml:"expected_orphan_folders"`
+	// OrphanStaleDays is the minimum age in days before a degree-0 or degree-1
+	// note in a connective folder is flagged. Fresh notes are not yet expected
+	// to be linked. Default 90.
+	OrphanStaleDays int `toml:"orphan_stale_days"`
+	// IslandMaxSize is the maximum component size (inclusive) that is reported
+	// as a small island finding, provided the island is not entirely under
+	// 4-Archives/. Default 3.
+	IslandMaxSize int `toml:"island_max_size"`
 }
 
 // GetProjectStaleDays returns the configured stale-days threshold, defaulting
@@ -59,6 +80,43 @@ func (h HealthConfig) GetSizeThreshold() int {
 		return 1200
 	}
 	return h.SizeThreshold
+}
+
+// GetConnectiveFolders returns the configured connective-folder prefixes,
+// defaulting to ["2-Areas", "3-Resources"] when the slice is empty.
+func (h HealthConfig) GetConnectiveFolders() []string {
+	if len(h.ConnectiveFolders) == 0 {
+		return []string{"2-Areas", "3-Resources"}
+	}
+	return h.ConnectiveFolders
+}
+
+// GetExpectedOrphanFolders returns the configured expected-orphan folder
+// prefixes, defaulting to ["Journal", "Notes", "4-Archives"] when the slice is
+// empty.
+func (h HealthConfig) GetExpectedOrphanFolders() []string {
+	if len(h.ExpectedOrphanFolders) == 0 {
+		return []string{"Journal", "Notes", "4-Archives"}
+	}
+	return h.ExpectedOrphanFolders
+}
+
+// GetOrphanStaleDays returns the configured minimum age threshold for orphan
+// and leaf flagging, defaulting to 90 when the field is zero.
+func (h HealthConfig) GetOrphanStaleDays() int {
+	if h.OrphanStaleDays <= 0 {
+		return 90
+	}
+	return h.OrphanStaleDays
+}
+
+// GetIslandMaxSize returns the configured maximum size of a small island that
+// is reported as a finding, defaulting to 3 when the field is zero.
+func (h HealthConfig) GetIslandMaxSize() int {
+	if h.IslandMaxSize <= 0 {
+		return 3
+	}
+	return h.IslandMaxSize
 }
 
 // IngestConfig is the committed [ingest] block. It records ingest policy that
@@ -311,10 +369,18 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#   [index]       - index settings (auto_refresh = true by default)\n")
 	buf.WriteString("#\n")
 	buf.WriteString("#   [health]      - vault-health detector thresholds (hebb health)\n")
-	buf.WriteString("#     project_stale_days - days without modification before a 1-Projects/ note\n")
-	buf.WriteString("#                          is flagged as PARA drift (default 180)\n")
-	buf.WriteString("#     size_threshold     - estimated token count (len(body)/4) above which a\n")
-	buf.WriteString("#                          note is checked for multiple sections (default 1200)\n")
+	buf.WriteString("#     project_stale_days    - days without modification before a 1-Projects/ note\n")
+	buf.WriteString("#                             is flagged as PARA drift (default 180)\n")
+	buf.WriteString("#     size_threshold        - estimated token count (len(body)/4) above which a\n")
+	buf.WriteString("#                             note is checked for multiple sections (default 1200)\n")
+	buf.WriteString("#     connective_folders    - folder prefixes where sparse connectivity is flagged\n")
+	buf.WriteString("#                             (default [\"2-Areas\", \"3-Resources\"])\n")
+	buf.WriteString("#     expected_orphan_folders - folder prefixes where sparse connectivity is normal\n")
+	buf.WriteString("#                             (default [\"Journal\", \"Notes\", \"4-Archives\"])\n")
+	buf.WriteString("#     orphan_stale_days     - minimum note age in days before an orphan/leaf in a\n")
+	buf.WriteString("#                             connective folder is flagged (default 90)\n")
+	buf.WriteString("#     island_max_size       - maximum component size reported as a small island\n")
+	buf.WriteString("#                             finding (default 3; archives are excluded)\n")
 	buf.WriteString("\n")
 	if err := toml.NewEncoder(&buf).Encode(vc); err != nil {
 		return err

@@ -9,6 +9,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// healthJSONOutput is the top-level structure emitted by hebb health --json.
+// Findings preserves the original []Finding shape so existing consumers are
+// unaffected; Stats carries the Phase 2a graph summary under a separate key.
+type healthJSONOutput struct {
+	Findings []core.Finding  `json:"findings"`
+	Stats    core.GraphStats `json:"stats"`
+}
+
 func healthCmd() *cobra.Command {
 	var asJSON bool
 	c := &cobra.Command{
@@ -43,7 +51,7 @@ func healthCmd() *cobra.Command {
 				}
 			}
 
-			findings, err := core.RunHealth(cfg, db)
+			result, err := core.RunHealthFull(cfg, db)
 			if err != nil {
 				return fmt.Errorf("health check failed: %w", err)
 			}
@@ -51,20 +59,25 @@ func healthCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 
 			if asJSON {
-				// Emit a non-null array even when there are no findings; the
-				// Phase 2 dashboard consumer expects a valid JSON array.
-				if findings == nil {
-					findings = []core.Finding{}
+				// Emit findings under "findings" and graph stats under "stats" so
+				// the original []Finding shape is preserved for existing consumers
+				// while graph data is available under a separate key.
+				payload := healthJSONOutput{
+					Findings: result.Findings,
+					Stats:    result.Stats,
+				}
+				if payload.Findings == nil {
+					payload.Findings = []core.Finding{}
 				}
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
-				return enc.Encode(findings)
+				return enc.Encode(payload)
 			}
 
-			// Text output: group findings by type, print a per-type count header,
-			// then each finding on its own line aligned with a tab writer. The
-			// order of types is fixed so output is deterministic across runs.
-			printHealthText(cmd, findings)
+			// Text output: print the structural graph summary first, then the
+			// findings worklist grouped by type.
+			printGraphSummary(cmd, result.Stats)
+			printHealthText(cmd, result.Findings)
 			return nil
 		},
 	}
@@ -74,7 +87,25 @@ func healthCmd() *cobra.Command {
 
 // typeOrder is the fixed display order for finding types. Types not listed here
 // appear last in lexicographic order (forward-compatibility with future detectors).
-var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "oversized"}
+var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "oversized", "orphan", "leaf", "island"}
+
+// printGraphSummary writes the one-line structural graph summary to cmd's
+// output writer. It is printed above the findings worklist in text mode.
+func printGraphSummary(cmd *cobra.Command, s core.GraphStats) {
+	out := cmd.OutOrStdout()
+	if s.NodeCount == 0 {
+		fmt.Fprintln(out, "graph: 0 notes")
+		return
+	}
+	fmt.Fprintf(out,
+		"graph: %d notes, %d edges, %d components, giant-component %.0f%%, max k-core %d\n",
+		s.NodeCount,
+		s.EdgeCount,
+		s.ComponentCount,
+		s.GiantRatio*100,
+		s.MaxCore,
+	)
+}
 
 func printHealthText(cmd *cobra.Command, findings []core.Finding) {
 	out := cmd.OutOrStdout()

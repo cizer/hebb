@@ -30,33 +30,98 @@ type Finding struct {
 	Severity string `json:"severity"`
 }
 
-// RunHealth runs all Phase 1 vault-health detectors over the given index and
-// returns the collected findings. It is deterministic and read-only: it never
-// writes to the vault files or the index database. The order of findings within
-// a detector is determined by the database sort order (stable across runs on the
-// same index).
+// HealthResult is the full output of RunHealth: the findings worklist and the
+// structural graph-health summary produced by Phase 2a.
+type HealthResult struct {
+	// Findings is the advisory worklist of vault-content issues. All Phase 1
+	// and Phase 2a detectors contribute here.
+	Findings []Finding
+	// Stats is the structural graph-health summary (node/edge counts, connected
+	// components, giant-component ratio, k-core maximum). Populated even when
+	// Findings is empty.
+	Stats GraphStats
+}
+
+// RunHealth runs all vault-health detectors (Phase 1 and Phase 2a) over the
+// given index and returns the collected findings together with the structural
+// graph summary. It is deterministic and read-only: it never writes to the
+// vault files or the index database. The order of findings within a detector is
+// determined by the database sort order (stable across runs on the same index).
 func RunHealth(cfg Config, db *sql.DB) ([]Finding, error) {
+	result, err := RunHealthFull(cfg, db)
+	if err != nil {
+		return nil, err
+	}
+	return result.Findings, nil
+}
+
+// RunHealthFull is the full form of RunHealth that also returns the graph stats.
+// CLI callers that need the structural summary line should use this; the
+// original RunHealth signature is preserved for backwards compatibility.
+func RunHealthFull(cfg Config, db *sql.DB) (HealthResult, error) {
 	var all []Finding
 
 	dl, err := detectDanglingLinks(db)
 	if err != nil {
-		return nil, fmt.Errorf("dangling-link detector: %w", err)
+		return HealthResult{}, fmt.Errorf("dangling-link detector: %w", err)
 	}
 	all = append(all, dl...)
 
 	pd, err := detectPARADrift(cfg, db)
 	if err != nil {
-		return nil, fmt.Errorf("para-drift detector: %w", err)
+		return HealthResult{}, fmt.Errorf("para-drift detector: %w", err)
 	}
 	all = append(all, pd...)
 
 	os_, err := detectOversized(cfg, db)
 	if err != nil {
-		return nil, fmt.Errorf("oversized detector: %w", err)
+		return HealthResult{}, fmt.Errorf("oversized detector: %w", err)
 	}
 	all = append(all, os_...)
 
-	return all, nil
+	// Phase 2a: build the graph once and reuse it for all three graph metrics.
+	g, err := buildGraph(db)
+	if err != nil {
+		return HealthResult{}, fmt.Errorf("graph build: %w", err)
+	}
+
+	ol, err := detectOrphansAndLeaves(cfg, db, g)
+	if err != nil {
+		return HealthResult{}, fmt.Errorf("orphan/leaf detector: %w", err)
+	}
+	all = append(all, ol...)
+
+	islands := detectIslands(cfg, g)
+	all = append(all, islands...)
+
+	// Compute stats from the same graph.
+	var stats GraphStats
+	if g.nodeCount() > 0 {
+		compCount, giantRatio := computeComponents(g)
+		coreness, maxCore := computeCoreness(g)
+		coreCount := make(map[int]int, maxCore+1)
+		coreMap := make(map[string]int, g.nodeCount())
+		for i, c := range coreness {
+			coreMap[g.nodes[i]] = c
+			coreCount[c]++
+		}
+		stats = GraphStats{
+			NodeCount:      g.nodeCount(),
+			EdgeCount:      g.edgeCount(),
+			ComponentCount: compCount,
+			GiantRatio:     giantRatio,
+			MaxCore:        maxCore,
+			CoreCount:      coreCount,
+			Coreness:       coreMap,
+		}
+	} else {
+		stats = GraphStats{
+			CoreCount: map[int]int{},
+			Coreness:  map[string]int{},
+		}
+	}
+
+	return HealthResult{Findings: all, Stats: stats}, nil
 }
 
 // detectDanglingLinks finds every links row whose target_path is NULL and

@@ -233,11 +233,19 @@ func TestRunHealthCleanNotesNotFlagged(t *testing.T) {
 		t.Fatalf("RunHealth: %v", err)
 	}
 
+	// Phase 1 detectors must not flag these notes. Phase 2a graph detectors
+	// (orphan, leaf, island) may legitimately flag some notes (e.g. isolated
+	// notes become island findings), so we only check Phase 1 finding types here.
+	phase1Types := map[string]bool{
+		"dangling_link": true,
+		"para_drift":    true,
+		"oversized":     true,
+	}
 	clean := []string{"Notes/Target.md", "Notes/Resolved.md", "1-Projects/Active.md", "Notes/Small.md"}
 	for _, path := range clean {
 		for _, f := range findings {
-			if f.Path == path {
-				t.Errorf("clean note %q incorrectly flagged: %+v", path, f)
+			if f.Path == path && phase1Types[f.Type] {
+				t.Errorf("clean note %q incorrectly flagged by Phase 1 detector: %+v", path, f)
 			}
 		}
 	}

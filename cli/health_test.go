@@ -109,6 +109,14 @@ func TestHealthCommandExitsZeroWithFindings(t *testing.T) {
 	}
 }
 
+// healthJSON is the top-level structure of hebb health --json output. The
+// findings array preserves the original shape; stats carries the Phase 2a graph
+// summary under a separate key so the overall envelope is additive.
+type healthJSON struct {
+	Findings []core.Finding  `json:"findings"`
+	Stats    core.GraphStats `json:"stats"`
+}
+
 func TestHealthCommandJSON(t *testing.T) {
 	vault := buildHealthVaultCLI(t)
 
@@ -117,16 +125,16 @@ func TestHealthCommandJSON(t *testing.T) {
 		t.Fatalf("hebb health --json: %v\n%s", err, out)
 	}
 
-	var findings []core.Finding
-	if err := json.Unmarshal([]byte(out), &findings); err != nil {
-		t.Fatalf("hebb health --json output is not valid JSON []Finding: %v\n%s", err, out)
+	var payload healthJSON
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("hebb health --json output is not valid JSON: %v\n%s", err, out)
 	}
-	if len(findings) == 0 {
+	if len(payload.Findings) == 0 {
 		t.Errorf("expected findings in JSON output, got empty slice")
 	}
 
 	// Every finding must have non-empty required fields.
-	for i, f := range findings {
+	for i, f := range payload.Findings {
 		if f.Type == "" {
 			t.Errorf("finding[%d].Type is empty", i)
 		}
@@ -136,6 +144,14 @@ func TestHealthCommandJSON(t *testing.T) {
 		if f.Severity == "" {
 			t.Errorf("finding[%d].Severity is empty", i)
 		}
+	}
+
+	// Stats must carry sensible values for a vault with notes.
+	if payload.Stats.NodeCount == 0 {
+		t.Errorf("stats.NodeCount is 0 for a vault with notes")
+	}
+	if payload.Stats.ComponentCount == 0 {
+		t.Errorf("stats.ComponentCount is 0 for a vault with notes")
 	}
 }
 
@@ -165,11 +181,11 @@ func TestHealthCommandJSONEmptyVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hebb health --json on empty vault: %v\n%s", err, out)
 	}
-	var findings []core.Finding
-	if err := json.Unmarshal([]byte(out), &findings); err != nil {
+	var payload healthJSON
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("empty vault --json is not valid JSON: %v\n%s", err, out)
 	}
-	if findings == nil {
+	if payload.Findings == nil {
 		t.Error("expected [] not null for empty findings JSON")
 	}
 }
@@ -231,6 +247,27 @@ func TestHealthCommandTextGroupedByType(t *testing.T) {
 	for _, header := range []string{"dangling_link", "para_drift", "oversized"} {
 		if !strings.Contains(out, header) {
 			t.Errorf("text output missing type header %q:\n%s", header, out)
+		}
+	}
+}
+
+func TestHealthCommandStructuralSummaryLine(t *testing.T) {
+	// The structural graph summary must appear in text output above the findings
+	// worklist. It takes the form "graph: N notes, E edges, ...".
+	vault := buildHealthVaultCLI(t)
+
+	out, err := runHealth(t, vault)
+	if err != nil {
+		t.Fatalf("hebb health: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "graph:") {
+		t.Errorf("text output missing structural summary line (expected 'graph: ...'):\n%s", out)
+	}
+	// The summary must include note count, edge count, component count, and k-core.
+	for _, keyword := range []string{"notes", "edges", "components", "k-core"} {
+		if !strings.Contains(out, keyword) {
+			t.Errorf("structural summary missing %q:\n%s", keyword, out)
 		}
 	}
 }

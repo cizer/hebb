@@ -397,6 +397,324 @@ func TestMigrationAddsTargetPathToLegacyDB(t *testing.T) {
 	}
 }
 
+// TestNoteKeysIncludesDirectorySuffixes guards review finding B at the unit
+// level: a note at "x/dir/Note.md" must yield every directory-suffix form the
+// resolver could match, so inbound re-resolution considers a "[[dir/Note]]"
+// link, not only "x/dir/Note" and "Note".
+func TestNoteKeysIncludesDirectorySuffixes(t *testing.T) {
+	got := map[string]bool{}
+	for _, k := range noteKeys("x/dir/Note.md", "Note Title") {
+		got[k] = true
+	}
+	for _, want := range []string{"x/dir/Note.md", "x/dir/Note", "dir/Note", "Note", "Note Title"} {
+		if !got[want] {
+			t.Errorf("noteKeys missing %q; got %v", want, got)
+		}
+	}
+}
+
+// TestIndexFileReResolvesDirectoryAnchoredInbound is review finding B end to end
+// on the incremental path: a file links [[dir/Note]] before the target exists,
+// so the link starts dangling. Indexing x/dir/Note.md must re-resolve it (the
+// resolver's basename stage accepts a path ending "/dir/Note.md"), matching what
+// FullReindex would do.
+func TestIndexFileReResolvesDirectoryAnchoredInbound(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Source.md", "# Source\n\nLinks to [[dir/Note]].")
+	write("x/dir/Note.md", "# Some Heading\n\nThe target.")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Index the source first, while the target is absent: dangling (NULL).
+	if err := IndexFile(cfg, db, "Source.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "Source.md", "dir/Note"); got.Valid {
+		t.Fatalf("before target indexed, target_path = %q, want NULL", got.String)
+	}
+	// Index the directory-anchored target: the inbound link must now resolve.
+	if err := IndexFile(cfg, db, "x/dir/Note.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "Source.md", "dir/Note"); !got.Valid || got.String != "x/dir/Note.md" {
+		t.Fatalf("incremental target_path for [[dir/Note]] = %#v, want x/dir/Note.md", got)
+	}
+
+	// FullReindex must agree (the invariant the finding is about).
+	if _, err := FullReindexForce(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "Source.md", "dir/Note"); !got.Valid || got.String != "x/dir/Note.md" {
+		t.Fatalf("FullReindex target_path for [[dir/Note]] = %#v, want x/dir/Note.md", got)
+	}
+}
+
+// TestIndexFileFlipsToAmbiguousOnSecondNote is review finding C(i): A links
+// [[Note]] and Note.md is indexed and resolved; adding a second note that also
+// matches "Note" must flip the link to NULL (ambiguous) on the incremental path,
+// not leave the stale pointer at the first note.
+func TestIndexFileFlipsToAmbiguousOnSecondNote(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("A.md", "# A\n\nLinks to [[Note]].")
+	write("one/Note.md", "# Note One\n\nFirst target.")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := IndexFile(cfg, db, "A.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := IndexFile(cfg, db, "one/Note.md"); err != nil {
+		t.Fatal(err)
+	}
+	// Resolved to the single matching note.
+	if got := targetPathOf(t, db, "A.md", "Note"); !got.Valid || got.String != "one/Note.md" {
+		t.Fatalf("after first Note indexed, target_path = %#v, want one/Note.md", got)
+	}
+
+	// A second note also matching the basename "Note" appears: the link is now
+	// ambiguous and must flip to NULL on the incremental path.
+	write("two/Note.md", "# Note Two\n\nSecond target.")
+	if err := IndexFile(cfg, db, "two/Note.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "A.md", "Note"); got.Valid {
+		t.Fatalf("after second Note indexed, target_path = %q, want NULL (ambiguous)", got.String)
+	}
+
+	// FullReindex must agree.
+	if _, err := FullReindexForce(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "A.md", "Note"); got.Valid {
+		t.Fatalf("FullReindex target_path = %q, want NULL (ambiguous)", got.String)
+	}
+}
+
+// TestRemoveFileDanglesPreviouslyResolvedLink is review finding C(ii): a link
+// resolved to a target note must fall back to dangling (NULL), not keep a stale
+// non-NULL pointer, when that target note is removed on the incremental path.
+func TestRemoveFileDanglesPreviouslyResolvedLink(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("A.md", "# A\n\nLinks to [[Target]].")
+	write("Target.md", "# Target\n\nThe target note.")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := IndexFile(cfg, db, "A.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := IndexFile(cfg, db, "Target.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "A.md", "Target"); !got.Valid || got.String != "Target.md" {
+		t.Fatalf("before removal, target_path = %#v, want Target.md", got)
+	}
+
+	// Remove the target note: the inbound link must fall back to dangling (NULL).
+	if err := RemoveFile(db, "Target.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "A.md", "Target"); got.Valid {
+		t.Fatalf("after removal, target_path = %q, want NULL (dangling)", got.String)
+	}
+}
+
+// TestRemoveFileFallsBackToOtherNote checks the convergence case where removing
+// one of two same-named notes flips an ambiguous link to the single survivor,
+// matching FullReindex.
+func TestRemoveFileFallsBackToOtherNote(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("A.md", "# A\n\nLinks to [[Note]].")
+	write("one/Note.md", "# Note One\n\nFirst.")
+	write("two/Note.md", "# Note Two\n\nSecond.")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	for _, rel := range []string{"A.md", "one/Note.md", "two/Note.md"} {
+		if err := IndexFile(cfg, db, rel); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Ambiguous: NULL.
+	if got := targetPathOf(t, db, "A.md", "Note"); got.Valid {
+		t.Fatalf("with two Notes, target_path = %q, want NULL", got.String)
+	}
+	// Remove one: the link must resolve to the survivor.
+	if err := RemoveFile(db, "two/Note.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "A.md", "Note"); !got.Valid || got.String != "one/Note.md" {
+		t.Fatalf("after removing one Note, target_path = %#v, want one/Note.md", got)
+	}
+}
+
+// TestMigrationBackfillsLegacyLinks is review finding A: a legacy index.db that
+// has a populated notes table and a links table missing target_path must, on the
+// upgrade open, both add the column AND backfill every existing link to its
+// resolved path, so an unchanged vault is correct without a manual full reindex.
+func TestMigrationBackfillsLegacyLinks(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "index.db")
+
+	// Build a legacy-shaped database by hand: notes table populated, links table
+	// without target_path. This is the pre-Phase-0 schema with real content.
+	legacy, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE notes (
+		path TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		body TEXT NOT NULL,
+		tags TEXT,
+		frontmatter TEXT,
+		mtime REAL NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE links (
+		source_path TEXT NOT NULL,
+		target TEXT NOT NULL,
+		PRIMARY KEY (source_path, target)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []struct{ path, title string }{
+		{"Alpha.md", "Alpha"},
+		{"sub/Gamma.md", "Gamma"},
+		{"one/Note.md", "Note One"},
+		{"two/Note.md", "Note Two"},
+		{"Beta.md", "Beta"},
+	} {
+		if _, err := legacy.Exec(`INSERT INTO notes (path, title, body, tags, frontmatter, mtime) VALUES (?, ?, '', '', '', 0)`, n.path, n.title); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Beta links: a resolvable exact-path link, a resolvable directory-anchored
+	// link, an ambiguous basename link, and a genuinely dangling link.
+	for _, target := range []string{"Alpha", "sub/Gamma", "Note", "Ghost"} {
+		if _, err := legacy.Exec(`INSERT INTO links (source_path, target) VALUES ('Beta.md', ?)`, target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacy.Close()
+
+	// OpenDB must add the column AND backfill resolutions in one upgrade pass.
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB on legacy db: %v", err)
+	}
+	defer db.Close()
+
+	if got := targetPathOf(t, db, "Beta.md", "Alpha"); !got.Valid || got.String != "Alpha.md" {
+		t.Errorf("backfill Alpha -> %#v, want Alpha.md", got)
+	}
+	if got := targetPathOf(t, db, "Beta.md", "sub/Gamma"); !got.Valid || got.String != "sub/Gamma.md" {
+		t.Errorf("backfill sub/Gamma -> %#v, want sub/Gamma.md", got)
+	}
+	if got := targetPathOf(t, db, "Beta.md", "Note"); got.Valid {
+		t.Errorf("backfill ambiguous Note -> %q, want NULL", got.String)
+	}
+	if got := targetPathOf(t, db, "Beta.md", "Ghost"); got.Valid {
+		t.Errorf("backfill dangling Ghost -> %q, want NULL", got.String)
+	}
+}
+
+// TestMigrationBackfillDoesNotRunOnFreshDB guards the gate on review finding A:
+// a fresh database already has the column from schemaSQL, so the backfill pass
+// must not run there. A fresh OpenDB on an empty path must leave an empty links
+// table (no error, nothing to backfill).
+func TestMigrationBackfillDoesNotRunOnFreshDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB on fresh db: %v", err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM links").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("fresh db links count = %d, want 0", n)
+	}
+	// Reopening must also succeed (the backfill must not run on a later open).
+	db.Close()
+	db2, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	db2.Close()
+}
+
 // reindexedDB opens a fresh index.db under the vault and runs a full reindex,
 // returning the open handle for the caller to query and close.
 func reindexedDB(t *testing.T, vault string) *sql.DB {

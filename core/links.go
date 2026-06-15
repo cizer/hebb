@@ -176,8 +176,11 @@ func loadNoteIndex(q queryer) (*noteIndex, error) {
 }
 
 // ResolveTargetDB resolves a single raw target against the live notes table. It
-// is the per-call form used by IndexFile, where the notes table already holds
-// the complete corpus, so a query per link is acceptable. It returns the
+// is the per-call form used for one-off resolutions where building a full
+// in-memory index would be wasteful, such as resolvePath's seed lookup in the
+// context walk (one call per expansion, not per link). The indexing paths
+// instead build a noteIndex once and call its resolve method, so they do not pay
+// this query's per-call basename full scan for every link. It returns the
 // resolved note path (empty for dangling or ambiguous) and the Resolution.
 func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 	target := canonicalTarget(rawTarget)
@@ -236,16 +239,28 @@ type execer interface {
 }
 
 // noteKeys returns the set of raw targets that should resolve to the note at
-// rel with the given title: its exact path, the path without ".md", the
-// basename without ".md", and the exact title (when non-empty). It mirrors the
-// match precedences in resolve (path, basename, title) so the inbound
-// re-resolution below considers exactly the dangling links that this note could
-// now satisfy, without re-running the resolver over the whole links table.
+// rel with the given title: its exact path, every directory-suffix form of the
+// path without ".md", and the exact title (when non-empty). It mirrors the match
+// precedences in resolve (path, basename, title) so inbound re-resolution
+// considers exactly the links this note could now satisfy, without re-running the
+// resolver over the whole links table.
+//
+// The directory-suffix forms matter because the basename stage of the resolver
+// accepts a slash-bearing target whose note path ends with "/"+target+".md". For
+// a note at "x/dir/Note.md" the resolver would match the targets "x/dir/Note",
+// "dir/Note" and "Note", so all three must be keys here; emitting only the full
+// path and the bare basename (as an earlier version did) left a "[[dir/Note]]"
+// link unresolved on the incremental path even though fullReindex resolved it.
 func noteKeys(rel, title string) []string {
-	keys := map[string]bool{
-		rel:                            true,
-		strings.TrimSuffix(rel, ".md"): true,
-		basenameNoExt(rel):             true,
+	keys := map[string]bool{rel: true}
+	// Every directory-suffix of the path without ".md": "x/dir/Note", "dir/Note",
+	// "Note". Walk the slash boundaries from the front, plus the bare basename.
+	noExt := strings.TrimSuffix(rel, ".md")
+	keys[noExt] = true
+	for i := 0; i < len(noExt); i++ {
+		if noExt[i] == '/' {
+			keys[noExt[i+1:]] = true
+		}
 	}
 	if title != "" {
 		keys[title] = true
@@ -257,63 +272,169 @@ func noteKeys(rel, title string) []string {
 	return out
 }
 
-// reResolveInbound re-resolves the dangling links (target_path IS NULL) whose
-// canonicalTarget matches one of the just-indexed note's keys, so an inbound
-// link that should now point at this note stops being reported as dangling.
-// This is the incremental counterpart to fullReindex's full second pass: when a
-// new note appears, links written before it existed are revisited here rather
-// than left permanently NULL.
+// reResolveForKeys re-resolves every link whose raw target matches one of the
+// supplied note keys, regardless of its current target_path, and rewrites that
+// target_path to the resolver's verdict against the supplied in-memory index. It
+// is the incremental counterpart to fullReindex's full second pass: when the note
+// graph changes, only the links that could match the changed note are revisited,
+// so the work is proportional to the relevant links rather than the whole table,
+// and the result converges to the same state a full reindex would produce.
 //
-// Only NULL rows are reconsidered, and only those whose target could match this
-// note, so the work is proportional to the relevant dangling links rather than
-// the whole table. The shared ResolveTargetDB runs against the now-current
-// corpus, so its result already reflects any ambiguity introduced by the new
-// note (a target that now matches two notes correctly stays NULL).
+// Candidate selection happens in SQL (target = ? OR target LIKE ?#... for the
+// fragment forms of each key) so the read hot path does not scan every dangling
+// target. Resolving against ix (built once per IndexFile invocation from one
+// notes scan) avoids the previous per-link "SELECT path FROM notes" full scan.
 //
-// What this does NOT cover: when a note is renamed or removed, a link whose
-// non-NULL target_path still points at the old note is not back-propagated here
-// (only the source file's own outgoing links are corrected, and only when that
-// source is itself re-indexed). fullReindex's full pass handles that case; the
-// incremental path leaves such a stale pointer until the source note is touched.
-func reResolveInbound(db execer, rel, title string) error {
-	keys := noteKeys(rel, title)
-	// Gather distinct dangling targets so each is resolved once even when many
-	// links share it. Close the read before issuing the updates.
-	rows, err := db.Query("SELECT DISTINCT target FROM links WHERE target_path IS NULL")
+// All matching rows are reconsidered, not only the NULL ones, so a target that
+// has become ambiguous (a second same-named note appeared) flips from a stale
+// non-NULL pointer back to NULL, and a target whose note was removed falls back
+// to dangling or to another note. A still-unresolved target is set to NULL
+// explicitly rather than left stale.
+func reResolveForKeys(db execer, ix *noteIndex, keys []string) error {
+	candidates, err := candidateTargets(db, keys)
 	if err != nil {
 		return err
 	}
-	var candidates []string
-	scanErr := func() error {
-		defer rows.Close()
-		for rows.Next() {
-			var raw string
-			if err := rows.Scan(&raw); err != nil {
-				return err
-			}
-			canon := canonicalTarget(raw)
-			for _, k := range keys {
-				if canon == k {
-					candidates = append(candidates, raw)
-					break
-				}
-			}
-		}
-		return rows.Err()
-	}()
-	if scanErr != nil {
-		return scanErr
-	}
 	for _, raw := range candidates {
-		resolved, status := ResolveTargetDB(db, raw)
-		if status != Resolved {
-			continue // still dangling or now ambiguous: leave NULL.
+		resolved, status := ix.resolve(raw)
+		var tp any
+		if status == Resolved {
+			tp = resolved
 		}
-		if _, err := db.Exec("UPDATE links SET target_path = ? WHERE target = ? AND target_path IS NULL", resolved, raw); err != nil {
+		if _, err := db.Exec("UPDATE links SET target_path = ? WHERE target = ?", tp, raw); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// candidateTargets returns the distinct raw targets in the links table that
+// match any of keys, either exactly or as a "key#fragment" form (the fragment is
+// stripped before matching by the resolver, so a "[[Note#Section]]" link must be
+// considered a candidate for the note keyed "Note"). Selection is done in SQL so
+// the caller never scans the whole links table in Go.
+func candidateTargets(q queryer, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	// Build "target = ? OR target LIKE ? ESCAPE '\'" pairs per key: the exact form
+	// and the "key#..." fragment form. LIKE wildcards in the key are escaped so a
+	// title containing '%' or '_' cannot widen the match.
+	var clauses []string
+	var args []any
+	for _, k := range keys {
+		clauses = append(clauses, "target = ?", `target LIKE ? ESCAPE '\'`)
+		args = append(args, k, escapeLike(k)+`#%`)
+	}
+	query := "SELECT DISTINCT target FROM links WHERE " + strings.Join(clauses, " OR ")
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		// A canonicalised "key#fragment" target must canonicalise back to one of
+		// the keys; the LIKE pattern alone could admit "Other#..." when a key is a
+		// prefix-free string, so confirm exactly.
+		if matchesKey(raw, keys) {
+			out = append(out, raw)
+		}
+	}
+	return out, rows.Err()
+}
+
+// matchesKey reports whether raw, once its fragment is stripped, equals one of
+// the keys. It is the Go-side confirmation of the SQL candidate filter.
+func matchesKey(raw string, keys []string) bool {
+	canon := canonicalTarget(raw)
+	for _, k := range keys {
+		if canon == k {
+			return true
+		}
+	}
+	return false
+}
+
+// escapeLike escapes the LIKE wildcards ('%', '_') and the escape character
+// itself in s so it can be embedded literally in a LIKE pattern with
+// "ESCAPE '\'".
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+// reResolveInbound re-resolves the links that could point at the just-indexed
+// note (rel, title) against ix, so an inbound link written before this note
+// existed now resolves to it, and a link that has become ambiguous flips back to
+// NULL. It is called from IndexFile after the note is upserted.
+func reResolveInbound(db execer, ix *noteIndex, rel, title string) error {
+	return reResolveForKeys(db, ix, noteKeys(rel, title))
+}
+
+// reResolveForRemovedNote re-resolves the links that pointed at, or could have
+// matched, a note being removed at rel (with title). Any link whose target_path
+// equalled the removed path, and any link whose target matches the removed note's
+// keys, is resolved afresh against ix (which no longer contains the removed
+// note), so it falls back to dangling (NULL) or to another note that still
+// matches. This keeps the incremental path convergent with a full reindex when a
+// target disappears, instead of leaving a stale non-NULL pointer.
+func reResolveForRemovedNote(db execer, ix *noteIndex, rel, title string) error {
+	keys := noteKeys(rel, title)
+	candidates, err := candidateTargets(db, keys)
+	if err != nil {
+		return err
+	}
+	// Also pick up links that resolved to the removed path by a key form not in
+	// this set (defensive: the stored target_path is the authoritative pointer).
+	byPath, err := distinctTargetsForPath(db, rel)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, raw := range candidates {
+		seen[raw] = true
+	}
+	for _, raw := range byPath {
+		if !seen[raw] {
+			candidates = append(candidates, raw)
+		}
+	}
+	for _, raw := range candidates {
+		resolved, status := ix.resolve(raw)
+		var tp any
+		if status == Resolved {
+			tp = resolved
+		}
+		if _, err := db.Exec("UPDATE links SET target_path = ? WHERE target = ?", tp, raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// distinctTargetsForPath returns the distinct raw targets of links whose stored
+// target_path equals path, used to find links that resolved to a now-removed
+// note even if its keys no longer describe them.
+func distinctTargetsForPath(q queryer, path string) ([]string, error) {
+	rows, err := q.Query("SELECT DISTINCT target FROM links WHERE target_path = ?", path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		out = append(out, raw)
+	}
+	return out, rows.Err()
 }
 
 // resolveLinkTargets resolves every distinct raw target to a canonical note

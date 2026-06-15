@@ -36,12 +36,20 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	if _, err := db.Exec(`DELETE FROM links WHERE source_path = ?`, rel); err != nil {
 		return err
 	}
+	// Build the in-memory note index once from a single notes scan and reuse it
+	// for this file's outgoing links and the inbound re-resolution below. This
+	// replaces the previous per-link "SELECT path FROM notes" full scan, so a file
+	// with k links costs one notes scan rather than k of them (review finding F).
+	// The notes table already holds the full corpus on this incremental path
+	// (the upsert above is included), so the index reflects the current graph.
+	ix, err := loadNoteIndex(db)
+	if err != nil {
+		return err
+	}
 	for _, l := range n.Links {
-		// The notes table already holds the full corpus on this incremental
-		// path, so each link is resolved against the live DB at write time.
 		// target_path is the canonical note path, or NULL when the target is
 		// dangling or ambiguous.
-		resolved, status := ResolveTargetDB(db, l)
+		resolved, status := ix.resolve(l)
 		var tp any
 		if status == Resolved {
 			tp = resolved
@@ -50,23 +58,41 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 			return err
 		}
 	}
-	// Re-resolve INBOUND links now that this note is present. (a) above resolves
-	// this note's own outgoing links against the live corpus; (b) here lets the
+	// Re-resolve INBOUND links now that this note is present. Resolving this
+	// note's own outgoing links (above) only fixes one direction; this lets the
 	// incremental path self-correct so a link written before this note existed
-	// (and stored dangling) now points at it. fullReindex does this via a full
+	// now points at it, and a link whose target has just become ambiguous (a
+	// second same-named note) flips back to NULL. fullReindex does this via a full
 	// second pass; doing it here keeps the no-op read-time refresh free, because
 	// RefreshChanged only calls IndexFile for files that actually changed.
-	if err := reResolveInbound(db, rel, n.Title); err != nil {
+	if err := reResolveInbound(db, ix, rel, n.Title); err != nil {
 		return err
 	}
 	return nil
 }
 
-// RemoveFile drops a note and its links from the index.
+// RemoveFile drops a note and its links from the index, then re-resolves the
+// links that pointed at the removed note so they fall back to dangling (NULL) or
+// to another note that still matches, keeping the incremental path convergent
+// with a full reindex (review finding C). The removed note's title is read
+// before deletion so its keys can be computed.
 func RemoveFile(db *sql.DB, rel string) error {
+	var title string
+	// A missing row (already absent) leaves title empty; the key-based and
+	// target_path-based candidate selection below still corrects any link that
+	// pointed at rel by path.
+	_ = db.QueryRow("SELECT title FROM notes WHERE path = ?", rel).Scan(&title)
 	if _, err := db.Exec("DELETE FROM notes WHERE path = ?", rel); err != nil {
 		return err
 	}
-	_, err := db.Exec("DELETE FROM links WHERE source_path = ?", rel)
-	return err
+	if _, err := db.Exec("DELETE FROM links WHERE source_path = ?", rel); err != nil {
+		return err
+	}
+	// Re-resolve against the corpus with this note gone so any link that resolved
+	// to it (or whose keys matched it) is corrected rather than left stale.
+	ix, err := loadNoteIndex(db)
+	if err != nil {
+		return err
+	}
+	return reResolveForRemovedNote(db, ix, rel, title)
 }

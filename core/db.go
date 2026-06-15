@@ -63,8 +63,24 @@ func migrateLinksTargetPath(db *sql.DB) error {
 		}
 	}
 	// Idempotent: safe to run whether the column was just added or already present.
-	_, err = db.Exec("CREATE INDEX IF NOT EXISTS idx_links_target_path ON links(target_path)")
-	return err
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_links_target_path ON links(target_path)"); err != nil {
+		return err
+	}
+	// One-time backfill on the upgrade path only. A legacy index.db (column newly
+	// added) has every links row at NULL target_path, but an unchanged vault makes
+	// RefreshChanged skip every file (mtimes match), so without this pass every
+	// valid legacy link would be reported dangling and outgoing() (which joins on
+	// target_path) would return nothing until a manual full reindex. Resolve every
+	// existing link against the current notes/links tables now, using the same
+	// logic as fullReindex's second pass. Gated strictly on the column having just
+	// been added: a fresh DB already has the column (hasColumn true) and an empty
+	// links table, so this never runs there, and it never runs on a later open.
+	if !hasColumn {
+		if err := resolveLinkTargets(db); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // schemaSQL defines the index: external-content FTS5 kept in sync by triggers.

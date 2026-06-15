@@ -174,6 +174,51 @@ func TestHealthCommandJSONEmptyVault(t *testing.T) {
 	}
 }
 
+// TestHealthCommandRefreshFailureExitsNonZero is review finding E: hebb health
+// must not swallow a RefreshChanged error and run detectors on a stale or
+// partial index. A corrupt index (here, the notes table dropped after the vault
+// was built) makes the pre-query RefreshChanged fail, and the command must
+// surface that as a non-zero exit rather than silently proceeding.
+func TestHealthCommandRefreshFailureExitsNonZero(t *testing.T) {
+	vault := buildHealthVaultCLI(t)
+
+	// Corrupt the on-disk index so the pre-query refresh fails: replace notes with
+	// a table lacking the mtime column. OpenDB's "CREATE TABLE IF NOT EXISTS notes"
+	// will not repair an existing table, so this survives reopening, and
+	// indexedMtimes (SELECT path, mtime FROM notes) errors inside RefreshChanged.
+	cfg, err := core.ResolveVault(vault, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"DROP TABLE notes",
+		"CREATE TABLE notes (path TEXT PRIMARY KEY, title TEXT)",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	_, runErr := runHealth(t, vault)
+	if runErr == nil {
+		t.Fatal("hebb health must exit non-zero when RefreshChanged fails, got nil error")
+	}
+	// The error must come from the refresh stage (captured and propagated), not
+	// from the detector stage running on a stale index. The CLI wraps the two
+	// stages with distinct prefixes; assert the refresh prefix so a future
+	// regression that swallows the refresh error (and only surfaces a later
+	// detector error) is caught.
+	if !strings.Contains(runErr.Error(), "refresh before health check failed") {
+		t.Fatalf("error %q must identify the refresh stage, proving RefreshChanged was not swallowed", runErr)
+	}
+}
+
 func TestHealthCommandTextGroupedByType(t *testing.T) {
 	vault := buildHealthVaultCLI(t)
 

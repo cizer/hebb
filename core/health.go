@@ -19,7 +19,8 @@ var timeNowForTest = time.Now
 // deliberately read-only: the health engine never writes to the vault or the
 // index.
 type Finding struct {
-	// Type identifies the detector: "dangling_link", "para_drift", "oversized".
+	// Type identifies the finding: "dangling_link", "ambiguous_link",
+	// "para_drift", "oversized".
 	Type string `json:"type"`
 	// Path is the vault-relative path of the affected note.
 	Path string `json:"path"`
@@ -58,10 +59,14 @@ func RunHealth(cfg Config, db *sql.DB) ([]Finding, error) {
 	return all, nil
 }
 
-// detectDanglingLinks finds every links row whose target_path is NULL. A NULL
-// target_path is written by the Phase 0 resolver when no note matched the raw
-// target (Dangling) or when more than one note matched (Ambiguous). Both
-// represent a broken link from the author's perspective and are surfaced here.
+// detectDanglingLinks finds every links row whose target_path is NULL and
+// classifies it by re-running the resolver. A NULL target_path is written by the
+// Phase 0 resolver either because no note matched the raw target (Dangling) or
+// because more than one note matched (Ambiguous). The two are distinct
+// data-quality problems, so they are surfaced as distinct finding types with
+// accurate wording: a dangling link must gain a target, an ambiguous one must be
+// disambiguated. Re-running the resolver here keeps the detector read-only: it
+// reads the notes table to classify but writes nothing.
 func detectDanglingLinks(db *sql.DB) ([]Finding, error) {
 	rows, err := db.Query(`
 		SELECT source_path, target
@@ -72,22 +77,49 @@ func detectDanglingLinks(db *sql.DB) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	type nullLink struct{ source, target string }
+	var links []nullLink
+	scanErr := func() error {
+		defer rows.Close()
+		for rows.Next() {
+			var source, target string
+			if err := rows.Scan(&source, &target); err != nil {
+				return err
+			}
+			links = append(links, nullLink{source, target})
+		}
+		return rows.Err()
+	}()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if len(links) == 0 {
+		return nil, nil
+	}
+
+	// Build the in-memory index once so classification is one notes scan, not one
+	// query per NULL link.
+	ix, err := loadNoteIndex(db)
+	if err != nil {
+		return nil, err
+	}
 
 	var findings []Finding
-	for rows.Next() {
-		var source, target string
-		if err := rows.Scan(&source, &target); err != nil {
-			return nil, err
+	for _, l := range links {
+		_, status := ix.resolve(l.target)
+		f := Finding{Path: l.source, Severity: "warn"}
+		if status == Ambiguous {
+			f.Type = "ambiguous_link"
+			f.Detail = fmt.Sprintf("[[%s]] is ambiguous (matches multiple notes)", l.target)
+		} else {
+			// Resolved is not possible here (target_path would be non-NULL on the
+			// current graph); treat anything that is not Ambiguous as dangling.
+			f.Type = "dangling_link"
+			f.Detail = fmt.Sprintf("[[%s]] resolves to no note", l.target)
 		}
-		findings = append(findings, Finding{
-			Type:     "dangling_link",
-			Path:     source,
-			Detail:   fmt.Sprintf("[[%s]] resolves to no note", target),
-			Severity: "warn",
-		})
+		findings = append(findings, f)
 	}
-	return findings, rows.Err()
+	return findings, nil
 }
 
 // doneStatuses is the set of frontmatter status values that indicate a project

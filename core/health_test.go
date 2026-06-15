@@ -103,6 +103,68 @@ func TestRunHealthDanglingLink(t *testing.T) {
 	}
 }
 
+// TestRunHealthDanglingVsAmbiguous is review finding D: a NULL target_path can
+// mean either dangling (no note) or ambiguous (more than one note). The two must
+// carry distinct, accurate finding types and wording, not a single "resolves to
+// no note" message for both.
+func TestRunHealthDanglingVsAmbiguous(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Linker has one genuinely dangling link and one ambiguous link.
+	write("Linker.md", "# Linker\n\nSee [[Ghost]] and [[Note]].")
+	write("one/Note.md", "# Note One\n\nFirst.")
+	write("two/Note.md", "# Note Two\n\nSecond.")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := RunHealth(cfg, db)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+
+	var dangling, ambiguous []Finding
+	for _, f := range findings {
+		switch f.Type {
+		case "dangling_link":
+			dangling = append(dangling, f)
+		case "ambiguous_link":
+			ambiguous = append(ambiguous, f)
+		}
+	}
+	if len(dangling) != 1 {
+		t.Fatalf("dangling_link findings = %d, want 1; all: %+v", len(dangling), findings)
+	}
+	if len(ambiguous) != 1 {
+		t.Fatalf("ambiguous_link findings = %d, want 1; all: %+v", len(ambiguous), findings)
+	}
+	if !strings.Contains(dangling[0].Detail, "Ghost") || !strings.Contains(dangling[0].Detail, "resolves to no note") {
+		t.Errorf("dangling detail %q should name Ghost and say it resolves to no note", dangling[0].Detail)
+	}
+	if !strings.Contains(ambiguous[0].Detail, "Note") || !strings.Contains(strings.ToLower(ambiguous[0].Detail), "ambiguous") {
+		t.Errorf("ambiguous detail %q should name Note and say it is ambiguous", ambiguous[0].Detail)
+	}
+}
+
 func TestRunHealthPARADriftByStatus(t *testing.T) {
 	cfg, db := buildHealthVault(t)
 	defer db.Close()

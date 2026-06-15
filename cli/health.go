@@ -17,9 +17,10 @@ func healthCmd() *cobra.Command {
 		Long: "Runs deterministic, read-only detectors over the vault index and prints a\n" +
 			"worklist of findings grouped by type. Repairs nothing.\n\n" +
 			"Detectors (Phase 1):\n" +
-			"  dangling_link  wiki-links with no matching note\n" +
-			"  para_drift     1-Projects/ notes that are done or stale\n" +
-			"  oversized      notes over the token threshold with multiple sections\n\n" +
+			"  dangling_link   wiki-links with no matching note\n" +
+			"  ambiguous_link  wiki-links that match more than one note\n" +
+			"  para_drift      1-Projects/ notes that are done or stale\n" +
+			"  oversized       notes over the token threshold with multiple sections\n\n" +
 			"Unlike 'hebb doctor', this command exits 0 even when findings exist: the\n" +
 			"output is an advisory worklist of vault-content issues, not a pass/fail\n" +
 			"install check. A non-zero exit signals an operational failure only (e.g.\n" +
@@ -32,9 +33,14 @@ func healthCmd() *cobra.Command {
 			defer db.Close()
 
 			// Refresh the index before querying so a note written moments ago is
-			// visible -- mirrors the pattern used by hebb search.
+			// visible -- mirrors the pattern used by hebb search. A refresh failure
+			// (I/O error, corrupt DB) is an operational failure: report it and exit
+			// non-zero rather than silently running detectors on a stale or partial
+			// index, which the command's contract reserves a non-zero exit for.
 			if cfg.AutoRefresh {
-				_, _ = core.RefreshChanged(cfg, db)
+				if _, err := core.RefreshChanged(cfg, db); err != nil {
+					return fmt.Errorf("refresh before health check failed: %w", err)
+				}
 			}
 
 			findings, err := core.RunHealth(cfg, db)
@@ -68,7 +74,7 @@ func healthCmd() *cobra.Command {
 
 // typeOrder is the fixed display order for finding types. Types not listed here
 // appear last in lexicographic order (forward-compatibility with future detectors).
-var typeOrder = []string{"dangling_link", "para_drift", "oversized"}
+var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "oversized"}
 
 func printHealthText(cmd *cobra.Command, findings []core.Finding) {
 	out := cmd.OutOrStdout()

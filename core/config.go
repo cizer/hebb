@@ -15,6 +15,9 @@ type Config struct {
 	// AutoRefresh enables the read-time staleness pass (RefreshChanged) on the
 	// MCP and CLI read paths. Resolved from the [index] block; on by default.
 	AutoRefresh bool
+	// Health holds the thresholds used by the Phase 1 vault-health detectors.
+	// Resolved from the [health] block in config.toml; zero values use defaults.
+	Health HealthConfig
 }
 
 // defaultExcludeDirs are directory names skipped when walking a vault. These
@@ -69,6 +72,7 @@ func ResolveVault(flagVault, flagDB string) (Config, error) {
 	if existed {
 		cfg.Git = vc.Git
 		cfg.AutoRefresh = vc.Index.AutoRefreshEnabled()
+		cfg.Health = vc.Health
 	}
 	return cfg, nil
 }

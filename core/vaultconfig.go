@@ -28,6 +28,37 @@ type VaultConfig struct {
 	Index       IndexConfig  `toml:"index"`
 	Ingest      IngestConfig `toml:"ingest"`
 	Notify      NotifyConfig `toml:"notify"`
+	Health      HealthConfig `toml:"health"`
+}
+
+// HealthConfig is the committed [health] block. It governs the thresholds used
+// by the Phase 1 vault-health detectors (hebb health). Zero values are replaced
+// by sensible defaults via the accessor methods.
+type HealthConfig struct {
+	// ProjectStaleDays is the number of days without modification after which a
+	// note under 1-Projects/ is flagged as a PARA-drift candidate. Default 180.
+	ProjectStaleDays int `toml:"project_stale_days"`
+	// SizeThreshold is the estimated token count (len(body)/4) above which a
+	// note is a candidate for the oversized detector. Default 1200.
+	SizeThreshold int `toml:"size_threshold"`
+}
+
+// GetProjectStaleDays returns the configured stale-days threshold, defaulting
+// to 180 when the field is zero (section absent or not set).
+func (h HealthConfig) GetProjectStaleDays() int {
+	if h.ProjectStaleDays <= 0 {
+		return 180
+	}
+	return h.ProjectStaleDays
+}
+
+// GetSizeThreshold returns the configured token-count threshold, defaulting to
+// 1200 when the field is zero (section absent or not set).
+func (h HealthConfig) GetSizeThreshold() int {
+	if h.SizeThreshold <= 0 {
+		return 1200
+	}
+	return h.SizeThreshold
 }
 
 // IngestConfig is the committed [ingest] block. It records ingest policy that
@@ -278,6 +309,12 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#   [git]         - git-sync settings (enabled, auto_pull, auto_push, ...)\n")
 	buf.WriteString("#   [update]      - auto-update settings (auto = false by default)\n")
 	buf.WriteString("#   [index]       - index settings (auto_refresh = true by default)\n")
+	buf.WriteString("#\n")
+	buf.WriteString("#   [health]      - vault-health detector thresholds (hebb health)\n")
+	buf.WriteString("#     project_stale_days - days without modification before a 1-Projects/ note\n")
+	buf.WriteString("#                          is flagged as PARA drift (default 180)\n")
+	buf.WriteString("#     size_threshold     - estimated token count (len(body)/4) above which a\n")
+	buf.WriteString("#                          note is checked for multiple sections (default 1200)\n")
 	buf.WriteString("\n")
 	if err := toml.NewEncoder(&buf).Encode(vc); err != nil {
 		return err

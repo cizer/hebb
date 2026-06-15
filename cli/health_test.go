@@ -110,6 +110,10 @@ func TestHealthCommandExitsZeroWithFindings(t *testing.T) {
 }
 
 func TestHealthCommandJSON(t *testing.T) {
+	// hebb health --json must emit a top-level JSON array of findings. This is
+	// the Phase 1 contract that existing consumers (jq '.[]', Go []Finding
+	// decoders) depend on. The web dashboard uses /api/health which returns
+	// {findings, stats}; the CLI flag returns the plain array only.
 	vault := buildHealthVaultCLI(t)
 
 	out, err := runHealth(t, vault, "--json")
@@ -117,9 +121,10 @@ func TestHealthCommandJSON(t *testing.T) {
 		t.Fatalf("hebb health --json: %v\n%s", err, out)
 	}
 
+	// The output must decode as a top-level array, not an object.
 	var findings []core.Finding
 	if err := json.Unmarshal([]byte(out), &findings); err != nil {
-		t.Fatalf("hebb health --json output is not valid JSON []Finding: %v\n%s", err, out)
+		t.Fatalf("hebb health --json output is not a valid JSON array: %v\n%s", err, out)
 	}
 	if len(findings) == 0 {
 		t.Errorf("expected findings in JSON output, got empty slice")
@@ -167,7 +172,7 @@ func TestHealthCommandJSONEmptyVault(t *testing.T) {
 	}
 	var findings []core.Finding
 	if err := json.Unmarshal([]byte(out), &findings); err != nil {
-		t.Fatalf("empty vault --json is not valid JSON: %v\n%s", err, out)
+		t.Fatalf("empty vault --json is not a valid JSON array: %v\n%s", err, out)
 	}
 	if findings == nil {
 		t.Error("expected [] not null for empty findings JSON")
@@ -231,6 +236,27 @@ func TestHealthCommandTextGroupedByType(t *testing.T) {
 	for _, header := range []string{"dangling_link", "para_drift", "oversized"} {
 		if !strings.Contains(out, header) {
 			t.Errorf("text output missing type header %q:\n%s", header, out)
+		}
+	}
+}
+
+func TestHealthCommandStructuralSummaryLine(t *testing.T) {
+	// The structural graph summary must appear in text output above the findings
+	// worklist. It takes the form "graph: N notes, E edges, ...".
+	vault := buildHealthVaultCLI(t)
+
+	out, err := runHealth(t, vault)
+	if err != nil {
+		t.Fatalf("hebb health: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "graph:") {
+		t.Errorf("text output missing structural summary line (expected 'graph: ...'):\n%s", out)
+	}
+	// The summary must include note count, edge count, component count, and k-core.
+	for _, keyword := range []string{"notes", "edges", "components", "k-core"} {
+		if !strings.Contains(out, keyword) {
+			t.Errorf("structural summary missing %q:\n%s", keyword, out)
 		}
 	}
 }

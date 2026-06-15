@@ -131,6 +131,109 @@ func TestResolvePathBeatsTitle(t *testing.T) {
 	}
 }
 
+// TestResolveCaseInsensitiveBasename matches Obsidian: a [[foo]] link resolves
+// to a note filed as "Foo.md" even though the case differs. The resolved path
+// must keep the note's real on-disk case, not the link's.
+func TestResolveCaseInsensitiveBasename(t *testing.T) {
+	ix := newTestIndex(map[string]string{"Foo.md": "Foo"})
+	got, status := ix.resolve("foo")
+	if status != Resolved || got != "Foo.md" {
+		t.Fatalf("resolve(foo) = (%q, %v), want (Foo.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveCaseInsensitiveExactPath proves the exact-path precedence is also
+// case-insensitive: an uppercase target resolves to a lowercase-pathed note.
+func TestResolveCaseInsensitiveExactPath(t *testing.T) {
+	ix := newTestIndex(map[string]string{"sub/note.md": "Note"})
+	got, status := ix.resolve("SUB/NOTE")
+	if status != Resolved || got != "sub/note.md" {
+		t.Fatalf("resolve(SUB/NOTE) = (%q, %v), want (sub/note.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveCaseInsensitiveTitle proves a [[NOTE]] link resolves to a note
+// whose title is "note" (differing only in case), via the title precedence.
+func TestResolveCaseInsensitiveTitle(t *testing.T) {
+	ix := newTestIndex(map[string]string{"2024-01-01.md": "note"})
+	got, status := ix.resolve("NOTE")
+	if status != Resolved || got != "2024-01-01.md" {
+		t.Fatalf("resolve(NOTE) = (%q, %v), want (2024-01-01.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveCaseInsensitiveAmbiguity groups matches case-insensitively: two
+// notes whose basenames differ only in case fall into one bucket, so a bare
+// target matching both is ambiguous (as Obsidian would treat it).
+func TestResolveCaseInsensitiveAmbiguity(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"one/Note.md": "Note One",
+		"two/note.md": "Note Two",
+	})
+	got, status := ix.resolve("note")
+	if status != Ambiguous || got != "" {
+		t.Fatalf("resolve(note) = (%q, %v), want (\"\", Ambiguous)", got, status)
+	}
+}
+
+// TestResolveCaseInsensitiveSubpathAnchor proves the directory-anchored suffix
+// logic still holds case-insensitively: a slash-bearing target anchors to its
+// directory even when the case differs.
+func TestResolveCaseInsensitiveSubpathAnchor(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"sub/Note.md":   "Note",
+		"other/Note.md": "Note",
+	})
+	got, status := ix.resolve("SUB/note")
+	if status != Resolved || got != "sub/Note.md" {
+		t.Fatalf("resolve(SUB/note) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
+	}
+}
+
+// TestFullReindexResolvesCaseMismatchedLink is the end-to-end guard for the
+// case-insensitivity fix: a vault link [[foo]] to a note filed as Foo.md must
+// resolve through a full reindex (target_path = Foo.md), where before the fix it
+// stayed NULL.
+func TestFullReindexResolvesCaseMismatchedLink(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(vault, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Foo.md", "# Foo\n\nThe target note.")
+	write("Beta.md", "# Beta\n\nLinks to [[foo]] in lowercase.")
+
+	db := reindexedDB(t, vault)
+	defer db.Close()
+
+	got := targetPathOf(t, db, "Beta.md", "foo")
+	if !got.Valid || got.String != "Foo.md" {
+		t.Fatalf("target_path for case-mismatched [[foo]] = %#v, want Foo.md", got)
+	}
+}
+
+// TestResolveTargetDBCaseInsensitive proves the per-call DB resolver
+// (ResolveTargetDB, used by the context walk) is also case-insensitive, so the
+// in-memory and DB paths agree.
+func TestResolveTargetDBCaseInsensitive(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(vault, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Foo.md", "# Foo\n\nThe target.")
+
+	db := reindexedDB(t, vault)
+	defer db.Close()
+
+	got, status := ResolveTargetDB(db, "foo")
+	if status != Resolved || got != "Foo.md" {
+		t.Fatalf("ResolveTargetDB(foo) = (%q, %v), want (Foo.md, Resolved)", got, status)
+	}
+}
+
 // TestFullReindexResolvesForwardReference guards the ordering correctness
 // requirement: a file that links to a note parsed later in the walk must still
 // get its target_path resolved, because resolution happens in a second pass

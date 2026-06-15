@@ -21,10 +21,15 @@ const (
 // noteIndex is an in-memory lookup over the notes table, built once so a whole
 // reindex can resolve every link without a per-link query. The maps mirror the
 // three match precedences in ResolveTarget: exact path, basename, and title.
+//
+// Matching is case-insensitive to mirror Obsidian, which resolves [[foo]] to a
+// note filed as "Foo.md". Every map is therefore keyed by the lowercased form of
+// the path/basename/title, while the stored values remain the notes' real
+// on-disk paths so a resolution returns the canonical (original-case) path.
 type noteIndex struct {
-	paths   map[string]bool     // exact note path (e.g. "sub/Note.md")
-	byBase  map[string][]string // final segment without ".md" -> note paths
-	byTitle map[string][]string // exact title -> note paths
+	paths   map[string]string   // lowercased note path -> real path (e.g. "sub/note.md" -> "sub/Note.md")
+	byBase  map[string][]string // lowercased final segment without ".md" -> note paths
+	byTitle map[string][]string // lowercased title -> note paths
 }
 
 // canonicalTarget strips any "#fragment" (everything from the first '#') and
@@ -54,18 +59,20 @@ func basenameNoExt(p string) string {
 // stored title. Both come from a single scan of the notes table.
 func newNoteIndex(paths []string, titles map[string]string) *noteIndex {
 	ix := &noteIndex{
-		paths:   make(map[string]bool, len(paths)),
+		paths:   make(map[string]string, len(paths)),
 		byBase:  make(map[string][]string, len(paths)),
 		byTitle: make(map[string][]string, len(titles)),
 	}
 	for _, p := range paths {
-		ix.paths[p] = true
-		base := basenameNoExt(p)
+		// Key by the lowercased path so an exact-path lookup is case-insensitive;
+		// keep the real path as the value so resolution returns the on-disk case.
+		ix.paths[strings.ToLower(p)] = p
+		base := strings.ToLower(basenameNoExt(p))
 		ix.byBase[base] = append(ix.byBase[base], p)
 	}
 	for p, title := range titles {
 		if title != "" {
-			ix.byTitle[title] = append(ix.byTitle[title], p)
+			ix.byTitle[strings.ToLower(title)] = append(ix.byTitle[strings.ToLower(title)], p)
 		}
 	}
 	return ix
@@ -89,14 +96,20 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 	if target == "" {
 		return "", Dangling
 	}
+	// Lowercase the lookup target once: every map is keyed by lowercase, and the
+	// directory-anchored suffix comparisons below run against this form so case
+	// never decides a match (mirrors Obsidian's case-insensitive resolution).
+	lower := strings.ToLower(target)
 
 	// (a) exact path match against target or target+".md".
 	var pathHits []string
-	if ix.paths[target] {
-		pathHits = append(pathHits, target)
+	if real, ok := ix.paths[lower]; ok {
+		pathHits = append(pathHits, real)
 	}
-	if withMD := target + ".md"; withMD != target && ix.paths[withMD] {
-		pathHits = append(pathHits, withMD)
+	if withMD := lower + ".md"; withMD != lower {
+		if real, ok := ix.paths[withMD]; ok {
+			pathHits = append(pathHits, real)
+		}
 	}
 	if r, ok := decide(pathHits); ok {
 		return r, Resolved
@@ -104,12 +117,15 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 
 	// (b) basename match. When the target itself contains a slash, require the
 	// note path to end with target+".md" so a subpath target stays anchored to
-	// its directory and cannot collide with a same-named note elsewhere.
-	base := basenameNoExt(target)
+	// its directory and cannot collide with a same-named note elsewhere. The
+	// suffix comparison is done on the lowercased path so it stays
+	// case-insensitive like the rest of the resolver.
+	base := strings.ToLower(basenameNoExt(target))
 	var baseHits []string
 	for _, p := range ix.byBase[base] {
-		if strings.Contains(target, "/") {
-			if strings.HasSuffix(p, "/"+target+".md") || p == target+".md" {
+		if strings.Contains(lower, "/") {
+			lp := strings.ToLower(p)
+			if strings.HasSuffix(lp, "/"+lower+".md") || lp == lower+".md" {
 				baseHits = append(baseHits, p)
 			}
 			continue
@@ -124,7 +140,7 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 	}
 
 	// (c) exact title match.
-	titleHits := ix.byTitle[target]
+	titleHits := ix.byTitle[lower]
 	if r, ok := decide(titleHits); ok {
 		return r, Resolved
 	}
@@ -187,9 +203,13 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 	if target == "" {
 		return "", Dangling
 	}
+	// Lowercase the target for the Go-side basename comparison; the SQL stages use
+	// COLLATE NOCASE so all three precedences match case-insensitively, mirroring
+	// the in-memory resolver and Obsidian.
+	lower := strings.ToLower(target)
 
-	// (a) exact path.
-	if hits := queryPaths(q, "SELECT path FROM notes WHERE path = ? OR path = ?", target, target+".md"); len(hits) > 0 {
+	// (a) exact path (case-insensitive via COLLATE NOCASE).
+	if hits := queryPaths(q, "SELECT path FROM notes WHERE path = ? COLLATE NOCASE OR path = ? COLLATE NOCASE", target, target+".md"); len(hits) > 0 {
 		if len(hits) == 1 {
 			return hits[0], Resolved
 		}
@@ -197,15 +217,17 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 	}
 
 	// (b) basename. Match by final segment, then anchor to the directory when
-	// the target contains a slash.
-	base := basenameNoExt(target)
+	// the target contains a slash. All comparisons are lowercased so case never
+	// decides the match.
+	base := strings.ToLower(basenameNoExt(target))
 	var baseHits []string
 	for _, p := range queryPaths(q, "SELECT path FROM notes") {
-		if basenameNoExt(p) != base {
+		if strings.ToLower(basenameNoExt(p)) != base {
 			continue
 		}
-		if strings.Contains(target, "/") {
-			if strings.HasSuffix(p, "/"+target+".md") || p == target+".md" {
+		if strings.Contains(lower, "/") {
+			lp := strings.ToLower(p)
+			if strings.HasSuffix(lp, "/"+lower+".md") || lp == lower+".md" {
 				baseHits = append(baseHits, p)
 			}
 			continue
@@ -219,8 +241,8 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 		return "", Ambiguous
 	}
 
-	// (c) exact title.
-	if hits := queryPaths(q, "SELECT path FROM notes WHERE title = ?", target); len(hits) > 0 {
+	// (c) exact title (case-insensitive via COLLATE NOCASE).
+	if hits := queryPaths(q, "SELECT path FROM notes WHERE title = ? COLLATE NOCASE", target); len(hits) > 0 {
 		if len(hits) == 1 {
 			return hits[0], Resolved
 		}
@@ -317,13 +339,17 @@ func candidateTargets(q queryer, keys []string) ([]string, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	// Build "target = ? OR target LIKE ? ESCAPE '\'" pairs per key: the exact form
-	// and the "key#..." fragment form. LIKE wildcards in the key are escaped so a
+	// Build "target = ? COLLATE NOCASE OR target LIKE ? ESCAPE '\'" pairs per key:
+	// the exact form and the "key#..." fragment form. Matching is case-insensitive
+	// (COLLATE NOCASE on the exact form, a NOCASE LIKE pattern on the fragment
+	// form) so a case-mismatched inbound link, e.g. an existing [[foo]] when
+	// "Foo.md" is indexed, is re-resolved on the incremental path too, keeping it
+	// convergent with a full reindex. LIKE wildcards in the key are escaped so a
 	// title containing '%' or '_' cannot widen the match.
 	var clauses []string
 	var args []any
 	for _, k := range keys {
-		clauses = append(clauses, "target = ?", `target LIKE ? ESCAPE '\'`)
+		clauses = append(clauses, "target = ? COLLATE NOCASE", `target LIKE ? ESCAPE '\'`)
 		args = append(args, k, escapeLike(k)+`#%`)
 	}
 	query := "SELECT DISTINCT target FROM links WHERE " + strings.Join(clauses, " OR ")
@@ -349,11 +375,12 @@ func candidateTargets(q queryer, keys []string) ([]string, error) {
 }
 
 // matchesKey reports whether raw, once its fragment is stripped, equals one of
-// the keys. It is the Go-side confirmation of the SQL candidate filter.
+// the keys (case-insensitively, mirroring the resolver). It is the Go-side
+// confirmation of the SQL candidate filter.
 func matchesKey(raw string, keys []string) bool {
-	canon := canonicalTarget(raw)
+	canon := strings.ToLower(canonicalTarget(raw))
 	for _, k := range keys {
-		if canon == k {
+		if canon == strings.ToLower(k) {
 			return true
 		}
 	}

@@ -277,8 +277,8 @@
     </div>
   </div>
 
-  <!-- ---------------------------------------------- tabs (visible when active) -->
-  <div class="tabs hidden" id="tabs">
+  <!-- ------------------------------------------------------------------- tabs -->
+  <div class="tabs" id="tabs">
     <button class="tab-btn active" id="tab-search">Search</button>
     <button class="tab-btn" id="tab-health">Health</button>
   </div>
@@ -294,7 +294,7 @@
   <footer>
     <span id="footstats"></span>
     <a class="link" id="reindex" title="Rebuild the search index from disk">&#8635; refresh index</a>
-    <a class="link" id="refresh-health" title="Re-run vault health checks" class="hidden">&#8635; refresh health</a>
+    <a class="link" id="refresh-health" title="Re-run vault health checks">&#8635; refresh health</a>
     <span>Local &middot; FTS5 &middot; 127.0.0.1 only</span>
   </footer>
 </div>
@@ -358,8 +358,6 @@
 
   function setHasResults(on) {
     document.body.classList.toggle("has-results", on);
-    // Show tabs once the user has interacted (has results or switched to health).
-    if (on) tabsEl.classList.remove("hidden");
   }
 
   function render(data) {
@@ -559,13 +557,11 @@
     html += '<p class="section-sub">Graph topology from the resolved link index. No single composite score.</p>';
     html += '<div class="metric-tiles">';
 
-    const nodeCount = stats.node_count || 0;
     const edgeCount = stats.edge_count || 0;
     const compCount = stats.component_count || 0;
     const giantRatio = stats.giant_ratio || 0;
     const maxCore = stats.max_core || 0;
 
-    html += tile("Notes", nodeCount.toLocaleString("en-GB"));
     html += tile("Links", edgeCount.toLocaleString("en-GB"));
     html += tile("Components", compCount.toLocaleString("en-GB"));
     html += tile("Giant ratio", (giantRatio * 100).toFixed(1) + "%",
@@ -643,7 +639,6 @@
     if (h.get("tag")) { tag = h.get("tag"); tagInput.value = tag; }
     if (h.get("q")) { qInput.value = h.get("q"); search(); }
     if (h.get("view") === "health") {
-      tabsEl.classList.remove("hidden");
       showTab("health");
     }
   }

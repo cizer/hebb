@@ -123,6 +123,31 @@ func newMux(cfg core.Config, db *sql.DB, vaultName string) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]int{"indexed": res.Indexed})
 	})
 
+	// /api/health runs all vault-health detectors and returns the findings
+	// worklist together with the structural graph stats as a single JSON object.
+	// Like /api/search, it reads from the existing index without forcing a full
+	// reindex; the file watcher and /api/reindex handle explicit refreshes.
+	// This handler sits behind the same loopback Host guard as every other
+	// endpoint; the vault holds personal data and must never be exposed to
+	// foreign hosts.
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		result, err := core.RunHealthFull(cfg, db)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		// Normalise nil slices to empty arrays so the JSON consumer can always
+		// iterate without a null check.
+		findings := result.Findings
+		if findings == nil {
+			findings = []core.Finding{}
+		}
+		writeJSON(w, http.StatusOK, healthResp{
+			Findings: findings,
+			Stats:    result.Stats,
+		})
+	})
+
 	return guardLocalhost(mux)
 }
 
@@ -145,6 +170,13 @@ type statsResp struct {
 	NoteCount int    `json:"noteCount"`
 	LinkCount int    `json:"linkCount"`
 	VaultName string `json:"vaultName"`
+}
+
+// healthResp is the JSON envelope returned by GET /api/health. It mirrors the
+// shape of core.HealthResult but uses exported JSON tags chosen for the UI.
+type healthResp struct {
+	Findings []core.Finding  `json:"findings"`
+	Stats    core.GraphStats `json:"stats"`
 }
 
 func obsidianURI(path, vaultName string) string {

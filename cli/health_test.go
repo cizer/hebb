@@ -109,15 +109,11 @@ func TestHealthCommandExitsZeroWithFindings(t *testing.T) {
 	}
 }
 
-// healthJSON is the top-level structure of hebb health --json output. The
-// findings array preserves the original shape; stats carries the Phase 2a graph
-// summary under a separate key so the overall envelope is additive.
-type healthJSON struct {
-	Findings []core.Finding  `json:"findings"`
-	Stats    core.GraphStats `json:"stats"`
-}
-
 func TestHealthCommandJSON(t *testing.T) {
+	// hebb health --json must emit a top-level JSON array of findings. This is
+	// the Phase 1 contract that existing consumers (jq '.[]', Go []Finding
+	// decoders) depend on. The web dashboard uses /api/health which returns
+	// {findings, stats}; the CLI flag returns the plain array only.
 	vault := buildHealthVaultCLI(t)
 
 	out, err := runHealth(t, vault, "--json")
@@ -125,16 +121,17 @@ func TestHealthCommandJSON(t *testing.T) {
 		t.Fatalf("hebb health --json: %v\n%s", err, out)
 	}
 
-	var payload healthJSON
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("hebb health --json output is not valid JSON: %v\n%s", err, out)
+	// The output must decode as a top-level array, not an object.
+	var findings []core.Finding
+	if err := json.Unmarshal([]byte(out), &findings); err != nil {
+		t.Fatalf("hebb health --json output is not a valid JSON array: %v\n%s", err, out)
 	}
-	if len(payload.Findings) == 0 {
+	if len(findings) == 0 {
 		t.Errorf("expected findings in JSON output, got empty slice")
 	}
 
 	// Every finding must have non-empty required fields.
-	for i, f := range payload.Findings {
+	for i, f := range findings {
 		if f.Type == "" {
 			t.Errorf("finding[%d].Type is empty", i)
 		}
@@ -144,14 +141,6 @@ func TestHealthCommandJSON(t *testing.T) {
 		if f.Severity == "" {
 			t.Errorf("finding[%d].Severity is empty", i)
 		}
-	}
-
-	// Stats must carry sensible values for a vault with notes.
-	if payload.Stats.NodeCount == 0 {
-		t.Errorf("stats.NodeCount is 0 for a vault with notes")
-	}
-	if payload.Stats.ComponentCount == 0 {
-		t.Errorf("stats.ComponentCount is 0 for a vault with notes")
 	}
 }
 
@@ -181,11 +170,11 @@ func TestHealthCommandJSONEmptyVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hebb health --json on empty vault: %v\n%s", err, out)
 	}
-	var payload healthJSON
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("empty vault --json is not valid JSON: %v\n%s", err, out)
+	var findings []core.Finding
+	if err := json.Unmarshal([]byte(out), &findings); err != nil {
+		t.Fatalf("empty vault --json is not a valid JSON array: %v\n%s", err, out)
 	}
-	if payload.Findings == nil {
+	if findings == nil {
 		t.Error("expected [] not null for empty findings JSON")
 	}
 }

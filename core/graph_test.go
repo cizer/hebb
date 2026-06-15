@@ -402,7 +402,9 @@ func TestDetectIslands_ResourcesIslandFlagged(t *testing.T) {
 }
 
 // TestDetectIslands_ArchivedIslandNotFlagged verifies that a 2-note island
-// entirely under 4-Archives is NOT reported as an island finding.
+// entirely under 4-Archives is NOT reported as an island finding. Only
+// archive folders (GetArchiveFolders, default ["4-Archives"]) suppress islands;
+// Journal and Notes do not.
 func TestDetectIslands_ArchivedIslandNotFlagged(t *testing.T) {
 	cfg, db := buildGraphVault(t)
 	defer db.Close()
@@ -416,6 +418,130 @@ func TestDetectIslands_ArchivedIslandNotFlagged(t *testing.T) {
 		if f.Type == "island" && strings.Contains(f.Detail, "Arch") {
 			t.Errorf("archived island must not be flagged; got: %+v", f)
 		}
+	}
+}
+
+// TestDetectIslands_JournalIslandFlagged verifies that a small island whose
+// members are all under Journal IS reported. Journal is an expected-orphan
+// folder (orphans/leaves there are never flagged) but it is NOT an archive
+// folder, so its islands must still appear in the worklist.
+func TestDetectIslands_JournalIslandFlagged(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Mainland: a hub with two spokes so there is a clear largest component.
+	write("Notes/Hub.md", "# Hub\n\n[[SpokeA]] [[SpokeB]]\n")
+	write("Notes/SpokeA.md", "# SpokeA\n\n[[Hub]]\n")
+	write("Notes/SpokeB.md", "# SpokeB\n\n[[Hub]]\n")
+
+	// 2-note island in Journal (expected-orphan, but NOT an archive folder).
+	// Under the corrected spec this must be reported.
+	write("Journal/JournalA.md", "# JournalA\n\n[[JournalB]]\n")
+	write("Journal/JournalB.md", "# JournalB\n\nSee [[JournalA]].\n")
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+		Health:      HealthConfig{IslandMaxSize: 3},
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := buildGraph(db)
+	if err != nil {
+		t.Fatalf("buildGraph: %v", err)
+	}
+
+	findings := detectIslands(cfg, g)
+
+	var journalIslandFound bool
+	for _, f := range findings {
+		if f.Type == "island" && strings.Contains(f.Detail, "Journal") {
+			journalIslandFound = true
+		}
+	}
+	if !journalIslandFound {
+		t.Errorf("2-note Journal island must be reported (Journal is not an archive folder); findings: %+v", findings)
+	}
+}
+
+// TestDetectIslands_NotesIslandFlagged verifies that a small island whose
+// members are all under Notes IS reported. Notes is an expected-orphan folder
+// but not an archive folder.
+func TestDetectIslands_NotesIslandFlagged(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Mainland: three linked notes.
+	write("2-Areas/Main1.md", "# Main1\n\n[[Main2]] [[Main3]]\n")
+	write("2-Areas/Main2.md", "# Main2\n\n[[Main1]]\n")
+	write("2-Areas/Main3.md", "# Main3\n\n[[Main1]]\n")
+
+	// 2-note island in Notes (expected-orphan, but NOT an archive folder).
+	write("Notes/NoteA.md", "# NoteA\n\n[[NoteB]]\n")
+	write("Notes/NoteB.md", "# NoteB\n\nSee [[NoteA]].\n")
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+		Health:      HealthConfig{IslandMaxSize: 3},
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := buildGraph(db)
+	if err != nil {
+		t.Fatalf("buildGraph: %v", err)
+	}
+
+	findings := detectIslands(cfg, g)
+
+	var notesIslandFound bool
+	for _, f := range findings {
+		if f.Type == "island" && strings.Contains(f.Detail, "Note") {
+			notesIslandFound = true
+		}
+	}
+	if !notesIslandFound {
+		t.Errorf("2-note Notes island must be reported (Notes is not an archive folder); findings: %+v", findings)
 	}
 }
 
@@ -442,8 +568,8 @@ func TestUnderPrefix(t *testing.T) {
 	}
 }
 
-// TestHealthConfigGraphDefaults verifies that all new Phase 2a HealthConfig
-// fields return their documented zero-value defaults.
+// TestHealthConfigGraphDefaults verifies that all Phase 2a HealthConfig fields
+// return their documented zero-value defaults.
 func TestHealthConfigGraphDefaults(t *testing.T) {
 	hc := HealthConfig{}
 
@@ -464,6 +590,14 @@ func TestHealthConfigGraphDefaults(t *testing.T) {
 	gotExcluded := hc.GetExpectedOrphanFolders()
 	if !equalStrSlice(gotExcluded, wantExcluded) {
 		t.Errorf("GetExpectedOrphanFolders() = %v, want %v", gotExcluded, wantExcluded)
+	}
+
+	// ArchiveFolders default is narrower than ExpectedOrphanFolders: only
+	// 4-Archives suppresses islands; Journal and Notes do not.
+	wantArchive := []string{"4-Archives"}
+	gotArchive := hc.GetArchiveFolders()
+	if !equalStrSlice(gotArchive, wantArchive) {
+		t.Errorf("GetArchiveFolders() = %v, want %v", gotArchive, wantArchive)
 	}
 }
 

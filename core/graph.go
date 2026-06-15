@@ -39,8 +39,9 @@ func (g *noteGraph) edgeCount() int {
 }
 
 // buildGraph reads the notes and resolved links tables and constructs the
-// undirected note graph. It is called once per RunHealth / GraphHealth
-// invocation; all three graph metrics reuse the result.
+// undirected note graph. It is called by RunHealthFull (once per invocation,
+// shared across all graph-based detectors) and by GraphHealth (for stats-only
+// callers such as tests and future tooling).
 func buildGraph(db *sql.DB) (*noteGraph, error) {
 	// Load all note paths, ordered for determinism.
 	rows, err := db.Query("SELECT path FROM notes ORDER BY path")
@@ -148,8 +149,14 @@ type GraphStats struct {
 //   - connected components via union-find,
 //   - k-core coreness via iterative degree-peel.
 //
-// It returns the full GraphStats summary. RunHealth calls this once and reuses
-// the result for both the orphan/leaf detector and the island detector.
+// It returns the full GraphStats summary. GraphHealth is used directly by the
+// web layer (/api/health calls RunHealthFull, which builds its own graph
+// internally) and by graph-stats tests. RunHealthFull does not call GraphHealth;
+// it calls buildGraph itself and then calls computeComponents and
+// computeCoreness directly so it can reuse the same graph for detectOrphansAndLeaves
+// and detectIslands without a second DB round-trip. Consolidating the two paths
+// would require changing GraphHealth's signature to accept a pre-built graph;
+// left separate to keep the public API stable.
 func GraphHealth(cfg Config, db *sql.DB) (GraphStats, error) {
 	g, err := buildGraph(db)
 	if err != nil {
@@ -464,10 +471,11 @@ func detectOrphansAndLeaves(cfg Config, db *sql.DB, g *noteGraph) ([]Finding, er
 //     component size in the graph is treated as the "mainland" and excluded.
 //     This prevents flagging the hub-and-spoke giant component as an island on
 //     small vaults where the giant happens to be <= IslandMaxSize.
-//  4. Not all members are under expected-orphan (archive) folders.
+//  4. Not all members are under an archive folder (GetArchiveFolders). Islands
+//     in Journal or Notes are still reported; only archive folders suppress them.
 func detectIslands(cfg Config, g *noteGraph) []Finding {
 	maxSize := cfg.Health.GetIslandMaxSize()
-	excluded := cfg.Health.GetExpectedOrphanFolders()
+	excluded := cfg.Health.GetArchiveFolders()
 
 	comps := componentMembers(g)
 
@@ -495,7 +503,10 @@ func detectIslands(cfg Config, g *noteGraph) []Finding {
 		if sz == maxCompSize {
 			continue
 		}
-		// Condition 4: skip if every member is under an expected-orphan folder.
+		// Condition 4: skip if every member is under an archive folder.
+		// Note: this uses GetArchiveFolders (default ["4-Archives"]), NOT
+		// GetExpectedOrphanFolders. Journal and Notes are exempt from orphan/leaf
+		// flagging but their small islands are still reported.
 		allArchived := true
 		for _, p := range members {
 			if !underPrefix(p, excluded) {

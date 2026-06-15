@@ -9,14 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// healthJSONOutput is the top-level structure emitted by hebb health --json.
-// Findings preserves the original []Finding shape so existing consumers are
-// unaffected; Stats carries the Phase 2a graph summary under a separate key.
-type healthJSONOutput struct {
-	Findings []core.Finding  `json:"findings"`
-	Stats    core.GraphStats `json:"stats"`
-}
-
 func healthCmd() *cobra.Command {
 	var asJSON bool
 	c := &cobra.Command{
@@ -59,19 +51,17 @@ func healthCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 
 			if asJSON {
-				// Emit findings under "findings" and graph stats under "stats" so
-				// the original []Finding shape is preserved for existing consumers
-				// while graph data is available under a separate key.
-				payload := healthJSONOutput{
-					Findings: result.Findings,
-					Stats:    result.Stats,
-				}
-				if payload.Findings == nil {
-					payload.Findings = []core.Finding{}
+				// Emit a top-level JSON array of findings, matching the Phase 1
+				// contract that existing array consumers (jq '.[]', Go []Finding
+				// decoders) depend on. Graph stats are available in text mode via
+				// the summary line above, and via /api/health for the web dashboard.
+				findings := result.Findings
+				if findings == nil {
+					findings = []core.Finding{}
 				}
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
-				return enc.Encode(payload)
+				return enc.Encode(findings)
 			}
 
 			// Text output: print the structural graph summary first, then the
@@ -81,7 +71,7 @@ func healthCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&asJSON, "json", false, "emit findings as JSON (for the Phase 2 dashboard)")
+	c.Flags().BoolVar(&asJSON, "json", false, "emit findings as a JSON array")
 	return c
 }
 

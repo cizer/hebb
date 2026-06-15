@@ -59,9 +59,17 @@ type HealthConfig struct {
 	// to be linked. Default 90.
 	OrphanStaleDays int `toml:"orphan_stale_days"`
 	// IslandMaxSize is the maximum component size (inclusive) that is reported
-	// as a small island finding, provided the island is not entirely under
-	// 4-Archives/. Default 3.
+	// as a small island finding, provided the island is not entirely under an
+	// archive folder. Default 3.
 	IslandMaxSize int `toml:"island_max_size"`
+	// ArchiveFolders is the set of vault-root-relative folder prefixes that are
+	// treated as archive storage. Small islands whose every member sits under an
+	// archive folder are suppressed, because archived notes are intentionally
+	// disconnected from the active vault. Default: ["4-Archives"]. This is
+	// intentionally narrower than ExpectedOrphanFolders: Journal and Notes are
+	// excluded from orphan/leaf checks but are NOT archive folders and so their
+	// islands are still reported.
+	ArchiveFolders []string `toml:"archive_folders"`
 }
 
 // GetProjectStaleDays returns the configured stale-days threshold, defaulting
@@ -117,6 +125,18 @@ func (h HealthConfig) GetIslandMaxSize() int {
 		return 3
 	}
 	return h.IslandMaxSize
+}
+
+// GetArchiveFolders returns the configured archive folder prefixes, defaulting
+// to ["4-Archives"] when the slice is empty. Only islands whose every member
+// sits under an archive folder are suppressed; Journal and Notes are excluded
+// from orphan/leaf checks via ExpectedOrphanFolders but are not archive
+// folders, so their islands are reported.
+func (h HealthConfig) GetArchiveFolders() []string {
+	if len(h.ArchiveFolders) == 0 {
+		return []string{"4-Archives"}
+	}
+	return h.ArchiveFolders
 }
 
 // IngestConfig is the committed [ingest] block. It records ingest policy that
@@ -380,7 +400,11 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#     orphan_stale_days     - minimum note age in days before an orphan/leaf in a\n")
 	buf.WriteString("#                             connective folder is flagged (default 90)\n")
 	buf.WriteString("#     island_max_size       - maximum component size reported as a small island\n")
-	buf.WriteString("#                             finding (default 3; archives are excluded)\n")
+	buf.WriteString("#                             finding (default 3)\n")
+	buf.WriteString("#     archive_folders       - folder prefixes whose islands are suppressed (default\n")
+	buf.WriteString("#                             [\"4-Archives\"]); narrower than expected_orphan_folders:\n")
+	buf.WriteString("#                             Journal/Notes orphans are exempt but their islands are\n")
+	buf.WriteString("#                             still reported\n")
 	buf.WriteString("\n")
 	if err := toml.NewEncoder(&buf).Encode(vc); err != nil {
 		return err

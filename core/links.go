@@ -227,11 +227,93 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 	return "", Dangling
 }
 
-// txExecer is the read+write surface shared by *sql.Tx, used to resolve and
-// update link target_path in bulk inside the reindex transaction.
-type txExecer interface {
+// execer is the read+write surface shared by *sql.DB and *sql.Tx, used to
+// resolve and update link target_path. fullReindex passes its *sql.Tx; the
+// incremental path passes the live *sql.DB.
+type execer interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// noteKeys returns the set of raw targets that should resolve to the note at
+// rel with the given title: its exact path, the path without ".md", the
+// basename without ".md", and the exact title (when non-empty). It mirrors the
+// match precedences in resolve (path, basename, title) so the inbound
+// re-resolution below considers exactly the dangling links that this note could
+// now satisfy, without re-running the resolver over the whole links table.
+func noteKeys(rel, title string) []string {
+	keys := map[string]bool{
+		rel:                            true,
+		strings.TrimSuffix(rel, ".md"): true,
+		basenameNoExt(rel):             true,
+	}
+	if title != "" {
+		keys[title] = true
+	}
+	out := make([]string, 0, len(keys))
+	for k := range keys {
+		out = append(out, k)
+	}
+	return out
+}
+
+// reResolveInbound re-resolves the dangling links (target_path IS NULL) whose
+// canonicalTarget matches one of the just-indexed note's keys, so an inbound
+// link that should now point at this note stops being reported as dangling.
+// This is the incremental counterpart to fullReindex's full second pass: when a
+// new note appears, links written before it existed are revisited here rather
+// than left permanently NULL.
+//
+// Only NULL rows are reconsidered, and only those whose target could match this
+// note, so the work is proportional to the relevant dangling links rather than
+// the whole table. The shared ResolveTargetDB runs against the now-current
+// corpus, so its result already reflects any ambiguity introduced by the new
+// note (a target that now matches two notes correctly stays NULL).
+//
+// What this does NOT cover: when a note is renamed or removed, a link whose
+// non-NULL target_path still points at the old note is not back-propagated here
+// (only the source file's own outgoing links are corrected, and only when that
+// source is itself re-indexed). fullReindex's full pass handles that case; the
+// incremental path leaves such a stale pointer until the source note is touched.
+func reResolveInbound(db execer, rel, title string) error {
+	keys := noteKeys(rel, title)
+	// Gather distinct dangling targets so each is resolved once even when many
+	// links share it. Close the read before issuing the updates.
+	rows, err := db.Query("SELECT DISTINCT target FROM links WHERE target_path IS NULL")
+	if err != nil {
+		return err
+	}
+	var candidates []string
+	scanErr := func() error {
+		defer rows.Close()
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				return err
+			}
+			canon := canonicalTarget(raw)
+			for _, k := range keys {
+				if canon == k {
+					candidates = append(candidates, raw)
+					break
+				}
+			}
+		}
+		return rows.Err()
+	}()
+	if scanErr != nil {
+		return scanErr
+	}
+	for _, raw := range candidates {
+		resolved, status := ResolveTargetDB(db, raw)
+		if status != Resolved {
+			continue // still dangling or now ambiguous: leave NULL.
+		}
+		if _, err := db.Exec("UPDATE links SET target_path = ? WHERE target = ? AND target_path IS NULL", resolved, raw); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resolveLinkTargets resolves every distinct raw target to a canonical note
@@ -240,7 +322,7 @@ type txExecer interface {
 // notes for the reindex are present. Each distinct target is resolved once and
 // applied to every links row sharing it. A target that does not resolve to
 // exactly one note (dangling or ambiguous) is set to NULL.
-func resolveLinkTargets(tx txExecer) error {
+func resolveLinkTargets(tx execer) error {
 	ix, err := loadNoteIndex(tx)
 	if err != nil {
 		return err

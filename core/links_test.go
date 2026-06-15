@@ -260,6 +260,105 @@ func TestIndexFileResolvesAtWriteTime(t *testing.T) {
 	}
 }
 
+// TestIndexFileReResolvesInboundLinks guards the incremental-path correctness
+// requirement: when a note is indexed after a file that already links to it,
+// indexing the target must re-resolve the inbound link that was dangling.
+// note-a.md links to [[Note B]] but is indexed while note-b.md is still absent,
+// so the link starts dangling (NULL). Indexing note-b.md (H1 "# Note B") must
+// flip note-a's link to point at note-b.md without any full reindex.
+func TestIndexFileReResolvesInboundLinks(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(vault, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("note-a.md", "# Note A\n\nSee [[Note B]] and [[Nonexistent]].")
+	write("note-b.md", "# Note B\n\nThe target note.")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Index note-a.md first, while note-b.md is not yet in the index: the link
+	// to [[Note B]] cannot resolve and must be stored dangling (NULL).
+	if err := IndexFile(cfg, db, "note-a.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "note-a.md", "Note B"); got.Valid {
+		t.Fatalf("before note-b indexed, target_path = %q, want NULL (dangling)", got.String)
+	}
+
+	// Now index note-b.md. IndexFile must re-resolve inbound links, so note-a's
+	// [[Note B]] now points at note-b.md.
+	if err := IndexFile(cfg, db, "note-b.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := targetPathOf(t, db, "note-a.md", "Note B"); !got.Valid || got.String != "note-b.md" {
+		t.Fatalf("after note-b indexed, target_path for note-a->[[Note B]] = %#v, want note-b.md", got)
+	}
+	// The genuinely dangling link must stay NULL: re-resolution must not fabricate
+	// a match for a target with no note.
+	if got := targetPathOf(t, db, "note-a.md", "Nonexistent"); got.Valid {
+		t.Fatalf("genuinely dangling target_path = %q, want NULL", got.String)
+	}
+}
+
+// TestRefreshChangedColdBuildResolvesForwardLink guards the cold-start scenario:
+// a fresh vault with no index.db, refreshed once via RefreshChanged. Files are
+// indexed one at a time, so [[Note B]] in a file indexed before note-b.md would
+// resolve to dangling and, without inbound re-resolution, stay NULL forever.
+// After a single RefreshChanged the link must be resolved.
+func TestRefreshChangedColdBuildResolvesForwardLink(t *testing.T) {
+	for _, names := range [][2]string{
+		{"note-a.md", "note-b.md"}, // source enumerated before target
+		{"note-z.md", "note-a.md"}, // target enumerated before source
+	} {
+		source, target := names[0], names[1]
+		t.Run(source+"_links_"+target, func(t *testing.T) {
+			vault := t.TempDir()
+			write := func(rel, content string) {
+				if err := os.WriteFile(filepath.Join(vault, rel), []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// The source links to the target by title "Note B"; the target carries
+			// that H1 title. Ordering of the two files in the walk varies by name.
+			write(source, "# Source\n\nSee [[Note B]] and [[Nonexistent]].")
+			write(target, "# Note B\n\nThe target note.")
+
+			cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs, AutoRefresh: true}
+			if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			db, err := OpenDB(cfg.DBPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+
+			// Cold build: empty index, one RefreshChanged pass.
+			if _, err := RefreshChanged(cfg, db); err != nil {
+				t.Fatal(err)
+			}
+
+			if got := targetPathOf(t, db, source, "Note B"); !got.Valid || got.String != target {
+				t.Fatalf("cold build target_path for %s->[[Note B]] = %#v, want %s", source, got, target)
+			}
+			// Genuinely dangling stays NULL after the cold build.
+			if got := targetPathOf(t, db, source, "Nonexistent"); got.Valid {
+				t.Fatalf("genuinely dangling target_path = %q, want NULL", got.String)
+			}
+		})
+	}
+}
+
 // TestMigrationAddsTargetPathToLegacyDB verifies an index.db created with the
 // pre-Phase-0 links schema (no target_path column) is upgraded in place by
 // OpenDB, without a forced rebuild, and that an existing link row survives.

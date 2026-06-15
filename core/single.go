@@ -50,6 +50,15 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 			return err
 		}
 	}
+	// Re-resolve INBOUND links now that this note is present. (a) above resolves
+	// this note's own outgoing links against the live corpus; (b) here lets the
+	// incremental path self-correct so a link written before this note existed
+	// (and stored dangling) now points at it. fullReindex does this via a full
+	// second pass; doing it here keeps the no-op read-time refresh free, because
+	// RefreshChanged only calls IndexFile for files that actually changed.
+	if err := reResolveInbound(db, rel, n.Title); err != nil {
+		return err
+	}
 	return nil
 }
 

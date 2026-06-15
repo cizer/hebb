@@ -337,8 +337,8 @@ spent ~20 lines, not a scorer plus a dashboard plus two jobs, finding out.
 
 ## Checklist
 
-- [ ] Phase 0: resolve link targets at index time, add `target_path` to `links`, detect ambiguity
-- [ ] Phase 1: `core/health.go` + `hebb health` CLI — dangling-link, PARA-drift, oversized detectors
+- [x] Phase 0: resolve link targets at index time, add `target_path` to `links`, detect ambiguity (incl. incremental-path fix so inbound links re-resolve)
+- [x] Phase 1: `core/health.go` + `hebb health` CLI: dangling-link, PARA-drift, oversized detectors
 - [ ] Phase 1: dedup precision test (throwaway script, top-30 eyeball) before building dedup
 - [ ] Phase 2: orphans / components / k-core in `core/health.go`; worklist-first panel on `hebb serve`
 - [ ] Phase 2: validate coreness puts known-durable notes at high coreness

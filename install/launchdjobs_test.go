@@ -57,55 +57,45 @@ func TestVaultJobsAutomationGatedOnScript(t *testing.T) {
 	home := t.TempDir()
 	assetRoot := t.TempDir()
 
-	// Without the scripts present, automation jobs are skipped.
+	// daily-digest is built into the binary, so it renders even with no scripts
+	// present; action-review still needs its generator and is skipped.
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
 		[]string{"daily-digest", "action-review"}, false, nil, nil)
-	if len(jobs) != 0 {
-		t.Errorf("expected automation jobs skipped when scripts absent, got %d", len(jobs))
+	if len(jobs) != 1 {
+		t.Fatalf("expected only daily-digest to render with no scripts, got %d jobs", len(jobs))
 	}
-
-	// Create the migrated scripts; now they should be built.
-	autoDir := filepath.Join(assetRoot, "automation")
-	if err := os.MkdirAll(autoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []string{"generate-vault-digest.py", "generate-action-review.py"} {
-		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	jobs = VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest", "action-review"}, false, nil, nil)
-
 	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
 	if !ok {
-		t.Fatal("daily-digest job not built once script exists")
+		t.Fatal("daily-digest job not built without a script")
 	}
 	if len(digest.Schedule) != 5 {
 		t.Errorf("daily-digest should run 5 weekdays, got %d entries", len(digest.Schedule))
 	}
-	// Program[0] is the grantable hebb binary running the digest subcommand, not
-	// the run-vault-digest.sh wrapper: macOS TCC attributes Full Disk Access to
-	// Program[0], and a shell interpreter has no grantable identity.
+	// Program[0] is the grantable hebb binary running the digest subcommand: macOS
+	// TCC attributes Full Disk Access to Program[0], and a shell interpreter has
+	// no grantable identity.
 	if digest.Program[0] != "hebb" {
 		t.Errorf("digest Program[0] should be the hebb binary, got %q", digest.Program[0])
 	}
 	if !strings.Contains(strings.Join(digest.Program, " "), "digest --vault-root /vaults/work") {
 		t.Errorf("digest program should run `digest --vault-root <vault>`: %v", digest.Program)
 	}
-	// PYTHON stays (launchd's minimal PATH resolves python3 to the Xcode shim,
-	// which has no Full Disk Access); HEBB_BIN goes (hebb is now Program[0] and
-	// invokes itself).
-	env := map[string]string{}
-	for _, e := range digest.EnvVars {
-		env[e.Key] = e.Value
+	// The Go digest needs no interpreter, so the job carries no env at all (no
+	// PYTHON, no HEBB_BIN).
+	if len(digest.EnvVars) != 0 {
+		t.Errorf("digest job should pin no env vars now the digest is pure Go, got %v", digest.EnvVars)
 	}
-	if env["PYTHON"] == "" || !filepath.IsAbs(env["PYTHON"]) {
-		t.Errorf("digest job should pin an absolute PYTHON, got %q", env["PYTHON"])
+
+	// Create the action-review script; now it should be built too.
+	autoDir := filepath.Join(assetRoot, "automation")
+	if err := os.MkdirAll(autoDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := env["HEBB_BIN"]; ok {
-		t.Errorf("digest job should no longer pin HEBB_BIN; hebb is Program[0], got %v", env)
+	if err := os.WriteFile(filepath.Join(autoDir, "generate-action-review.py"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	jobs = VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
+		[]string{"daily-digest", "action-review"}, false, nil, nil)
 
 	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 	if !ok {
@@ -182,11 +172,9 @@ func TestVaultJobsNoShellProgram(t *testing.T) {
 	if err := os.MkdirAll(autoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Both automation scripts present, so daily-digest and action-review render.
-	for _, f := range []string{"run-vault-digest.sh", "generate-vault-digest.py", "generate-action-review.py"} {
-		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	// action-review needs its script to render; daily-digest is built in.
+	if err := os.WriteFile(filepath.Join(autoDir, "generate-action-review.py"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 
 	// The default jobs list from DefaultVaultConfig.
@@ -213,13 +201,6 @@ func TestVaultJobsNoShellProgram(t *testing.T) {
 func TestVaultJobsDigestAppendsArgs(t *testing.T) {
 	home := t.TempDir()
 	assetRoot := t.TempDir()
-	autoDir := filepath.Join(assetRoot, "automation")
-	if err := os.MkdirAll(autoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 
 	jobArgs := map[string][]string{"daily-digest": {"--output", "2-Areas/_DIGEST.md"}}
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
@@ -237,36 +218,29 @@ func TestVaultJobsDigestAppendsArgs(t *testing.T) {
 
 // TestVaultJobsJobEnvAppendsAfterBuiltIn proves that [job_env] entries render
 // into that job's EnvironmentVariables after the built-in env, deterministically
-// ordered. This mirrors the [job_args] test pattern.
+// ordered. The web job carries a built-in HEBB_WEB_PORT, so it is the env-merge
+// exemplar (the daily-digest job no longer pins any built-in env).
 func TestVaultJobsJobEnvAppendsAfterBuiltIn(t *testing.T) {
 	home := t.TempDir()
-	assetRoot := t.TempDir()
-	autoDir := filepath.Join(assetRoot, "automation")
-	if err := os.MkdirAll(autoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 
 	jobEnv := map[string]map[string]string{
-		"daily-digest": {"HEBB_NOTIFY_URL": "https://hooks.example.com/abc", "EXTRA_KEY": "extra-val"},
-		"bogus":        {"IGNORED": "yes"},
+		"web":   {"HEBB_NOTIFY_URL": "https://hooks.example.com/abc", "EXTRA_KEY": "extra-val"},
+		"bogus": {"IGNORED": "yes"},
 	}
-	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest"}, false, nil, jobEnv)
+	jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), home, 4321,
+		[]string{"web"}, false, nil, jobEnv)
 
-	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+	web, ok := jobByLabel(jobs, "local.hebb.work.web")
 	if !ok {
-		t.Fatal("daily-digest job not built")
+		t.Fatal("web job not built")
 	}
 	env := map[string]string{}
-	for _, e := range digest.EnvVars {
+	for _, e := range web.EnvVars {
 		env[e.Key] = e.Value
 	}
-	// Built-in PYTHON must still be present.
-	if env["PYTHON"] == "" {
-		t.Error("built-in PYTHON env var missing after job_env injection")
+	// Built-in HEBB_WEB_PORT must still be present.
+	if env["HEBB_WEB_PORT"] == "" {
+		t.Error("built-in HEBB_WEB_PORT env var missing after job_env injection")
 	}
 	// [job_env] extras must also be present.
 	if env["HEBB_NOTIFY_URL"] != "https://hooks.example.com/abc" {
@@ -275,52 +249,43 @@ func TestVaultJobsJobEnvAppendsAfterBuiltIn(t *testing.T) {
 	if env["EXTRA_KEY"] != "extra-val" {
 		t.Errorf("EXTRA_KEY = %q, want extra-val", env["EXTRA_KEY"])
 	}
-	// Built-in env must appear before user-supplied env (PYTHON is first).
-	if len(digest.EnvVars) < 2 || digest.EnvVars[0].Key != "PYTHON" {
-		t.Errorf("built-in env (PYTHON) should precede user env, got %v", digest.EnvVars)
+	// Built-in env must appear before user-supplied env (HEBB_WEB_PORT is first).
+	if len(web.EnvVars) < 2 || web.EnvVars[0].Key != "HEBB_WEB_PORT" {
+		t.Errorf("built-in env (HEBB_WEB_PORT) should precede user env, got %v", web.EnvVars)
 	}
 }
 
 // TestVaultJobsJobEnvOverridesBuiltIn proves that a [job_env] key matching a
-// built-in env key (e.g. PATH) replaces it with no duplicate key in the plist.
-// The spec says "user wins" and a plist EnvironmentVariables dict cannot hold
-// duplicate keys.
+// built-in env key replaces it with no duplicate key in the plist. The spec says
+// "user wins" and a plist EnvironmentVariables dict cannot hold duplicate keys.
 func TestVaultJobsJobEnvOverridesBuiltIn(t *testing.T) {
 	home := t.TempDir()
-	assetRoot := t.TempDir()
-	autoDir := filepath.Join(assetRoot, "automation")
-	if err := os.MkdirAll(autoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 
-	// Override the built-in PYTHON env var.
+	// Override the built-in HEBB_WEB_PORT env var on the web job.
 	jobEnv := map[string]map[string]string{
-		"daily-digest": {"PYTHON": "/custom/python3"},
+		"web": {"HEBB_WEB_PORT": "9999"},
 	}
-	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"daily-digest"}, false, nil, jobEnv)
+	jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), home, 4321,
+		[]string{"web"}, false, nil, jobEnv)
 
-	digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+	web, ok := jobByLabel(jobs, "local.hebb.work.web")
 	if !ok {
-		t.Fatal("daily-digest job not built")
+		t.Fatal("web job not built")
 	}
-	// Count PYTHON keys: must be exactly 1 (no duplicate).
+	// Count HEBB_WEB_PORT keys: must be exactly 1 (no duplicate).
 	count := 0
 	overrideValue := ""
-	for _, e := range digest.EnvVars {
-		if e.Key == "PYTHON" {
+	for _, e := range web.EnvVars {
+		if e.Key == "HEBB_WEB_PORT" {
 			count++
 			overrideValue = e.Value
 		}
 	}
 	if count != 1 {
-		t.Errorf("PYTHON appears %d times in EnvVars, want exactly 1 (no duplicate keys)", count)
+		t.Errorf("HEBB_WEB_PORT appears %d times in EnvVars, want exactly 1 (no duplicate keys)", count)
 	}
-	if overrideValue != "/custom/python3" {
-		t.Errorf("PYTHON override = %q, want /custom/python3 (user wins)", overrideValue)
+	if overrideValue != "9999" {
+		t.Errorf("HEBB_WEB_PORT override = %q, want 9999 (user wins)", overrideValue)
 	}
 }
 
@@ -350,34 +315,26 @@ func TestVaultJobsJobEnvNoEntryIsIdentical(t *testing.T) {
 // user env sorted by key.
 func TestVaultJobsJobEnvDeterministicOrder(t *testing.T) {
 	home := t.TempDir()
-	assetRoot := t.TempDir()
-	autoDir := filepath.Join(assetRoot, "automation")
-	if err := os.MkdirAll(autoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(autoDir, "generate-vault-digest.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 
 	jobEnv := map[string]map[string]string{
-		"daily-digest": {"Z_KEY": "z", "A_KEY": "a", "M_KEY": "m"},
+		"web": {"Z_KEY": "z", "A_KEY": "a", "M_KEY": "m"},
 	}
 	// Run twice to confirm order is stable across calls.
 	for i := 0; i < 2; i++ {
-		jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-			[]string{"daily-digest"}, false, nil, jobEnv)
-		digest, ok := jobByLabel(jobs, "local.hebb.work.daily-digest")
+		jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), home, 4321,
+			[]string{"web"}, false, nil, jobEnv)
+		web, ok := jobByLabel(jobs, "local.hebb.work.web")
 		if !ok {
-			t.Fatal("daily-digest job not built")
+			t.Fatal("web job not built")
 		}
-		// Built-in PYTHON first, then A_KEY, M_KEY, Z_KEY (sorted).
-		wantOrder := []string{"PYTHON", "A_KEY", "M_KEY", "Z_KEY"}
-		if len(digest.EnvVars) != len(wantOrder) {
-			t.Fatalf("run %d: want %d env vars, got %d: %v", i+1, len(wantOrder), len(digest.EnvVars), digest.EnvVars)
+		// Built-in HEBB_WEB_PORT first, then A_KEY, M_KEY, Z_KEY (sorted).
+		wantOrder := []string{"HEBB_WEB_PORT", "A_KEY", "M_KEY", "Z_KEY"}
+		if len(web.EnvVars) != len(wantOrder) {
+			t.Fatalf("run %d: want %d env vars, got %d: %v", i+1, len(wantOrder), len(web.EnvVars), web.EnvVars)
 		}
 		for j, k := range wantOrder {
-			if digest.EnvVars[j].Key != k {
-				t.Errorf("run %d: EnvVars[%d].Key = %q, want %q", i+1, j, digest.EnvVars[j].Key, k)
+			if web.EnvVars[j].Key != k {
+				t.Errorf("run %d: EnvVars[%d].Key = %q, want %q", i+1, j, web.EnvVars[j].Key, k)
 			}
 		}
 	}

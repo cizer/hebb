@@ -647,6 +647,26 @@ func TestMigrationBackfillsLegacyLinks(t *testing.T) {
 	)`); err != nil {
 		t.Fatal(err)
 	}
+	// A real pre-feature index.db also has the external-content FTS table and its
+	// triggers in sync (they predate this migration), so create them before
+	// inserting notes: the notes_ai trigger then populates notes_fts, keeping it
+	// consistent when a later migration UPDATEs the notes table.
+	if _, err := legacy.Exec(`
+CREATE VIRTUAL TABLE notes_fts USING fts5(
+  title, body, tags, content='notes', content_rowid='rowid', tokenize='porter unicode61'
+);
+CREATE TRIGGER notes_ai AFTER INSERT ON notes BEGIN
+  INSERT INTO notes_fts(rowid, title, body, tags) VALUES (new.rowid, new.title, new.body, new.tags);
+END;
+CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, title, body, tags) VALUES ('delete', old.rowid, old.title, old.body, old.tags);
+END;
+CREATE TRIGGER notes_au AFTER UPDATE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, title, body, tags) VALUES ('delete', old.rowid, old.title, old.body, old.tags);
+  INSERT INTO notes_fts(rowid, title, body, tags) VALUES (new.rowid, new.title, new.body, new.tags);
+END;`); err != nil {
+		t.Fatal(err)
+	}
 	for _, n := range []struct{ path, title string }{
 		{"Alpha.md", "Alpha"},
 		{"sub/Gamma.md", "Gamma"},

@@ -175,35 +175,34 @@ fi
 # Install materialised the automation scripts to $DATA/automation; run them the
 # way launchd would, against the canary vault, and confirm they produce output.
 echo "==> automation"
-[ -x "$DATA/automation/generate-vault-digest.py" ]; report $? "digest generator materialised + executable"
 [ -x "$DATA/automation/generate-action-review.py" ]; report $? "action-review materialised + executable"
-[ -x "$DATA/automation/run-vault-digest.sh" ]; report $? "deprecated digest wrapper still materialised (manual use)"
+# The Python digest generator and its shell wrapper are retired: the digest is
+# built into the binary (`hebb digest`), so neither should be materialised.
+[ ! -e "$DATA/automation/generate-vault-digest.py" ]; report $? "retired Python digest generator not materialised"
+[ ! -e "$DATA/automation/run-vault-digest.sh" ]; report $? "retired digest wrapper not materialised"
 
-# Daily digest: window = the day before the run date, so a run dated "tomorrow"
-# covers the canary notes created today. `hebb digest` reindexes in-process.
+# Daily digest: pure Go now, no python dependency. `hebb digest` (a grantable
+# binary as the launchd entrypoint) refreshes the index then writes the digest
+# from content-level change detection. The first run has no watermark, so it
+# reports the wall-clock window; the canary notes were created during this run,
+# so they fall inside it. --date labels the window; "tomorrow" covers today.
 TOMORROW="$(date -v+1d +%F 2>/dev/null || date -d 'tomorrow' +%F)"
-if command -v python3 >/dev/null 2>&1; then
-  # The launchd entrypoint is now the hebb binary: `hebb digest` runs the
-  # generator then refreshes the index in-process (no shell wrapper, so macOS
-  # TCC attributes Full Disk Access to a grantable identity). --data-dir points
-  # at the materialised automation/, mirroring how the rendered job resolves it.
-  hebb digest --vault-root "$VAULT" --data-dir "$DATA" > "$WORK/digest-job.out" 2>&1
-  report $? "hebb digest (launchd entrypoint) runs + reindexes"
-  # doctor must not warn that the rendered jobs use a shell-wrapper Program[0].
-  if has "$doc" "launchd-tcc"; then
-    if echo "$doc" | grep -q "warn .*launchd-tcc"; then report 1 "doctor launchd-tcc lint clean (grantable Program[0])"; else report 0 "doctor launchd-tcc lint clean (grantable Program[0])"; fi
-  fi
-  # Deterministic generator run that targets the canary notes' day.
-  python3 "$DATA/automation/generate-vault-digest.py" --vault-root "$VAULT" --date "$TOMORROW" > "$WORK/digest.out" 2>&1
-  report $? "generate-vault-digest.py runs"
-  [ -f "$VAULT/2-Areas/_DAILY-DIGEST.md" ]; report $? "digest note written"
-  dig="$(cat "$VAULT/2-Areas/_DAILY-DIGEST.md" 2>/dev/null)"
-  has "$dig" "Aurora"; report $? "digest lists a canary note touched today"
-  # Regression (found in live UAT): an --output outside the vault must not crash
-  # on the success message (Path.relative_to would raise).
-  python3 "$DATA/automation/generate-vault-digest.py" --vault-root "$VAULT" --date "$TOMORROW" --output "$WORK/external-digest.md" > "$WORK/digest-ext.out" 2>&1
-  report $? "generate-vault-digest.py handles an --output outside the vault"
+hebb digest --vault-root "$VAULT" --date "$TOMORROW" > "$WORK/digest-job.out" 2>&1
+report $? "hebb digest (launchd entrypoint) runs + reindexes"
+[ -f "$VAULT/2-Areas/_DAILY-DIGEST.md" ]; report $? "digest note written"
+dig="$(cat "$VAULT/2-Areas/_DAILY-DIGEST.md" 2>/dev/null)"
+has "$dig" "Aurora"; report $? "digest lists a canary note changed since the last run"
+# doctor must not warn that the rendered jobs use a shell-wrapper Program[0].
+if has "$doc" "launchd-tcc"; then
+  if echo "$doc" | grep -q "warn .*launchd-tcc"; then report 1 "doctor launchd-tcc lint clean (grantable Program[0])"; else report 0 "doctor launchd-tcc lint clean (grantable Program[0])"; fi
+fi
+# Regression (found in live UAT): an --output outside the vault must not crash.
+hebb digest --vault-root "$VAULT" --date "$TOMORROW" --output "$WORK/external-digest.md" > "$WORK/digest-ext.out" 2>&1
+report $? "hebb digest handles an --output outside the vault"
+[ -f "$WORK/external-digest.md" ]; report $? "external digest written outside the vault"
 
+# Action review is still a Python job.
+if command -v python3 >/dev/null 2>&1; then
   # Action review: seed one OPEN-ACTIONS register (done after the noteCount
   # checks above, so it does not perturb them), then collate it.
   mkdir -p "$VAULT/2-Areas/Team"
@@ -243,7 +242,7 @@ EOF
   has "$mine" "Draft plan"; report $? "mine output lists the current action"
   if has "$mine" "Not my task"; then report 1 "other owners excluded from mine output"; else report 0 "other owners excluded from mine output"; fi
 else
-  echo "  skip  python3 unavailable"
+  echo "  skip  python3 unavailable (action review)"
 fi
 
 # --- tally --------------------------------------------------------------------

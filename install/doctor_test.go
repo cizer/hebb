@@ -200,9 +200,11 @@ func TestDoctorLintsShellWrapperProgram(t *testing.T) {
 	if err := os.MkdirAll(autoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Present so the daily-digest job renders (and so its label is one doctor
-	// looks for installed plists under).
-	for _, f := range []string{"generate-vault-digest.py", "run-vault-digest.sh"} {
+	// run-vault-digest.sh stands in for a stale install's shell-wrapper Program[0]
+	// in the plist below; the daily-digest job itself renders from the binary with
+	// no script needed. (This fixture file is not the shipped wrapper, which is
+	// retired; it only exercises the lint that flags a .sh Program[0].)
+	for _, f := range []string{"run-vault-digest.sh"} {
 		if err := os.WriteFile(filepath.Join(autoDir, f), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}

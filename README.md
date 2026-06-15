@@ -125,7 +125,7 @@ hebb serve              # browse at http://127.0.0.1:4321
 - `hebb sync` — commit, pull (rebase), and push the vault's markdown via git. Never force-pushes; a conflicting pull is aborted and reported. With `[git] enabled` (on by default for a git repo at install time), hebb also auto-syncs while a `serve`/`mcp` process runs: pull at startup, commit+push after edits settle.
 - `hebb update` — check for and install a newer hebb release (checksum-verified, atomic replace), then re-apply the release's skills to whichever skills dirs already have them (so new and changed skills land on upgrade). `--check` only reports. Self-replaces only a binary hebb owns; a Homebrew or `go install` binary is left to its package manager. A scheduled `update-check` job notifies of new releases via `[notify]` when configured (set `[update] auto = true` to also install them).
 - `hebb index` — build or refresh the index (usually automatic).
-- `hebb digest`: generate the daily vault digest, then refresh the index. The launchd `daily-digest` entrypoint: it is the hebb binary (not a shell wrapper) so macOS grants it Full Disk Access to read protected vault folders. Args after `--` pass through to the digest generator.
+- `hebb digest`: refresh the index, then write the daily vault digest. The launchd `daily-digest` entrypoint: it is the hebb binary (not a shell wrapper) so macOS grants it Full Disk Access to read protected vault folders. Selection is driven by the index's content-level change detection (a per-note content hash plus a change watermark), so it reports notes whose content changed since the last run, never notes a bulk operation merely re-stamped with a new mtime. `--output` sets the digest note path; `--date` overrides the run date for testing.
 - `hebb notify [text]` — post a one-line summary to the configured webhook (`[notify] url` or `$HEBB_NOTIFY_URL`). POST `application/json`, body `{"text": "..."}`. Exits non-zero on HTTP failure. Also called automatically by `hebb digest` and `hebb update --check` after their writes when notify is enabled. The URL is never logged.
 
 Vault selection everywhere: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.hebb/` above the working directory.
@@ -147,7 +147,7 @@ cli/          the hebb command
 mcp/          MCP server surface
 web/          local web UI (embedded)
 plugin/       Claude Code plugin (manifest, .mcp.json, vault-ingest skill)
-automation/   optional background jobs (digest, action review)
+automation/   optional background jobs (action review; the digest is built into hebb digest)
 vault-template/  the `hebb new` scaffold
 ```
 

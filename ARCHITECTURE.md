@@ -83,7 +83,7 @@ mcp/             MCP server surface
 web/             local web UI (embedded)
 cmd/hebb/        entrypoint
 plugin/          Claude Code plugin (manifest, .mcp.json, vault-ingest skill)
-automation/      optional background jobs (digest, action review)
+automation/      optional background jobs (action review; the digest is built into `hebb digest`)
 launchd/         parameterised launchd plist templates
 vault-template/  the `hebb new` scaffold
 ```

@@ -26,6 +26,17 @@ by search" means "used". So the plan is: ship the parts that need no access sign
 turn on access logging as a pure observation, and run a two-week experiment before
 building a single line of scoring, consolidation, or decay on top of it.
 
+The same "mtime is an unreliable change signal" thesis has a separate, already-shipped
+consequence: the **daily digest**. It used to choose which notes to report purely by
+filesystem mtime, so a vault-wide find/replace, a sync client, or a restore that
+rewrote bytes either dropped genuinely-edited notes out of the window (mtime bumped
+past it) or flooded the next digest with the whole touched set (every file restamped).
+The fix is the same content-level substrate this plan rests on: each note now carries a
+content hash and a `content_changed_at` watermark in the index, and `hebb digest`
+reports notes whose content changed since the last run, not notes whose mtime moved.
+A future access log (Phase 3) and the digest both read the index as the system of
+record for change, not the filesystem clock.
+
 ## Sequencing
 
 | Phase | What | Risk | Gate |

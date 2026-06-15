@@ -3,37 +3,36 @@ package cli
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/cizer/hebb/core"
-	"github.com/cizer/hebb/install"
 	"github.com/spf13/cobra"
 )
 
-// digestCmd is the daily-digest launchd entrypoint: it runs the digest
-// generator then refreshes the search index in-process. It replaces the
-// run-vault-digest.sh wrapper as the job's Program[0] so launchd's TCC
-// attribution lands on the grantable hebb binary, not on a shell interpreter
-// that macOS blocks from the protected vault folders (see SPEC item 2).
+// digestCmd is the daily-digest launchd entrypoint: it refreshes the search
+// index in-process, then writes the daily digest note from the index's
+// content-level change detection. It is the hebb binary (not a shell wrapper)
+// so launchd's TCC attribution lands on the grantable hebb binary, which macOS
+// can be granted Full Disk Access to read the protected vault folders.
 //
-// It resolves python the same way the rendered launchd jobs do (the pinned
-// $PYTHON env, else install.PythonPath()), locates generate-vault-digest.py via
-// the same asset resolution install and doctor use (--asset-root override, else
-// the data dir), runs it, then reindexes via the in-process engine rather than
-// shelling out to `hebb index`. Any failure exits non-zero so launchd records it.
+// The digest is selected entirely from the index (which notes' content changed
+// since the last successful run), never from filesystem mtime: a bulk operation
+// that rewrites bytes or bumps mtimes without changing content does not inflate
+// it, and a genuine edit is reported even if a later rewrite bumps its mtime.
 func digestCmd() *cobra.Command {
-	var vaultRoot, assetRoot, home, dataDir string
+	var vaultRoot, output, date string
 	c := &cobra.Command{
-		Use:   "digest [-- extra digest args]",
-		Short: "Generate the daily vault digest, then refresh the index",
-		Long: "Run the daily-digest generator (generate-vault-digest.py) against the\n" +
-			"vault, then refresh the search index in-process. This is the launchd\n" +
+		Use:   "digest",
+		Short: "Refresh the index, then write the daily vault digest",
+		Long: "Refresh the search index in-process, then write the daily digest note\n" +
+			"from the index's content-level change detection. This is the launchd\n" +
 			"entrypoint for the daily-digest job: making it the hebb binary keeps\n" +
-			"macOS Full Disk Access attributed to a grantable identity. Arguments\n" +
-			"after -- are passed through to the digest generator.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+			"macOS Full Disk Access attributed to a grantable identity. The digest\n" +
+			"reports notes whose content changed since the last successful run, so a\n" +
+			"vault-wide rewrite that only churns mtimes does not register.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Prefer --vault-root (the launchd job's flag); fall back to the global
 			// --vault / $HEBB_VAULT resolution so the command is usable interactively.
 			if vaultRoot != "" {
@@ -45,55 +44,48 @@ func digestCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			if home == "" {
-				home, _ = os.UserHomeDir()
-			}
-			if assetRoot == "" {
-				assetRoot = os.Getenv("HEBB_HOME")
-			}
-			if dataDir == "" {
-				dataDir = defaultDataDir(home)
-			}
-			assetDir := assetRoot
-			if assetDir == "" {
-				assetDir = dataDir
-			}
-			script := filepath.Join(assetDir, "automation", "generate-vault-digest.py")
-			if _, err := os.Stat(script); err != nil {
-				return fmt.Errorf("digest generator not found at %s (run hebb install): %w", script, err)
-			}
-
-			// Resolve python the same way the launchd job does: the pinned $PYTHON
-			// env (set to dodge the Xcode python3 shim on launchd's minimal PATH),
-			// else the absolute python3 install.PythonPath() finds.
-			python := os.Getenv("PYTHON")
-			if python == "" {
-				python = install.PythonPath()
+			opts := core.DigestOptions{Output: output}
+			if date != "" {
+				d, err := time.Parse("2006-01-02", date)
+				if err != nil {
+					return fmt.Errorf("invalid --date %q (want YYYY-MM-DD): %w", date, err)
+				}
+				opts.Now = d
 			}
 
 			out := cmd.OutOrStdout()
-			scriptArgs := append([]string{script, "--vault-root", cfg.VaultPath}, args...)
-			fmt.Fprintf(out, "digest: generating (%s)\n", cfg.VaultPath)
-			gen := exec.Command(python, scriptArgs...)
-			gen.Stdout = out
-			gen.Stderr = cmd.OutOrStderr()
-			if err := gen.Run(); err != nil {
-				return fmt.Errorf("digest generator failed: %w", err)
-			}
-
-			fmt.Fprintln(out, "digest: refreshing index")
+			// Refresh first so content_changed_at reflects the current vault before
+			// the digest queries it. A note edited since the last run gets its change
+			// observed here; an unchanged note (even one whose mtime was bumped) keeps
+			// its prior content_changed_at and so stays out of the window.
+			fmt.Fprintf(out, "digest: refreshing index (%s)\n", cfg.VaultPath)
 			res, err := core.FullReindex(cfg, db)
 			if err != nil {
 				return fmt.Errorf("index refresh failed: %w", err)
 			}
-			fmt.Fprintf(out, "digest: done (%d notes indexed, %d removed)\n", res.Indexed, res.Removed)
+
+			dr, err := core.GenerateDigest(cfg, db, opts)
+			if err != nil {
+				return fmt.Errorf("digest generation failed: %w", err)
+			}
+
+			// Index the digest note we just wrote so it is searchable, when it lives
+			// inside the vault (an --output pointed outside the vault is left alone).
+			// It is excluded from future digests by name, so re-indexing it cannot
+			// make it report itself as activity.
+			if rel, ok := vaultRelative(cfg.VaultPath, dr.OutputPath); ok {
+				_ = core.IndexFile(cfg, db, rel)
+			}
+
+			fmt.Fprintf(out, "digest: wrote %s (%d notes for %s; %d indexed, %d removed)\n",
+				dr.OutputPath, dr.Count, dr.Label, res.Indexed, res.Removed)
 
 			// Headless notification: best-effort, never blocks or fails the digest.
 			// Send only when [notify] is enabled and a URL resolves.
 			vc, _, _ := core.LoadVaultConfig(cfg.VaultPath)
 			if vc.Notify.Enabled {
 				if url := vc.Notify.ResolveURL(); url != "" {
-					summary := fmt.Sprintf("digest: %d notes indexed (%s)", res.Indexed, cfg.VaultPath)
+					summary := fmt.Sprintf("digest: %d notes changed (%s)", dr.Count, cfg.VaultPath)
 					if err := SendNotification(url, summary); err != nil {
 						log.Printf("digest: notify failed (delivery failure does not affect the note): %v", err)
 					}
@@ -103,11 +95,22 @@ func digestCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&vaultRoot, "vault-root", "", "vault path to digest (default: --vault / $HEBB_VAULT / nearest .hebb)")
-	c.Flags().StringVar(&assetRoot, "asset-root", "", "dev override: asset dir holding automation/ (default $HEBB_HOME, then the data dir)")
-	c.Flags().StringVar(&home, "home", "", "home dir (default: user home)")
-	c.Flags().StringVar(&dataDir, "data-dir", "", "hebb data dir holding materialised automation/ (default: $XDG_DATA_HOME/hebb or <home>/.local/share/hebb)")
-	_ = c.Flags().MarkHidden("asset-root")
-	_ = c.Flags().MarkHidden("home")
-	_ = c.Flags().MarkHidden("data-dir")
+	c.Flags().StringVar(&output, "output", "", "digest note path relative to vault root (default 2-Areas/_DAILY-DIGEST.md)")
+	c.Flags().StringVar(&date, "date", "", "override run date as YYYY-MM-DD (for testing)")
 	return c
+}
+
+// vaultRelative converts a digest output path (as supplied, relative to the
+// vault root or absolute) into a vault-relative slash path, reporting false when
+// it resolves outside the vault so the caller skips indexing it.
+func vaultRelative(vaultPath, output string) (string, bool) {
+	abs := output
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(vaultPath, filepath.FromSlash(output))
+	}
+	rel, err := filepath.Rel(vaultPath, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }

@@ -27,6 +27,10 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateNotesContentChange(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
@@ -83,6 +87,130 @@ func migrateLinksTargetPath(db *sql.DB) error {
 	return nil
 }
 
+// migrateNotesContentChange adds the content-level change-detection columns to
+// the notes table for an index.db created before this feature, so an existing
+// index upgrades in place without a forced rebuild. New databases already get
+// the columns from schemaSQL, so this is a no-op for them.
+//
+//   - content_hash: a stable hash of the note's indexed content (title, body,
+//     tags, frontmatter). It changes only when the meaningful content changes,
+//     so a note whose bytes were rewritten with no content change (a sync
+//     re-download, a touch, a whitespace-only reformat the parser normalises)
+//     keeps the same hash.
+//   - content_changed_at: the millisecond timestamp (same units as mtime) at
+//     which the index last observed this note's content_hash take its current
+//     value. This is the digest's change signal, replacing st_mtime: a bulk
+//     operation that bumps mtime without changing content does not move it.
+//   - first_indexed_at: the timestamp the path first entered this index, used to
+//     mark a note "new" vs "updated" in the digest.
+//
+// On the upgrade path the three columns are backfilled from the already-stored
+// content: content_hash from the indexed columns, and both timestamps seeded
+// from the stored mtime (the best available proxy for "last changed" before the
+// index tracked it). Seeding from mtime rather than "now" is what stops the
+// first digest after the upgrade from reporting the entire vault as activity.
+func migrateNotesContentChange(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(notes)")
+	if err != nil {
+		return err
+	}
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if cols["content_hash"] {
+		return nil
+	}
+	for _, col := range []string{
+		"ALTER TABLE notes ADD COLUMN content_hash TEXT",
+		"ALTER TABLE notes ADD COLUMN content_changed_at REAL",
+		"ALTER TABLE notes ADD COLUMN first_indexed_at REAL",
+	} {
+		if _, err := db.Exec(col); err != nil {
+			return err
+		}
+	}
+	// Backfill only when the legacy table actually has the source columns. A
+	// standard pre-feature index.db always does; a non-standard or partially
+	// repaired table does not, and there is nothing safe to seed from. Skipping
+	// leaves content_hash NULL, which the digest treats as "no change observed
+	// yet" (never reported) until the next index repopulates it, so the structural
+	// migration succeeds without depending on a well-formed legacy body.
+	for _, c := range []string{"body", "tags", "frontmatter", "mtime"} {
+		if !cols[c] {
+			return nil
+		}
+	}
+	return backfillNotesContentHash(db)
+}
+
+// backfillNotesContentHash fills content_hash / content_changed_at /
+// first_indexed_at for every legacy row that lacks them, computing the hash from
+// the stored indexed columns and seeding both timestamps from the stored mtime.
+// It runs once, on the migration that adds the columns.
+func backfillNotesContentHash(db *sql.DB) error {
+	rows, err := db.Query("SELECT path, title, body, tags, frontmatter, mtime FROM notes WHERE content_hash IS NULL")
+	if err != nil {
+		return err
+	}
+	type row struct {
+		path  string
+		hash  string
+		mtime float64
+	}
+	var pending []row
+	for rows.Next() {
+		var path, title, body string
+		var tags, frontmatter sql.NullString
+		var mtime float64
+		if err := rows.Scan(&path, &title, &body, &tags, &frontmatter, &mtime); err != nil {
+			rows.Close()
+			return err
+		}
+		pending = append(pending, row{
+			path:  path,
+			hash:  contentHash(title, body, tags.String, frontmatter.String),
+			mtime: mtime,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(pending) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare("UPDATE notes SET content_hash = ?, content_changed_at = ?, first_indexed_at = ? WHERE path = ?")
+	if err != nil {
+		return err
+	}
+	for _, r := range pending {
+		if _, err := stmt.Exec(r.hash, r.mtime, r.mtime, r.path); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // schemaSQL defines the index: external-content FTS5 kept in sync by triggers.
 // The links.target_path index is intentionally absent here and created by
 // migrateLinksTargetPath instead: a legacy index.db predating Phase 0 has a
@@ -97,7 +225,10 @@ CREATE TABLE IF NOT EXISTS notes (
   body TEXT NOT NULL,
   tags TEXT,
   frontmatter TEXT,
-  mtime REAL NOT NULL
+  mtime REAL NOT NULL,
+  content_hash TEXT,
+  content_changed_at REAL,
+  first_indexed_at REAL
 );
 CREATE TABLE IF NOT EXISTS links (
   source_path TEXT NOT NULL,

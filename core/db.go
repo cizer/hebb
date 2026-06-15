@@ -23,10 +23,57 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateLinksTargetPath(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
+// migrateLinksTargetPath adds the nullable links.target_path column (and its
+// index) to an index.db created before Phase 0, so an existing index upgrades
+// in place without a forced rebuild. New databases already get the column from
+// schemaSQL, so this is a no-op for them. The column is the resolved canonical
+// note path for a wiki-link (NULL when dangling or ambiguous).
+func migrateLinksTargetPath(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(links)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasColumn := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "target_path" {
+			hasColumn = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !hasColumn {
+		if _, err := db.Exec("ALTER TABLE links ADD COLUMN target_path TEXT"); err != nil {
+			return err
+		}
+	}
+	// Idempotent: safe to run whether the column was just added or already present.
+	_, err = db.Exec("CREATE INDEX IF NOT EXISTS idx_links_target_path ON links(target_path)")
+	return err
+}
+
 // schemaSQL defines the index: external-content FTS5 kept in sync by triggers.
+// The links.target_path index is intentionally absent here and created by
+// migrateLinksTargetPath instead: a legacy index.db predating Phase 0 has a
+// links table without target_path, so CREATE TABLE IF NOT EXISTS is a no-op for
+// it and the column is added by the migration. Creating the index here would
+// reference a column that does not yet exist on such a database and fail before
+// the migration runs.
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS notes (
   path TEXT PRIMARY KEY,
@@ -39,6 +86,7 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE TABLE IF NOT EXISTS links (
   source_path TEXT NOT NULL,
   target TEXT NOT NULL,
+  target_path TEXT,
   PRIMARY KEY (source_path, target)
 );
 CREATE TABLE IF NOT EXISTS index_meta (

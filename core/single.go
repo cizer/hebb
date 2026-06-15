@@ -37,7 +37,16 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 		return err
 	}
 	for _, l := range n.Links {
-		if _, err := db.Exec(`INSERT OR IGNORE INTO links (source_path, target) VALUES (?, ?)`, rel, l); err != nil {
+		// The notes table already holds the full corpus on this incremental
+		// path, so each link is resolved against the live DB at write time.
+		// target_path is the canonical note path, or NULL when the target is
+		// dangling or ambiguous.
+		resolved, status := ResolveTargetDB(db, l)
+		var tp any
+		if status == Resolved {
+			tp = resolved
+		}
+		if _, err := db.Exec(`INSERT OR IGNORE INTO links (source_path, target, target_path) VALUES (?, ?, ?)`, rel, l, tp); err != nil {
 			return err
 		}
 	}

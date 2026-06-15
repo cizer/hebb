@@ -14,15 +14,15 @@ type ContextResult struct {
 	Snippet      string
 }
 
+// resolvePath maps a seed path or title to a canonical note path for the
+// context walk. It uses the same exact resolver as wiki-link resolution
+// (Phase 0) so the seed and the links it follows share one matching rule: exact
+// path, exact basename, then exact title. The previous substring `LIKE` fallback
+// is gone, since it could surface an unrelated note whose path merely contained
+// the seed string.
 func resolvePath(db *sql.DB, pathOrTitle string) string {
-	var p string
-	if db.QueryRow("SELECT path FROM notes WHERE path = ?", pathOrTitle).Scan(&p) == nil {
-		return p
-	}
-	if db.QueryRow("SELECT path FROM notes WHERE title = ?", pathOrTitle).Scan(&p) == nil {
-		return p
-	}
-	if db.QueryRow("SELECT path FROM notes WHERE path LIKE ?", "%"+pathOrTitle+"%").Scan(&p) == nil {
+	p, status := ResolveTargetDB(db, pathOrTitle)
+	if status == Resolved {
 		return p
 	}
 	return ""
@@ -31,9 +31,14 @@ func resolvePath(db *sql.DB, pathOrTitle string) string {
 type linkRow struct{ Path, Title, Snippet string }
 
 func outgoing(db *sql.DB, sourcePath string) []linkRow {
+	// Join on the resolved target_path written at index time (Phase 0) rather
+	// than a substring LIKE: resolution is now exact and computed once, so a
+	// link either points at one canonical note or is dangling. A NULL
+	// target_path (dangling or ambiguous) yields a NULL n.path and is skipped
+	// below, matching the existing dangling-link behaviour.
 	rows, err := db.Query(`SELECT l.target, n.path, n.title, substr(n.body,1,200)
 		FROM links l
-		LEFT JOIN notes n ON (n.path LIKE '%' || l.target || '.md' OR n.title = l.target)
+		LEFT JOIN notes n ON n.path = l.target_path
 		WHERE l.source_path = ?`, sourcePath)
 	if err != nil {
 		return nil

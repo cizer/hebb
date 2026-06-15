@@ -118,6 +118,16 @@ func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
 		removed++
 	}
 
+	// Pass 2: resolve every link's target_path now that all notes for this
+	// reindex are present in the transaction. A linked-to note may have been
+	// parsed after the file that links to it, so resolution must happen after
+	// the whole notes set is written, not per file in the loop above. The
+	// in-memory index is built once from the complete notes table and reused
+	// for every link. NULL target_path means dangling or ambiguous.
+	if err := resolveLinkTargets(tx); err != nil {
+		return IndexResult{}, err
+	}
+
 	// Record the moment the index was last walked end-to-end. vault_stats and
 	// doctor read this back to report freshness; it is written on every
 	// FullReindex (changed-only or forced) because both fully reconcile the walk

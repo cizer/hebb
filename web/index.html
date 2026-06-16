@@ -277,7 +277,13 @@
   .fr-detail { color: var(--muted); font-size: 12px; flex-basis: 100%; }
   .fr-open { margin-left: auto; color: var(--accent); font-size: 12px; opacity: 0; flex: none; white-space: nowrap; }
   .finding-row:hover .fr-open { opacity: 1; }
-  .g-more { font-size: 12px; color: var(--faint); padding: 10px 0 2px; }
+  .g-more { margin-top: 8px; }
+  .g-more > summary {
+    cursor: pointer; user-select: none; list-style: none;
+    font-size: 13px; color: var(--accent); padding: 6px 0 2px;
+  }
+  .g-more > summary::-webkit-details-marker { display: none; }
+  .g-more > summary:hover { text-decoration: underline; }
 
   /* structure / connection depth */
   .structure { margin-top: 32px; }
@@ -684,7 +690,7 @@
       const meta = metaFor(t);
       const rows = groups[t].slice().sort(meta.sort);
       const shown = rows.slice(0, FILES_PER_GROUP);
-      const extra = rows.length - shown.length;
+      const rest = rows.slice(FILES_PER_GROUP);
       work += '<details class="group" id="grp-' + t + '">'
         + '<summary>'
         +   '<span class="g-dot" style="background:' + meta.color + '"></span>'
@@ -696,7 +702,7 @@
         + '<div class="g-body">'
         +   (meta.how ? '<p class="g-how">' + escapeHtml(meta.how) + '</p>' : '')
         +   shown.map(findingRow).join('')
-        +   (extra > 0 ? '<div class="g-more">+ ' + extra + ' more not shown</div>' : '')
+        +   (rest.length ? '<details class="g-more"><summary>Show ' + rest.length + ' more</summary>' + rest.map(findingRow).join('') + '</details>' : '')
         + '</div>'
         + '</details>';
     }
@@ -805,7 +811,7 @@
   /* -------------------------------------------------------------- stats */
 
   function loadStats() {
-    fetch("/api/stats").then((r) => r.json()).then((s) => {
+    return fetch("/api/stats").then((r) => r.json()).then((s) => {
       vaultName = s.vaultName || vaultName;
       // Show the active vault name as a label unless the multi-vault switcher
       // has already rendered tabs.
@@ -855,8 +861,10 @@
   }
 
   loadVaults();
-  loadStats();
-  loadHealth();
+  // Load health only once the vault name is known, so each finding's
+  // obsidian:// link is built against the real vault, not the "vault"
+  // placeholder. loadHealth runs whether stats succeed or fail.
+  loadStats().then(loadHealth, loadHealth);
   restore();
 </script>
 </body>

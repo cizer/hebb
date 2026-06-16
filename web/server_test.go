@@ -109,8 +109,11 @@ func buildHealthFixtureVault(t *testing.T) (core.Config, *sql.DB) {
 }
 
 // TestHealthAPI asserts that GET /api/health returns 200 with a JSON body that
-// contains both "findings" and "stats" keys, and that a fixture vault with a
-// dangling link produces at least one finding.
+// contains both "findings" and "stats" keys, and that the fixture vault produces
+// at least one finding. The dashboard suppresses unresolved future-note links
+// (reportUnresolved=false, like the CLI default), so the unresolved
+// [[MissingTarget]] link is intentionally absent from the worklist; the aged
+// orphan note is what surfaces here.
 func TestHealthAPI(t *testing.T) {
 	cfg, db := buildHealthFixtureVault(t)
 	defer db.Close()
@@ -145,19 +148,21 @@ func TestHealthAPI(t *testing.T) {
 		t.Fatalf("unmarshal findings: %v", err)
 	}
 	if len(findings) == 0 {
-		t.Error("findings is empty; fixture vault should produce at least one dangling_link finding")
+		t.Error("findings is empty; fixture vault should produce at least one finding")
 	}
 
-	// At least one finding must be a dangling_link from the fixture vault.
+	// The aged orphan note must surface as an orphan finding. The unresolved
+	// [[MissingTarget]] link is suppressed by default (reportUnresolved=false),
+	// so the worklist is carried by the orphan, not a dangling_link.
 	found := false
 	for _, f := range findings {
-		if f["type"] == "dangling_link" {
+		if f["type"] == "orphan" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("no dangling_link finding in response; got: %v", findings)
+		t.Errorf("no orphan finding in response; got: %v", findings)
 	}
 }
 

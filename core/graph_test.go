@@ -292,10 +292,11 @@ func TestDetectOrphans_OldOrphanInConnectiveFlaggedRH(t *testing.T) {
 	cfg, db := buildGraphVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	result, err := RunHealthFull(cfg, db, false)
 	if err != nil {
-		t.Fatalf("RunHealth: %v", err)
+		t.Fatalf("RunHealthFull: %v", err)
 	}
+	findings := result.Findings
 
 	var found bool
 	for _, f := range findings {
@@ -323,10 +324,11 @@ func TestDetectOrphans_FreshOrphanNotFlaggedAsOrphan(t *testing.T) {
 	cfg, db := buildGraphVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	result, err := RunHealthFull(cfg, db, false)
 	if err != nil {
-		t.Fatalf("RunHealth: %v", err)
+		t.Fatalf("RunHealthFull: %v", err)
 	}
+	findings := result.Findings
 
 	for _, f := range findings {
 		if f.Path == "2-Areas/FreshOrphan.md" {
@@ -356,10 +358,11 @@ func TestDetectOrphans_JournalOrphanNeverFlagged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := RunHealth(cfg, db)
+	result, err := RunHealthFull(cfg, db, false)
 	if err != nil {
-		t.Fatalf("RunHealth: %v", err)
+		t.Fatalf("RunHealthFull: %v", err)
 	}
+	findings := result.Findings
 
 	for _, f := range findings {
 		if f.Path == "Journal/JournalOrphan.md" {
@@ -374,10 +377,11 @@ func TestDetectIslands_ResourcesIslandFlagged(t *testing.T) {
 	cfg, db := buildGraphVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	result, err := RunHealthFull(cfg, db, false)
 	if err != nil {
-		t.Fatalf("RunHealth: %v", err)
+		t.Fatalf("RunHealthFull: %v", err)
 	}
+	findings := result.Findings
 
 	var islandFindings []Finding
 	for _, f := range findings {
@@ -409,10 +413,11 @@ func TestDetectIslands_ArchivedIslandNotFlagged(t *testing.T) {
 	cfg, db := buildGraphVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	result, err := RunHealthFull(cfg, db, false)
 	if err != nil {
-		t.Fatalf("RunHealth: %v", err)
+		t.Fatalf("RunHealthFull: %v", err)
 	}
+	findings := result.Findings
 
 	for _, f := range findings {
 		if f.Type == "island" && strings.Contains(f.Detail, "Arch") {
@@ -680,10 +685,11 @@ func TestDetectIslands_OldOrphanNotAlsoIsland(t *testing.T) {
 	cfg, db := buildGraphVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	result, err := RunHealthFull(cfg, db, false)
 	if err != nil {
-		t.Fatalf("RunHealth: %v", err)
+		t.Fatalf("RunHealthFull: %v", err)
 	}
+	findings := result.Findings
 
 	var sawOrphan, sawIsland bool
 	for _, f := range findings {

@@ -20,6 +20,18 @@ roadmap for building the pipeline lives in [PLAN.md](PLAN.md) (Phase 4).
    production-like acceptance stage runs only once the fast stage is green.
 6. **Secure by default.** No secrets in the repo; release credentials live only
    in CI secrets.
+7. **Migrate the index in place; never break an old vault.** A vault's
+   `index.db` is the one piece of on-disk state coupled to the binary version.
+   Every index-schema change MUST ship an idempotent migration in `OpenDB`
+   (see `migrateLinksTargetPath`, `migrateNotesContentChange`): check for the
+   column/table via `PRAGMA table_info`, add it if absent, backfill on the
+   upgrade path only, and no-op on a fresh DB and on every later open. A new
+   binary then upgrades an old vault lazily the first time it opens the index,
+   with no forced rebuild. There is no schema-version guard that would catch a
+   *forgotten* migration, so a missing one is a silent break: a migration test
+   that opens a fixture DB built on the prior schema is required for any schema
+   change. A future `PRAGMA user_version` guard that fails loudly on an
+   un-migrated DB would harden this.
 
 ## Current layers
 

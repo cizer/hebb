@@ -97,6 +97,16 @@ func updateCmd(version string) *cobra.Command {
 			if err := refresh.Run(); err != nil {
 				fmt.Fprintln(out, "note: couldn't refresh skills automatically; run 'hebb install' (and 'hebb codex') to update them")
 			}
+			// Restart the running web services onto the new binary (the KeepAlive
+			// launchd job otherwise keeps the old inode). Best-effort and a no-op
+			// off launchd; scheduled jobs re-exec on their next run.
+			if restarted, rerr := install.RestartServices(); rerr != nil {
+				fmt.Fprintf(out, "note: couldn't restart services automatically (%v); run 'hebb restart-services'\n", rerr)
+			} else {
+				for _, label := range restarted {
+					fmt.Fprintf(out, "  %-16s %s\n", "restarted", label)
+				}
+			}
 			fmt.Fprintln(out, "skills also ship via the Claude Code plugin: run '/plugin update' to match.")
 			fmt.Fprintln(out, "re-run 'hebb install' in a vault to refresh its launchd jobs and automation.")
 			return nil

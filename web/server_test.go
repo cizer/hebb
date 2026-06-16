@@ -264,3 +264,15 @@ func TestHostGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestObsidianURIEncodesSpacesNotPlus(t *testing.T) {
+	got := obsidianURI("1-Projects/Aurora Overview.md", "My Vault")
+	if strings.Contains(got, "+") {
+		t.Errorf("obsidian URI must not use '+' for spaces (breaks the obsidian:// handler): %s", got)
+	}
+	for _, want := range []string{"vault=My%20Vault", "file=1-Projects%2FAurora%20Overview"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("obsidian URI %q missing %q", got, want)
+		}
+	}
+}

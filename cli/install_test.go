@@ -12,6 +12,9 @@ import (
 // returns combined output. A temp --home keeps the run hermetic.
 func runInstall(t *testing.T, vault string, extra ...string) string {
 	t.Helper()
+	// Keep the machine-global vault registry write hermetic (install registers
+	// the vault under $XDG_CONFIG_HOME).
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	root := newRoot("test")
 	var buf bytes.Buffer
 	root.SetOut(&buf)

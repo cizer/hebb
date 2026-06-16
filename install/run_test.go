@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+
+	"github.com/cizer/hebb/core"
 )
 
 func TestRunWiresEverythingLocal(t *testing.T) {
@@ -39,6 +41,40 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	}
 	if statusOf(rep, "memory") != "symlinked" {
 		t.Errorf("memory step = %q, want symlinked", statusOf(rep, "memory"))
+	}
+}
+
+func TestRunRegistersVault(t *testing.T) {
+	vault := t.TempDir()
+	registry := filepath.Join(t.TempDir(), "vaults.toml")
+
+	rep, err := Run(Options{
+		VaultPath:    vault,
+		MCPName:      DefaultMCPServerName,
+		MCPCommand:   DefaultMCPCommand,
+		RegistryPath: registry,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if statusOf(rep, "registry") != "registered" {
+		t.Errorf("expected a registry step, got steps %+v", rep.Steps)
+	}
+	r, err := core.LoadRegistry(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Vaults) != 1 || r.Vaults[0].Name != filepath.Base(vault) {
+		t.Fatalf("vault not registered: %+v", r.Vaults)
+	}
+
+	// Empty RegistryPath skips registration entirely.
+	rep2, err := Run(Options{VaultPath: t.TempDir(), MCPName: DefaultMCPServerName, MCPCommand: DefaultMCPCommand})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusOf(rep2, "registry") != "" {
+		t.Error("registration should be skipped when RegistryPath is empty")
 	}
 }
 

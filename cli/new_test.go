@@ -15,6 +15,7 @@ import (
 // does not depend on the embedded assets being current.
 func runNew(t *testing.T, target string, extra ...string) string {
 	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // keep the registry write hermetic
 	assetRoot := repoRoot(t)
 	root := newRoot("test")
 	var buf bytes.Buffer

@@ -23,6 +23,10 @@ type Options struct {
 	MCPJSON    bool   // if true, write a per-vault .mcp.json + settings (plugin-less wiring)
 	SkipSkills bool   // if true, do not install agent skills into ~/.claude/skills
 
+	// RegistryPath is the machine-global vault registry to register this vault
+	// in (so one web server can enumerate it). Empty skips registration.
+	RegistryPath string
+
 	// Agent config paths, used only by Doctor to re-verify wiring drift
 	// read-only. Empty means "use the conventional default under Home"; when
 	// that default file is absent the check stays silent (never-wired is silent).
@@ -55,6 +59,21 @@ func Run(opts Options) (Report, error) {
 	rep, err := VaultLocal(opts.VaultPath)
 	if err != nil {
 		return rep, err
+	}
+
+	// Register the vault in the machine-global registry so one web server can
+	// enumerate and switch between vaults. Idempotent; skipped when no registry
+	// path is given (e.g. a vault-local-only run).
+	if opts.RegistryPath != "" {
+		vc, _, _ := core.LoadVaultConfig(opts.VaultPath)
+		name := vc.Name
+		if name == "" {
+			name = filepath.Base(opts.VaultPath)
+		}
+		if err := core.RegisterVault(opts.RegistryPath, name, opts.VaultPath); err != nil {
+			return rep, err
+		}
+		rep.add("registry", "registered")
 	}
 
 	if opts.MCPJSON {

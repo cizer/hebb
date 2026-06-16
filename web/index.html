@@ -195,6 +195,14 @@
     border-radius: 10px; padding: 1px 8px; font-size: 12px; font-weight: 500;
     text-transform: none; letter-spacing: 0;
   }
+  .worklist-desc {
+    font-size: 13px; color: var(--muted); margin: 0 0 10px; line-height: 18px;
+  }
+  .worklist-more > summary {
+    cursor: pointer; font-size: 13px; color: var(--accent);
+    padding: 6px 0 2px; list-style: none; user-select: none;
+  }
+  .worklist-more > summary:hover { text-decoration: underline; }
 
   .finding-row {
     display: block; text-decoration: none; color: inherit;
@@ -451,16 +459,19 @@
   const findingTypeMeta = {
     dangling_link: {
       label: "Dangling links",
+      desc: "A [[wiki-link]] whose target note does not exist. Create the note or fix the link.",
       // Rank alphabetically by source path: all dangling links are equally
       // urgent -- there is no honest proxy to order them further.
       sort: (a, b) => a.path.localeCompare(b.path),
     },
     para_drift: {
       label: "PARA drift",
+      desc: "A note under 1-Projects/ untouched for a long time: likely a finished or abandoned project to archive.",
       sort: (a, b) => a.path.localeCompare(b.path),
     },
     oversized: {
       label: "Oversized notes",
+      desc: "A long, multi-section note that may be worth splitting into smaller, focused notes.",
       // The detail string contains "~N tokens"; rank by that number descending
       // (largest split candidate first). Fall back to path if not parseable.
       sort: (a, b) => {
@@ -470,6 +481,7 @@
     },
     orphan: {
       label: "Orphans",
+      desc: "A note nothing links to and that links to nothing: cut off from the rest of the graph.",
       // Detail contains "age N days"; rank by age descending (oldest first).
       sort: (a, b) => {
         const age = (d) => { const m = d.detail.match(/age\s+(\d+)\s+days/); return m ? parseInt(m[1], 10) : 0; };
@@ -478,6 +490,7 @@
     },
     leaf: {
       label: "Leaves (single link)",
+      desc: "A note with just one link: weakly connected. Consider linking it to related notes.",
       sort: (a, b) => {
         const age = (d) => { const m = d.detail.match(/age\s+(\d+)\s+days/); return m ? parseInt(m[1], 10) : 0; };
         return age(b) - age(a);
@@ -485,6 +498,7 @@
     },
     island: {
       label: "Isolated clusters",
+      desc: "A small group of notes linked only to each other, disconnected from the main graph.",
       // Detail contains "isolated cluster of N"; rank by cluster size descending.
       sort: (a, b) => {
         const sz = (d) => { const m = d.detail.match(/cluster of\s+(\d+)/); return m ? parseInt(m[1], 10) : 0; };
@@ -493,6 +507,10 @@
     },
   };
 
+  // How many findings to show per group before collapsing the rest behind a
+  // "show more" line, so a big vault's worklist stays scannable.
+  const FINDINGS_PER_GROUP = 8;
+
   // typeOrder drives the display order of finding groups in the worklist. Types
   // not in this list fall through to the end, sorted by type string.
   const typeOrder = ["dangling_link", "para_drift", "oversized", "orphan", "leaf", "island"];
@@ -500,77 +518,71 @@
   function renderHealth(data) {
     const findings = data.findings || [];
     const stats = data.stats || {};
+    const num = (n) => (n || 0).toLocaleString("en-GB");
 
     let html = "";
 
-    /* -- worklist section -------------------------------------------- */
-    html += '<p class="section-heading">Worklist</p>';
-
-    if (findings.length === 0) {
-      html += '<div class="health-empty"><b>Clean vault.</b> No findings to action.</div>';
-    } else {
-      // Group findings by type.
-      const groups = {};
-      for (const f of findings) {
-        if (!groups[f.type]) groups[f.type] = [];
-        groups[f.type].push(f);
-      }
-
-      // Sort the types into the canonical display order.
-      const sortedTypes = Object.keys(groups).sort((a, b) => {
-        const ia = typeOrder.indexOf(a), ib = typeOrder.indexOf(b);
-        if (ia === -1 && ib === -1) return a.localeCompare(b);
-        if (ia === -1) return 1;
-        if (ib === -1) return -1;
-        return ia - ib;
-      });
-
-      for (const type of sortedTypes) {
-        const rows = groups[type];
-        const meta = findingTypeMeta[type] || { label: type, sort: (a, b) => a.path.localeCompare(b.path) };
-
-        // Apply the per-type sort.
-        rows.sort(meta.sort);
-
-        html += '<div class="worklist-section">';
-        html += '<div class="worklist-header">'
-          + escapeHtml(meta.label)
-          + ' <span class="worklist-count">' + rows.length + '</span>'
-          + '</div>';
-
-        for (const f of rows) {
-          const crumb = breadcrumb(f.path);
-          const name = noteName(f.path);
-          const href = obsidianLink(f.path);
-          html +=
-            '<a class="finding-row" href="' + escapeHtml(href) + '">' +
-              '<div class="finding-crumb">' + escapeHtml(crumb) + '</div>' +
-              '<div class="finding-path">' + escapeHtml(name) + '</div>' +
-              '<div class="finding-detail">' + escapeHtml(f.detail) + '</div>' +
-            '</a>';
-        }
-        html += '</div>';
-      }
-    }
-
-    /* -- structural metric tiles (context, below the fold) ----------- */
-    html += '<p class="section-heading" style="margin-top:32px">Structural metrics</p>';
+    /* -- summary metrics, at the top for an at-a-glance read --------- */
+    html += '<p class="section-heading">Vault at a glance</p>';
     html += '<p class="section-sub">Graph topology from the resolved link index. No single composite score.</p>';
     html += '<div class="metric-tiles">';
-
-    const edgeCount = stats.edge_count || 0;
-    const compCount = stats.component_count || 0;
-    const giantRatio = stats.giant_ratio || 0;
-    const maxCore = stats.max_core || 0;
-
-    html += tile("Links", edgeCount.toLocaleString("en-GB"));
-    html += tile("Components", compCount.toLocaleString("en-GB"));
-    html += tile("Giant ratio", (giantRatio * 100).toFixed(1) + "%",
-                 "Fraction of notes in the largest connected cluster");
-    html += tile("Max k-core", maxCore,
-                 "Highest structural coreness (depth in the link graph)");
-
+    html += tile("Notes", num(stats.node_count), "Indexed markdown notes");
+    html += tile("Links", num(stats.edge_count), "Resolved wiki-links between notes");
+    html += tile("Components", num(stats.component_count), "Disconnected clusters in the link graph");
+    html += tile("Giant ratio", ((stats.giant_ratio || 0) * 100).toFixed(1) + "%", "Share of notes in the largest cluster");
+    html += tile("Max k-core", stats.max_core || 0, "Densest core depth in the link graph");
     html += '</div>';
+
+    /* -- worklist: grouped, explained, and capped per group ---------- */
+    html += '<p class="section-heading" style="margin-top:32px">Worklist</p>';
+    if (findings.length === 0) {
+      html += '<div class="health-empty"><b>Clean vault.</b> No findings to action.</div>';
+      healthContent.innerHTML = html;
+      return;
+    }
+    html += '<p class="section-sub">' + findings.length + ' finding' + (findings.length === 1 ? "" : "s")
+      + ' to review, grouped by type. Each links to the note in Obsidian.</p>';
+
+    const groups = {};
+    for (const f of findings) {
+      if (!groups[f.type]) groups[f.type] = [];
+      groups[f.type].push(f);
+    }
+    const sortedTypes = Object.keys(groups).sort((a, b) => {
+      const ia = typeOrder.indexOf(a), ib = typeOrder.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    const rowHtml = (f) =>
+      '<a class="finding-row" href="' + escapeHtml(obsidianLink(f.path)) + '">' +
+        '<div class="finding-crumb">' + escapeHtml(breadcrumb(f.path)) + '</div>' +
+        '<div class="finding-path">' + escapeHtml(noteName(f.path)) + '</div>' +
+        '<div class="finding-detail">' + escapeHtml(f.detail) + '</div>' +
+      '</a>';
+
+    for (const type of sortedTypes) {
+      const rows = groups[type];
+      const meta = findingTypeMeta[type] || { label: type, sort: (a, b) => a.path.localeCompare(b.path) };
+      rows.sort(meta.sort);
+
+      html += '<div class="worklist-section">';
+      html += '<div class="worklist-header">' + escapeHtml(meta.label)
+        + ' <span class="worklist-count">' + rows.length + '</span></div>';
+      if (meta.desc) html += '<p class="worklist-desc">' + escapeHtml(meta.desc) + '</p>';
+
+      for (const f of rows.slice(0, FINDINGS_PER_GROUP)) html += rowHtml(f);
+
+      const rest = rows.slice(FINDINGS_PER_GROUP);
+      if (rest.length) {
+        html += '<details class="worklist-more"><summary>Show ' + rest.length + ' more</summary>';
+        for (const f of rest) html += rowHtml(f);
+        html += '</details>';
+      }
+      html += '</div>';
+    }
 
     healthContent.innerHTML = html;
   }

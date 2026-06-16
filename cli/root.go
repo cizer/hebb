@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/cizer/hebb/core"
+	"github.com/cizer/hebb/install"
 	hebbmcp "github.com/cizer/hebb/mcp"
 	hebbweb "github.com/cizer/hebb/web"
 	"github.com/spf13/cobra"
@@ -135,21 +136,78 @@ func serveCmd() *cobra.Command {
 	var port int
 	c := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve the local web search UI",
+		Short: "Serve the local web UI for all vaults on one port (switchable)",
+		Long: "Serve the search and health UI on one loopback port for every vault hebb\n" +
+			"knows about (the current vault plus the machine registry), switchable in\n" +
+			"the UI. One server on one port, so multiple vaults never collide.",
 		RunE: func(*cobra.Command, []string) error {
-			cfg, err := core.ResolveVault(flagVault, flagDB)
+			targets, err := buildServeTargets()
 			if err != nil {
 				return err
 			}
-			name := os.Getenv("HEBB_VAULT_NAME")
-			if name == "" {
-				name = filepath.Base(cfg.VaultPath)
-			}
-			return hebbweb.Serve(cfg, port, name)
+			return hebbweb.ServeMulti(targets, port)
 		},
 	}
 	c.Flags().IntVar(&port, "port", defaultWebPort(), "port (default 4321, or $HEBB_WEB_PORT)")
 	return c
+}
+
+// buildServeTargets assembles the vaults to serve: the current vault (if one
+// resolves, listed first so it is the default selection) plus every registered
+// vault, de-duplicated by path. Stale registry entries (vault gone) are skipped.
+func buildServeTargets() ([]hebbweb.VaultTarget, error) {
+	var targets []hebbweb.VaultTarget
+	seenPath := map[string]bool{}
+	usedSlug := map[string]bool{}
+	add := func(cfg core.Config, name string) {
+		if seenPath[cfg.VaultPath] {
+			return
+		}
+		seenPath[cfg.VaultPath] = true
+		base := install.Slugify(name)
+		if base == "" {
+			base = "vault"
+		}
+		slug := base
+		for i := 2; usedSlug[slug]; i++ {
+			slug = fmt.Sprintf("%s-%d", base, i)
+		}
+		usedSlug[slug] = true
+		targets = append(targets, hebbweb.VaultTarget{Slug: slug, Name: name, Cfg: cfg})
+	}
+
+	if cfg, err := core.ResolveVault(flagVault, flagDB); err == nil {
+		add(cfg, vaultDisplayName(cfg))
+	}
+	home, _ := os.UserHomeDir()
+	reg, _ := core.LoadRegistry(core.RegistryPath(home))
+	for _, ref := range reg.Vaults {
+		cfg, err := core.ResolveVault(ref.Path, "")
+		if err != nil {
+			continue
+		}
+		name := ref.Name
+		if name == "" {
+			name = vaultDisplayName(cfg)
+		}
+		add(cfg, name)
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("no vaults to serve: run 'hebb install' in a vault first")
+	}
+	return targets, nil
+}
+
+// vaultDisplayName is the vault's configured name, falling back to its directory
+// name. $HEBB_VAULT_NAME overrides (back-compat with the old single-vault serve).
+func vaultDisplayName(cfg core.Config) string {
+	if n := os.Getenv("HEBB_VAULT_NAME"); n != "" {
+		return n
+	}
+	if vc, existed, err := core.LoadVaultConfig(cfg.VaultPath); err == nil && existed && vc.Name != "" {
+		return vc.Name
+	}
+	return filepath.Base(cfg.VaultPath)
 }
 
 func defaultWebPort() int {

@@ -255,6 +255,7 @@
       <div class="wordmark" id="wordmark" title="Clear search">
         <span class="b">h</span><span class="r">e</span><span class="y">b</span><span class="g">b</span>
       </div>
+      <select id="vault-select" class="vault-select" aria-label="Vault" style="display:none"></select>
       <div class="searchbar">
         <div class="box" id="box">
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
@@ -643,6 +644,32 @@
     }
   }
 
+  // Multi-vault switcher: populate the picker from /api/vaults and show it only
+  // when more than one vault is served. Absent endpoint (single-vault server) or
+  // a single vault leaves it hidden. Changing it pins the vault via a cookie.
+  function loadVaults() {
+    fetch("/api/vaults")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d || !d.vaults || d.vaults.length < 2) return;
+        const sel = document.getElementById("vault-select");
+        sel.innerHTML = "";
+        for (const v of d.vaults) {
+          const o = document.createElement("option");
+          o.value = v.slug;
+          o.textContent = v.name;
+          if (v.slug === d.active) o.selected = true;
+          sel.appendChild(o);
+        }
+        sel.style.display = "";
+        sel.addEventListener("change", () => {
+          location.href = "/?vault=" + encodeURIComponent(sel.value);
+        });
+      })
+      .catch(() => {});
+  }
+
+  loadVaults();
   loadStats();
   restore();
   qInput.focus();

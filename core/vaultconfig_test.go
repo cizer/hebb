@@ -522,6 +522,115 @@ func TestGeneratedConfigDocumentsNotify(t *testing.T) {
 	}
 }
 
+// TestHealthConfigReportUnresolvedDefault proves report_unresolved_links
+// defaults to false (unresolved links are expected future notes, not errors).
+func TestHealthConfigReportUnresolvedDefault(t *testing.T) {
+	if (HealthConfig{}).ReportUnresolvedLinks {
+		t.Error("absent [health]: ReportUnresolvedLinks = true, want false (default off)")
+	}
+}
+
+// TestHealthConfigAttachmentExtensionsDefault proves the accessor returns the
+// built-in attachment extension list when the config leaves it empty.
+func TestHealthConfigAttachmentExtensionsDefault(t *testing.T) {
+	got := (HealthConfig{}).GetAttachmentExtensions()
+	if len(got) == 0 {
+		t.Fatal("GetAttachmentExtensions() on empty config returned no defaults")
+	}
+	want := map[string]bool{}
+	for _, e := range got {
+		want[e] = true
+	}
+	for _, ext := range []string{"png", "pdf", "pptx", "canvas", "excalidraw"} {
+		if !want[ext] {
+			t.Errorf("default attachment extensions missing %q; got %v", ext, got)
+		}
+	}
+}
+
+// TestHealthConfigAttachmentExtensionsCustom proves a configured list overrides
+// the default rather than being merged with it.
+func TestHealthConfigAttachmentExtensionsCustom(t *testing.T) {
+	hc := HealthConfig{AttachmentExtensions: []string{"xyz"}}
+	got := hc.GetAttachmentExtensions()
+	if len(got) != 1 || got[0] != "xyz" {
+		t.Errorf("GetAttachmentExtensions() = %v, want [xyz] (config overrides default)", got)
+	}
+}
+
+// TestHealthConfigParsesFromTOML proves the new [health] keys parse from TOML.
+func TestHealthConfigParsesFromTOML(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[health]
+report_unresolved_links = true
+attachment_extensions = ["png", "pdf"]
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if !got.Health.ReportUnresolvedLinks {
+		t.Error("[health] report_unresolved_links = false, want true")
+	}
+	if !reflect.DeepEqual(got.Health.AttachmentExtensions, []string{"png", "pdf"}) {
+		t.Errorf("attachment_extensions = %v, want [png pdf]", got.Health.AttachmentExtensions)
+	}
+}
+
+// TestHealthConfigSaveRoundTrip proves the [health] block survives Save/Load.
+func TestHealthConfigSaveRoundTrip(t *testing.T) {
+	vault := t.TempDir()
+	want := DefaultVaultConfig("RT")
+	want.Health = HealthConfig{
+		ProjectStaleDays:      30,
+		SizeThreshold:         500,
+		ReportUnresolvedLinks: true,
+		AttachmentExtensions:  []string{"png", "pdf"},
+	}
+	if err := want.Save(vault); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if !got.Health.ReportUnresolvedLinks {
+		t.Error("round-trip report_unresolved_links = false, want true")
+	}
+	if !reflect.DeepEqual(got.Health.AttachmentExtensions, want.Health.AttachmentExtensions) {
+		t.Errorf("round-trip attachment_extensions = %v, want %v",
+			got.Health.AttachmentExtensions, want.Health.AttachmentExtensions)
+	}
+}
+
+// TestGeneratedConfigDocumentsHealth proves Save documents the new [health]
+// keys in the generated config.toml header comment.
+func TestGeneratedConfigDocumentsHealth(t *testing.T) {
+	vault := t.TempDir()
+	vc := DefaultVaultConfig("Docs")
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(vault, ".hebb", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(b)
+	for _, want := range []string{"[health]", "report_unresolved_links", "attachment_extensions"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated config.toml missing %q in commented defaults", want)
+		}
+	}
+}
+
 func TestResolveVaultHonorsConfigExcludeDirs(t *testing.T) {
 	vault := t.TempDir()
 	vc := DefaultVaultConfig("T")

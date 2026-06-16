@@ -30,8 +30,9 @@ type Finding struct {
 	Severity string `json:"severity"`
 }
 
-// HealthResult is the full output of RunHealth: the findings worklist and the
-// structural graph-health summary produced by Phase 2a.
+// HealthResult is the full output of RunHealthFull: the findings worklist, the
+// structural graph-health summary produced by Phase 2a, and the count of
+// unresolved links that were suppressed.
 type HealthResult struct {
 	// Findings is the advisory worklist of vault-content issues. All Phase 1
 	// and Phase 2a detectors contribute here.
@@ -40,28 +41,30 @@ type HealthResult struct {
 	// components, giant-component ratio, k-core maximum). Populated even when
 	// Findings is empty.
 	Stats GraphStats
+	// SuppressedUnresolved is the count of unresolved wiki-links (links to a note
+	// that does not exist) that were counted but not listed because unresolved
+	// reporting was off. It lets the caller surface "N unresolved links" without
+	// listing each one, so the suppression is visible rather than silent. When
+	// reporting is on the count is zero (the links are in Findings instead).
+	SuppressedUnresolved int
 }
 
-// RunHealth runs all vault-health detectors (Phase 1 and Phase 2a) over the
+// RunHealthFull runs all vault-health detectors (Phase 1 and Phase 2a) over the
 // given index and returns the collected findings together with the structural
-// graph summary. It is deterministic and read-only: it never writes to the
-// vault files or the index database. The order of findings within a detector is
-// determined by the database sort order (stable across runs on the same index).
-func RunHealth(cfg Config, db *sql.DB) ([]Finding, error) {
-	result, err := RunHealthFull(cfg, db)
-	if err != nil {
-		return nil, err
-	}
-	return result.Findings, nil
-}
-
-// RunHealthFull is the full form of RunHealth that also returns the graph stats.
-// CLI callers that need the structural summary line should use this; the
-// original RunHealth signature is preserved for backwards compatibility.
-func RunHealthFull(cfg Config, db *sql.DB) (HealthResult, error) {
+// graph summary and the suppressed-unresolved count. It is deterministic and
+// read-only: it never writes to the vault files or the index database. The order
+// of findings within a detector is determined by the database sort order (stable
+// across runs on the same index).
+//
+// reportUnresolved is the effective setting for listing unresolved wiki-links
+// (a link to a note that does not exist). When false (the default; an Obsidian
+// "unresolved link" is usually an intentional future note, not an error) such
+// links are counted into HealthResult.SuppressedUnresolved rather than listed.
+// Ambiguous links and attachment/folder classification are unaffected by it.
+func RunHealthFull(cfg Config, db *sql.DB, reportUnresolved bool) (HealthResult, error) {
 	var all []Finding
 
-	dl, err := detectDanglingLinks(db)
+	dl, suppressed, err := detectDanglingLinks(cfg, db, reportUnresolved)
 	if err != nil {
 		return HealthResult{}, fmt.Errorf("dangling-link detector: %w", err)
 	}
@@ -121,18 +124,32 @@ func RunHealthFull(cfg Config, db *sql.DB) (HealthResult, error) {
 		}
 	}
 
-	return HealthResult{Findings: all, Stats: stats}, nil
+	return HealthResult{Findings: all, Stats: stats, SuppressedUnresolved: suppressed}, nil
 }
 
 // detectDanglingLinks finds every links row whose target_path is NULL and
-// classifies it by re-running the resolver. A NULL target_path is written by the
-// Phase 0 resolver either because no note matched the raw target (Dangling) or
-// because more than one note matched (Ambiguous). The two are distinct
-// data-quality problems, so they are surfaced as distinct finding types with
-// accurate wording: a dangling link must gain a target, an ambiguous one must be
-// disambiguated. Re-running the resolver here keeps the detector read-only: it
-// reads the notes table to classify but writes nothing.
-func detectDanglingLinks(db *sql.DB) ([]Finding, error) {
+// classifies it to match Obsidian's link semantics. A NULL target_path is
+// written by the Phase 0 resolver when the raw target matched no note (dangling)
+// or more than one (ambiguous). Before treating either as a finding, the
+// detector excludes link targets that are not note links at all, then sorts the
+// remainder. Classification order, on the canonical raw target (everything
+// before the first '#' or '^', trimmed):
+//
+//  1. ATTACHMENT: the target ends with a known attachment extension (.png, .pdf,
+//     ...). hebb does not index non-note files, so it cannot judge them broken;
+//     these are excluded entirely.
+//  2. FOLDER: the raw target ends with '/', or names an existing directory under
+//     the vault. A folder/MOC link is not a note link; excluded.
+//  3. AMBIGUOUS: 2+ case-insensitive note matches. A real data-quality issue,
+//     reported by default as an ambiguous_link.
+//  4. DANGLING: no note matches. This is an Obsidian "unresolved link", usually
+//     an intentional future note. Reported as a per-link dangling_link only when
+//     reportUnresolved is true; otherwise counted (returned suppressed) but not
+//     listed.
+//
+// Re-running the resolver here keeps the detector read-only: it reads the notes
+// table to classify but writes nothing.
+func detectDanglingLinks(cfg Config, db *sql.DB, reportUnresolved bool) ([]Finding, int, error) {
 	rows, err := db.Query(`
 		SELECT source_path, target
 		FROM links
@@ -140,7 +157,7 @@ func detectDanglingLinks(db *sql.DB) ([]Finding, error) {
 		ORDER BY source_path, target
 	`)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	type nullLink struct{ source, target string }
 	var links []nullLink
@@ -156,35 +173,108 @@ func detectDanglingLinks(db *sql.DB) ([]Finding, error) {
 		return rows.Err()
 	}()
 	if scanErr != nil {
-		return nil, scanErr
+		return nil, 0, scanErr
 	}
 	if len(links) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// Build the in-memory index once so classification is one notes scan, not one
 	// query per NULL link.
 	ix, err := loadNoteIndex(db)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
+	attachmentExts := attachmentExtSet(cfg.Health.GetAttachmentExtensions())
+
 	var findings []Finding
+	suppressed := 0
 	for _, l := range links {
-		_, status := ix.resolve(l.target)
-		f := Finding{Path: l.source, Severity: "warn"}
-		if status == Ambiguous {
-			f.Type = "ambiguous_link"
-			f.Detail = fmt.Sprintf("[[%s]] is ambiguous (matches multiple notes)", l.target)
-		} else {
-			// Resolved is not possible here (target_path would be non-NULL on the
-			// current graph); treat anything that is not Ambiguous as dangling.
-			f.Type = "dangling_link"
-			f.Detail = fmt.Sprintf("[[%s]] resolves to no note", l.target)
+		canon := canonicalLinkTarget(l.target)
+
+		// (1) Attachment links are not note links: exclude entirely.
+		if isAttachmentTarget(canon, attachmentExts) {
+			continue
 		}
-		findings = append(findings, f)
+		// (2) Folder links (trailing slash or an existing directory) are not note
+		// links: exclude.
+		if isFolderTarget(cfg, l.target, canon) {
+			continue
+		}
+
+		// (3)/(4) Re-run the resolver to tell ambiguous from genuinely unresolved.
+		_, status := ix.resolve(l.target)
+		if status == Ambiguous {
+			findings = append(findings, Finding{
+				Type:     "ambiguous_link",
+				Path:     l.source,
+				Detail:   fmt.Sprintf("[[%s]] is ambiguous (matches multiple notes)", l.target),
+				Severity: "warn",
+			})
+			continue
+		}
+		// Unresolved (Obsidian "unresolved link"). Resolved is not possible here
+		// (target_path would be non-NULL on the current graph).
+		if !reportUnresolved {
+			suppressed++
+			continue
+		}
+		findings = append(findings, Finding{
+			Type:     "dangling_link",
+			Path:     l.source,
+			Detail:   fmt.Sprintf("[[%s]] resolves to no note", l.target),
+			Severity: "warn",
+		})
 	}
-	return findings, nil
+	return findings, suppressed, nil
+}
+
+// canonicalLinkTarget strips a wiki-link target down to the text used for
+// classification and resolution: everything before the first '#' (heading
+// fragment) or '^' (block reference), trimmed. canonicalTarget (links.go) only
+// strips '#'; the leading-'^' block-ref form is handled here so an attachment or
+// folder classification is not fooled by a trailing block reference.
+func canonicalLinkTarget(raw string) string {
+	t := canonicalTarget(raw)
+	if i := strings.IndexByte(t, '^'); i != -1 {
+		t = t[:i]
+	}
+	return strings.TrimSpace(t)
+}
+
+// attachmentExtSet builds a lowercased lookup set from the configured extension
+// list (each without a leading dot).
+func attachmentExtSet(exts []string) map[string]bool {
+	set := make(map[string]bool, len(exts))
+	for _, e := range exts {
+		set[strings.ToLower(strings.TrimPrefix(e, "."))] = true
+	}
+	return set
+}
+
+// isAttachmentTarget reports whether the canonical target ends with one of the
+// configured attachment extensions (case-insensitively).
+func isAttachmentTarget(canon string, exts map[string]bool) bool {
+	dot := strings.LastIndexByte(canon, '.')
+	if dot < 0 || dot == len(canon)-1 {
+		return false
+	}
+	return exts[strings.ToLower(canon[dot+1:])]
+}
+
+// isFolderTarget reports whether the link points at a folder rather than a note:
+// the raw target ends with '/', or the canonical target names an existing
+// directory under the vault. The directory check is read-only.
+func isFolderTarget(cfg Config, raw, canon string) bool {
+	if strings.HasSuffix(strings.TrimSpace(raw), "/") {
+		return true
+	}
+	if canon == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(cfg.VaultPath, filepath.FromSlash(canon)))
+	return err == nil && info.IsDir()
 }
 
 // doneStatuses is the set of frontmatter status values that indicate a project

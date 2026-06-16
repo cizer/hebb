@@ -70,6 +70,42 @@ type HealthConfig struct {
 	// excluded from orphan/leaf checks but are NOT archive folders and so their
 	// islands are still reported.
 	ArchiveFolders []string `toml:"archive_folders"`
+
+	// Dangling-link classification fields.
+
+	// ReportUnresolvedLinks controls whether the dangling-link detector emits a
+	// per-link finding for each unresolved wiki-link (a link to a note that does
+	// not exist). Obsidian treats these as expected "unresolved links" (often an
+	// intentional future note), not errors, so this is off by default: the
+	// detector counts them but does not list them. The 'hebb health --unresolved'
+	// flag forces it on for a single run. Default false.
+	ReportUnresolvedLinks bool `toml:"report_unresolved_links"`
+	// AttachmentExtensions is the set of file extensions (without the leading dot)
+	// the dangling-link detector treats as attachment links rather than note
+	// links, and so excludes entirely: hebb does not index non-note files and
+	// cannot judge them broken. When empty the accessor returns the built-in
+	// default list. Setting this replaces the default rather than extending it.
+	AttachmentExtensions []string `toml:"attachment_extensions"`
+}
+
+// defaultAttachmentExtensions is the built-in set of file extensions the
+// dangling-link detector treats as attachment links (not note links). These are
+// the non-markdown file types Obsidian commonly embeds or links.
+var defaultAttachmentExtensions = []string{
+	"png", "jpg", "jpeg", "gif", "svg", "webp", "bmp",
+	"pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx", "csv",
+	"mp4", "mov", "webm", "mp3", "wav", "m4a", "vtt",
+	"html", "htm", "zip", "excalidraw", "canvas",
+}
+
+// GetAttachmentExtensions returns the configured attachment extensions, or the
+// built-in default list when none are set. A configured list replaces the
+// default rather than extending it.
+func (h HealthConfig) GetAttachmentExtensions() []string {
+	if len(h.AttachmentExtensions) > 0 {
+		return h.AttachmentExtensions
+	}
+	return append([]string(nil), defaultAttachmentExtensions...)
 }
 
 // GetProjectStaleDays returns the configured stale-days threshold, defaulting
@@ -405,6 +441,16 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                             [\"4-Archives\"]); narrower than expected_orphan_folders:\n")
 	buf.WriteString("#                             Journal/Notes orphans are exempt but their islands are\n")
 	buf.WriteString("#                             still reported\n")
+	buf.WriteString("#     report_unresolved_links - list each unresolved wiki-link (a link to a\n")
+	buf.WriteString("#                             note that does not exist) as a dangling_link finding.\n")
+	buf.WriteString("#                             Obsidian treats these as expected future notes, so\n")
+	buf.WriteString("#                             they are counted but not listed by default (false).\n")
+	buf.WriteString("#                             'hebb health --unresolved' forces listing for one run.\n")
+	buf.WriteString("#     attachment_extensions - file extensions (no leading dot) treated as\n")
+	buf.WriteString("#                             attachment links and excluded from dangling checks\n")
+	buf.WriteString("#                             (hebb does not index non-note files). Empty uses the\n")
+	buf.WriteString("#                             built-in default (png pdf pptx canvas excalidraw ...);\n")
+	buf.WriteString("#                             setting it replaces the default rather than extending.\n")
 	buf.WriteString("\n")
 	if err := toml.NewEncoder(&buf).Encode(vc); err != nil {
 		return err

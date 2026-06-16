@@ -77,10 +77,13 @@ func TestRunHealthDanglingLink(t *testing.T) {
 	cfg, db := buildHealthVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	// [[Nonexistent]] is an unresolved link, suppressed by default, so enable
+	// reporting to assert its per-link finding and wording.
+	report, err := RunHealthFull(cfg, db, true)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	var dangling []Finding
 	for _, f := range findings {
@@ -137,10 +140,13 @@ func TestRunHealthDanglingVsAmbiguous(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := RunHealth(cfg, db)
+	// Enable unresolved reporting so the dangling [[Ghost]] surfaces alongside
+	// the ambiguous [[Note]]; the test asserts their distinct wording.
+	report, err := RunHealthFull(cfg, db, true)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	var dangling, ambiguous []Finding
 	for _, f := range findings {
@@ -165,14 +171,203 @@ func TestRunHealthDanglingVsAmbiguous(t *testing.T) {
 	}
 }
 
+// buildLinkClassVault writes a vault exercising every dangling-link
+// classification branch: an attachment link, a folder link (trailing slash and
+// a real directory), an ambiguous link, and a genuinely unresolved link. It
+// returns cfg + an open, reindexed DB.
+func buildLinkClassVault(t *testing.T) (Config, *sql.DB) {
+	t.Helper()
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A real directory the folder link points at.
+	if err := os.MkdirAll(filepath.Join(vault, "Area"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Source note with one link of each unresolved kind:
+	//   [[diagram.png]]   attachment    -> excluded entirely
+	//   [[Area/]]         folder (slash) -> excluded
+	//   [[Area]]          folder (real dir, no slash) -> excluded
+	//   [[Note]]          ambiguous     -> ambiguous_link, reported by default
+	//   [[Nonexistent]]   unresolved    -> dangling_link, suppressed by default
+	write("Linker.md", "# Linker\n\n"+
+		"See [[diagram.png]], [[Area/]], [[Area]], [[Note]], and [[Nonexistent]].\n")
+	write("one/Note.md", "# Note One\n\nFirst.")
+	write("two/Note.md", "# Note Two\n\nSecond.")
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	return cfg, db
+}
+
+func findingsByType(fs []Finding, typ string) []Finding {
+	var out []Finding
+	for _, f := range fs {
+		if f.Type == typ {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func detailContaining(fs []Finding, needle string) bool {
+	for _, f := range fs {
+		if strings.Contains(f.Detail, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRunHealthAttachmentNotDangling proves an attachment link target
+// ([[diagram.png]]) is never reported as a dangling or ambiguous link: hebb does
+// not index non-note files, so it cannot judge them broken.
+func TestRunHealthAttachmentNotDangling(t *testing.T) {
+	cfg, db := buildLinkClassVault(t)
+	defer db.Close()
+
+	// Even with unresolved reporting on, the attachment must not surface.
+	report, err := RunHealthFull(cfg, db, true)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+	if detailContaining(report.Findings, "diagram.png") {
+		t.Errorf("attachment link [[diagram.png]] must not be a finding; findings: %+v", report.Findings)
+	}
+}
+
+// TestRunHealthFolderNotDangling proves a folder link is excluded both when the
+// raw target ends with '/' ([[Area/]]) and when it names a real directory with
+// no slash ([[Area]]).
+func TestRunHealthFolderNotDangling(t *testing.T) {
+	cfg, db := buildLinkClassVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, true)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+	if detailContaining(report.Findings, "Area/") {
+		t.Errorf("folder link [[Area/]] must not be a finding; findings: %+v", report.Findings)
+	}
+	for _, f := range findingsByType(report.Findings, "dangling_link") {
+		if strings.Contains(f.Detail, "[[Area]]") {
+			t.Errorf("folder link [[Area]] (real dir) must not be a dangling finding: %+v", f)
+		}
+	}
+}
+
+// TestRunHealthAmbiguousReportedByDefault proves an ambiguous link is reported
+// even when unresolved reporting is off (the default): ambiguity is a real
+// data-quality issue, not an expected future note.
+func TestRunHealthAmbiguousReportedByDefault(t *testing.T) {
+	cfg, db := buildLinkClassVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+	amb := findingsByType(report.Findings, "ambiguous_link")
+	if len(amb) != 1 {
+		t.Fatalf("ambiguous_link findings = %d, want 1; findings: %+v", len(amb), report.Findings)
+	}
+	if !strings.Contains(amb[0].Detail, "Note") {
+		t.Errorf("ambiguous detail %q should name the target", amb[0].Detail)
+	}
+}
+
+// TestRunHealthUnresolvedSuppressedByDefault proves a genuinely unresolved link
+// ([[Nonexistent]]) is NOT reported by default but IS counted as suppressed.
+func TestRunHealthUnresolvedSuppressedByDefault(t *testing.T) {
+	cfg, db := buildLinkClassVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+	if dl := findingsByType(report.Findings, "dangling_link"); len(dl) != 0 {
+		t.Errorf("unresolved links must not be reported by default, got %d: %+v", len(dl), dl)
+	}
+	if report.SuppressedUnresolved != 1 {
+		t.Errorf("SuppressedUnresolved = %d, want 1 (the [[Nonexistent]] link)", report.SuppressedUnresolved)
+	}
+}
+
+// TestRunHealthUnresolvedReportedWhenEnabled proves enabling unresolved
+// reporting (the --unresolved flag / config) surfaces the dangling link as a
+// per-link finding, and the suppressed count then drops to zero.
+func TestRunHealthUnresolvedReportedWhenEnabled(t *testing.T) {
+	cfg, db := buildLinkClassVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, true)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+	dl := findingsByType(report.Findings, "dangling_link")
+	if len(dl) != 1 {
+		t.Fatalf("dangling_link findings = %d, want 1 with reporting on; findings: %+v", len(dl), report.Findings)
+	}
+	if !strings.Contains(dl[0].Detail, "Nonexistent") {
+		t.Errorf("dangling detail %q should name the target", dl[0].Detail)
+	}
+	if report.SuppressedUnresolved != 0 {
+		t.Errorf("SuppressedUnresolved = %d, want 0 when reporting is on", report.SuppressedUnresolved)
+	}
+}
+
+// TestRunHealthReportUnresolvedFromConfig proves the config default
+// (report_unresolved_links = true) is honoured when the caller passes the
+// effective setting through.
+func TestRunHealthReportUnresolvedFromConfig(t *testing.T) {
+	cfg, db := buildLinkClassVault(t)
+	defer db.Close()
+	cfg.Health.ReportUnresolvedLinks = true
+
+	report, err := RunHealthFull(cfg, db, cfg.Health.ReportUnresolvedLinks)
+	if err != nil {
+		t.Fatalf("RunHealth: %v", err)
+	}
+	if len(findingsByType(report.Findings, "dangling_link")) != 1 {
+		t.Errorf("config report_unresolved_links=true should surface the dangling link; findings: %+v", report.Findings)
+	}
+}
+
 func TestRunHealthPARADriftByStatus(t *testing.T) {
 	cfg, db := buildHealthVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	report, err := RunHealthFull(cfg, db, false)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	var drift []Finding
 	for _, f := range findings {
@@ -198,10 +393,11 @@ func TestRunHealthOversized(t *testing.T) {
 	cfg, db := buildHealthVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	report, err := RunHealthFull(cfg, db, false)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	var oversized []Finding
 	for _, f := range findings {
@@ -228,10 +424,11 @@ func TestRunHealthCleanNotesNotFlagged(t *testing.T) {
 	cfg, db := buildHealthVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	report, err := RunHealthFull(cfg, db, false)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	// Phase 1 detectors must not flag these notes. Phase 2a graph detectors
 	// (orphan, leaf, island) may legitimately flag some notes (e.g. isolated
@@ -255,10 +452,11 @@ func TestRunHealthResolvedLinkNotDangling(t *testing.T) {
 	cfg, db := buildHealthVault(t)
 	defer db.Close()
 
-	findings, err := RunHealth(cfg, db)
+	report, err := RunHealthFull(cfg, db, false)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	for _, f := range findings {
 		if f.Type == "dangling_link" && f.Path == "Notes/Resolved.md" {
@@ -311,10 +509,11 @@ func TestRunHealthPARADriftStaleDays(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := RunHealth(cfg, db)
+	report, err := RunHealthFull(cfg, db, false)
 	if err != nil {
 		t.Fatalf("RunHealth: %v", err)
 	}
+	findings := report.Findings
 
 	var drift []Finding
 	for _, f := range findings {

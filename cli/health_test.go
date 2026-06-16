@@ -84,7 +84,10 @@ func buildHealthVaultCLI(t *testing.T) string {
 func TestHealthCommandFindings(t *testing.T) {
 	vault := buildHealthVaultCLI(t)
 
-	out, err := runHealth(t, vault)
+	// Run with --unresolved so the dangling link type is listed too: unresolved
+	// links are suppressed by default, and this test asserts every detector type
+	// renders.
+	out, err := runHealth(t, vault, "--unresolved")
 	if err != nil {
 		t.Fatalf("hebb health returned an error on a vault with findings: %v\n%s", err, out)
 	}
@@ -224,10 +227,67 @@ func TestHealthCommandRefreshFailureExitsNonZero(t *testing.T) {
 	}
 }
 
-func TestHealthCommandTextGroupedByType(t *testing.T) {
+// TestHealthCommandSuppressesUnresolvedByDefault proves a genuinely unresolved
+// link ([[GhostNote]]) is not listed by default but its count surfaces as an
+// informational line, so the suppression is visible rather than silent.
+func TestHealthCommandSuppressesUnresolvedByDefault(t *testing.T) {
 	vault := buildHealthVaultCLI(t)
 
 	out, err := runHealth(t, vault)
+	if err != nil {
+		t.Fatalf("hebb health: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "GhostNote") {
+		t.Errorf("unresolved [[GhostNote]] must not be listed by default:\n%s", out)
+	}
+	if !strings.Contains(out, "unresolved link") || !strings.Contains(out, "--unresolved") {
+		t.Errorf("expected an informational suppressed-count line mentioning --unresolved:\n%s", out)
+	}
+}
+
+// TestHealthCommandUnresolvedFlagListsThem proves --unresolved forces the
+// unresolved link to be listed as a dangling_link finding for that run.
+func TestHealthCommandUnresolvedFlagListsThem(t *testing.T) {
+	vault := buildHealthVaultCLI(t)
+
+	out, err := runHealth(t, vault, "--unresolved")
+	if err != nil {
+		t.Fatalf("hebb health --unresolved: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "dangling_link") || !strings.Contains(out, "GhostNote") {
+		t.Errorf("--unresolved should list the dangling [[GhostNote]] link:\n%s", out)
+	}
+}
+
+// TestHealthCommandUnresolvedFlagJSON proves --unresolved keeps the JSON output
+// a top-level []Finding array and includes the now-reported dangling link.
+func TestHealthCommandUnresolvedFlagJSON(t *testing.T) {
+	vault := buildHealthVaultCLI(t)
+
+	out, err := runHealth(t, vault, "--json", "--unresolved")
+	if err != nil {
+		t.Fatalf("hebb health --json --unresolved: %v\n%s", err, out)
+	}
+	var findings []core.Finding
+	if err := json.Unmarshal([]byte(out), &findings); err != nil {
+		t.Fatalf("--json --unresolved output is not a top-level []Finding array: %v\n%s", err, out)
+	}
+	var sawDangling bool
+	for _, f := range findings {
+		if f.Type == "dangling_link" && strings.Contains(f.Detail, "GhostNote") {
+			sawDangling = true
+		}
+	}
+	if !sawDangling {
+		t.Errorf("expected the dangling [[GhostNote]] link in --json --unresolved output:\n%s", out)
+	}
+}
+
+func TestHealthCommandTextGroupedByType(t *testing.T) {
+	vault := buildHealthVaultCLI(t)
+
+	// --unresolved so the dangling_link type renders alongside the others.
+	out, err := runHealth(t, vault, "--unresolved")
 	if err != nil {
 		t.Fatalf("hebb health: %v\n%s", err, out)
 	}

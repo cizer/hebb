@@ -131,7 +131,10 @@ func newMux(cfg core.Config, db *sql.DB, vaultName string) http.Handler {
 	// endpoint; the vault holds personal data and must never be exposed to
 	// foreign hosts.
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		result, err := core.RunHealthFull(cfg, db)
+		// reportUnresolved=false: the dashboard suppresses unresolved future-note
+		// links like the CLI default. The {findings, stats} response shape is
+		// unchanged; SuppressedUnresolved is not surfaced here.
+		result, err := core.RunHealthFull(cfg, db, false)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

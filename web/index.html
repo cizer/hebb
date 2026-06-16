@@ -5,36 +5,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
 <title>hebb</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A9%BA%3C/text%3E%3C/svg%3E" />
 <style>
   :root {
-    --bg: #ffffff;
+    --bg: #f7f8fa;
+    --surface: #ffffff;
     --fg: #202124;
     --muted: #5f6368;
+    --faint: #80868b;
     --crumb: #0e7490;
     --title: #4f46e5;
-    --box: #ffffff;
-    --border: #dfe1e5;
-    --shadow: rgba(32, 33, 36, 0.18);
-    --chip: #f1f3f4;
+    --border: #e3e5e8;
+    --border-strong: #c8ccd1;
+    --shadow: rgba(32, 33, 36, 0.12);
+    --chip: #eef0f3;
     --chip-fg: #3c4043;
     --mark: #fce8b2;
     --accent: #6366f1;
+    --accent-soft: #eef0fe;
+    --track: #e9ebef;
+    --good: #16a34a;
+    --warn: #d97706;
+    --bad: #dc2626;
+    /* finding-type hues, aligned to the brand wordmark palette */
+    --t-dangling: #ef4444;
+    --t-ambiguous: #f97316;
+    --t-para: #f59e0b;
+    --t-oversized: #a78bfa;
+    --t-orphan: #38bdf8;
+    --t-leaf: #22d3ee;
+    --t-island: #818cf8;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #202124;
+      --bg: #18191c;
+      --surface: #232427;
       --fg: #e8eaed;
       --muted: #9aa0a6;
+      --faint: #80868b;
       --crumb: #5eead4;
       --title: #a5b4fc;
-      --box: #303134;
-      --border: #5f6368;
+      --border: #34363a;
+      --border-strong: #4a4d52;
       --shadow: rgba(0, 0, 0, 0.5);
-      --chip: #303134;
+      --chip: #2b2d31;
       --chip-fg: #c7cace;
       --mark: #5c4d1f;
       --accent: #818cf8;
+      --accent-soft: #2a2c3a;
+      --track: #34363a;
+      --good: #4ade80;
+      --warn: #fbbf24;
+      --bad: #f87171;
     }
   }
 
@@ -45,280 +67,300 @@
     color: var(--fg);
     font-family: arial, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     min-height: 100vh;
+    font-size: 14px;
   }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+  .wrap { width: 100%; max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  .hidden { display: none !important; }
 
-  .page { display: flex; flex-direction: column; align-items: center; }
+  /* ------------------------------------------------------------------- topbar */
 
-  /* ------------------------------------------------------------------ tabs */
-
-  .tabs {
-    display: flex; gap: 0; border-bottom: 1px solid var(--border);
-    width: 100%; max-width: 1040px; padding: 0 24px; margin-top: 12px;
-  }
-  .tab-btn {
-    background: none; border: none; border-bottom: 2px solid transparent;
-    padding: 8px 16px; font-size: 14px; cursor: pointer; color: var(--muted);
-    margin-bottom: -1px; transition: color .12s, border-color .12s;
-  }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-btn:hover:not(.active) { color: var(--fg); }
-
-  /* ------------------------------------------------------------- hero / search */
-
-  .hero {
-    display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 24px;
-    min-height: 70vh; width: 100%;
-    transition: min-height .25s ease;
-  }
-  body.has-results .hero {
-    min-height: auto;
-    align-items: center;
-    padding: 18px 0 12px 0;
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface);
     border-bottom: 1px solid var(--border);
-    width: 100%;
   }
-  body.has-results .hero-inner {
-    display: flex; align-items: center; gap: 26px;
-    width: 100%; max-width: 1040px; padding: 0 24px;
+  .topbar-inner {
+    display: flex; align-items: center; gap: 18px;
+    width: 100%; max-width: 1040px; margin: 0 auto; padding: 10px 24px;
+    flex-wrap: wrap;
   }
-  .hero-inner {
-    display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%;
-  }
-
   .wordmark {
     font-family: "Product Sans", arial, sans-serif;
-    font-weight: 700; letter-spacing: -1px;
-    user-select: none; cursor: pointer; line-height: 1;
-    font-size: 78px;
+    font-weight: 700; letter-spacing: -1px; font-size: 26px; line-height: 1;
+    user-select: none; cursor: pointer; flex: none;
   }
-  body.has-results .wordmark { font-size: 28px; }
   .wordmark .b { color: #818cf8; }
   .wordmark .r { color: #a78bfa; }
   .wordmark .y { color: #38bdf8; }
   .wordmark .g { color: #22d3ee; }
-  .tagline { color: var(--muted); font-size: 14px; margin-top: -10px; }
-  body.has-results .tagline { display: none; }
 
-  .searchbar { width: 100%; max-width: 600px; }
-  body.has-results .searchbar { max-width: 640px; }
+  /* vault tabs -- the switcher that replaces the old dropdown */
+  .vault-tabs {
+    display: flex; align-items: center; gap: 4px;
+    flex: 1 1 auto; min-width: 0; overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .vault-tab {
+    flex: none; border: 1px solid transparent; background: none;
+    color: var(--muted); font-size: 13px; cursor: pointer;
+    padding: 6px 13px; border-radius: 8px; white-space: nowrap;
+    transition: background .12s, color .12s;
+  }
+  .vault-tab:hover:not(.active) { background: var(--chip); color: var(--fg); }
+  .vault-tab.active {
+    background: var(--accent-soft); color: var(--accent); font-weight: 600;
+  }
+  .vault-label {
+    flex: 1 1 auto; min-width: 0;
+    color: var(--muted); font-size: 13px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .vault-label .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+  .vault-label b { color: var(--fg); font-weight: 600; }
+
+  /* compact search box -- search is secondary, lives in the header */
+  .search { flex: none; width: 280px; max-width: 100%; }
   .box {
-    display: flex; align-items: center; gap: 12px;
-    background: var(--box);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 11px 18px;
-    box-shadow: none;
-    transition: box-shadow .15s, border-color .15s;
+    display: flex; align-items: center; gap: 9px;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 22px; padding: 7px 14px;
+    transition: box-shadow .15s, border-color .15s, background .15s;
   }
-  .box:hover, .box.focus {
-    box-shadow: 0 1px 8px var(--shadow);
-    border-color: transparent;
-  }
-  .box svg { flex: none; fill: var(--muted); }
+  .box.focus { box-shadow: 0 1px 8px var(--shadow); border-color: var(--accent); background: var(--surface); }
+  .box svg { flex: none; fill: var(--faint); }
   .box input {
-    flex: 1; border: none; outline: none; background: transparent;
-    color: var(--fg); font-size: 17px; line-height: 24px;
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    color: var(--fg); font-size: 14px; line-height: 22px;
   }
   .box .clear {
-    border: none; background: transparent; color: var(--muted);
-    font-size: 22px; cursor: pointer; padding: 0 4px; display: none;
+    border: none; background: transparent; color: var(--faint);
+    font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; display: none;
   }
   .box .clear.show { display: block; }
 
-  .filters {
-    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
-    margin-top: 4px;
-  }
-  body.has-results .filters { justify-content: flex-start; max-width: 1040px; width: 100%; padding: 0 24px; margin: 10px auto 0; }
+  /* --------------------------------------------------------------- main views */
+
+  main { flex: 1 1 auto; width: 100%; }
+
+  /* ---- search results ---- */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 18px 0 4px; }
   .chip {
     border: 1px solid var(--border); background: var(--chip); color: var(--chip-fg);
     border-radius: 16px; padding: 5px 13px; font-size: 13px; cursor: pointer;
     transition: background .12s, border-color .12s;
   }
-  .chip:hover { border-color: var(--muted); }
+  .chip:hover { border-color: var(--border-strong); }
   .chip.active { background: var(--accent); color: #fff; border-color: transparent; }
   .tagfilter {
     border: 1px solid var(--border); background: var(--chip); color: var(--chip-fg);
     border-radius: 16px; padding: 5px 13px; font-size: 13px; outline: none; width: 150px;
   }
-
-  .results { width: 100%; max-width: 1040px; padding: 12px 24px 60px; }
-  .meta { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
+  .results { padding: 8px 0 60px; }
+  .meta { color: var(--muted); font-size: 13px; margin: 8px 0 16px; }
   .result {
     display: block; text-decoration: none; color: inherit;
-    padding: 10px 12px; margin: 0 -12px 14px; border-radius: 10px;
+    padding: 10px 12px; margin: 0 -12px 12px; border-radius: 10px;
   }
-  .result:hover, .result.sel { background: var(--chip); }
+  .result:hover, .result.sel { background: var(--surface); box-shadow: 0 1px 4px var(--shadow); }
   .result .crumb { color: var(--crumb); font-size: 13px; line-height: 18px; }
-  .result .title { color: var(--title); font-size: 19px; line-height: 26px; margin: 1px 0 3px; }
+  .result .title { color: var(--title); font-size: 18px; line-height: 25px; margin: 1px 0 3px; }
   .result:hover .title { text-decoration: underline; }
   .result .snippet { color: var(--muted); font-size: 14px; line-height: 21px; }
   .result .snippet mark { background: var(--mark); color: inherit; padding: 0 1px; border-radius: 2px; }
   .result .tags { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
   .result .tag { font-size: 11px; color: var(--muted); background: var(--chip); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; }
-
   .empty { color: var(--muted); font-size: 15px; padding: 30px 0; }
   .empty b { color: var(--fg); }
 
-  /* -------------------------------------------------------------- health tab */
+  /* ------------------------------------------------------------ health board */
 
-  .health-panel {
-    width: 100%; max-width: 1040px; padding: 24px 24px 60px;
-  }
+  .dash { padding: 28px 0 64px; }
+  .dash-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: -.3px; }
+  .dash-sub { font-size: 13px; color: var(--muted); margin: 0 0 24px; line-height: 19px; max-width: 70ch; }
 
-  /* Metric tiles row -- displayed below the fold, after the worklist */
-  .metric-tiles {
-    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px;
-  }
-  .metric-tile {
-    background: var(--box); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 20px; min-width: 120px; flex: 1 1 120px;
-  }
-  .metric-tile .tile-value {
-    font-size: 26px; font-weight: 700; color: var(--fg); line-height: 1.1;
-  }
-  .metric-tile .tile-label {
-    font-size: 12px; color: var(--muted); margin-top: 4px;
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
   }
 
-  /* Worklist sections -- one per finding type */
-  .worklist-section { margin-bottom: 28px; }
-  .worklist-header {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 13px; font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: .06em;
-    border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 10px;
-  }
-  .worklist-count {
-    background: var(--chip); color: var(--chip-fg);
-    border-radius: 10px; padding: 1px 8px; font-size: 12px; font-weight: 500;
-    text-transform: none; letter-spacing: 0;
-  }
-  .worklist-desc {
-    font-size: 13px; color: var(--muted); margin: 0 0 10px; line-height: 18px;
-  }
-  .worklist-more > summary {
-    cursor: pointer; font-size: 13px; color: var(--accent);
-    padding: 6px 0 2px; list-style: none; user-select: none;
-  }
-  .worklist-more > summary:hover { text-decoration: underline; }
+  /* top row: connectivity ring + structural stats */
+  .dash-top { display: grid; grid-template-columns: minmax(0, 320px) 1fr; gap: 16px; margin-bottom: 28px; }
+  @media (max-width: 720px) { .dash-top { grid-template-columns: 1fr; } }
 
+  .conn { display: flex; align-items: center; gap: 20px; }
+  .ring-wrap { position: relative; width: 116px; height: 116px; flex: none; }
+  .ring-wrap svg { transform: rotate(-90deg); display: block; }
+  .ring-track { stroke: var(--track); }
+  .ring-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+  }
+  .ring-pct { font-size: 27px; font-weight: 700; line-height: 1; }
+  .ring-cap { font-size: 10px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .05em; }
+  .conn-text .conn-head { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .conn-text .conn-desc { font-size: 13px; color: var(--muted); line-height: 19px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border-radius: 14px; overflow: hidden; }
+  .stat { background: var(--surface); padding: 16px 18px; }
+  .stat-value { font-size: 24px; font-weight: 700; line-height: 1.1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .stat-hint { font-size: 11px; color: var(--faint); margin-top: 5px; line-height: 15px; }
+
+  /* needs-attention section */
+  .sec-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; }
+  .sec-head h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  .sec-head .sec-total { font-size: 13px; color: var(--muted); }
+  .sec-note { font-size: 12px; color: var(--faint); margin: -8px 0 16px; }
+
+  .seg-bar { display: flex; width: 100%; height: 12px; border-radius: 7px; overflow: hidden; background: var(--track); margin-bottom: 12px; }
+  .seg { height: 100%; min-width: 3px; cursor: pointer; transition: opacity .12s; }
+  .seg:hover { opacity: .82; }
+  .seg-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+  .legend-item {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--fg);
+    border-radius: 16px; padding: 4px 11px 4px 9px; font-size: 12px; cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .legend-item:hover { border-color: var(--border-strong); background: var(--chip); }
+  .legend-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .legend-item .legend-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* collapsible finding groups -- files hidden until you drill down */
+  .worklist { display: flex; flex-direction: column; gap: 8px; }
+  .group {
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); overflow: hidden;
+  }
+  .group > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 11px; padding: 13px 16px;
+  }
+  .group > summary::-webkit-details-marker { display: none; }
+  .group > summary:hover { background: var(--chip); }
+  .group .g-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .group .g-label { font-size: 14px; font-weight: 600; flex: none; }
+  .group .g-count {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    background: var(--chip); border-radius: 10px; padding: 1px 9px;
+    font-variant-numeric: tabular-nums; flex: none;
+  }
+  .group .g-short { font-size: 13px; color: var(--muted); flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group .g-chevron { flex: none; color: var(--faint); font-size: 12px; transition: transform .15s; }
+  .group[open] .g-chevron { transform: rotate(90deg); }
+  .group[open] > summary { border-bottom: 1px solid var(--border); }
+  .g-body { padding: 6px 16px 14px; }
+  .g-how {
+    font-size: 13px; color: var(--muted); line-height: 19px;
+    margin: 8px 0 12px; padding-left: 11px; border-left: 2px solid var(--border-strong);
+  }
   .finding-row {
-    display: block; text-decoration: none; color: inherit;
-    padding: 8px 10px; margin: 0 -10px 4px; border-radius: 8px;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    text-decoration: none; color: inherit;
+    padding: 8px 10px; margin: 0 -10px; border-radius: 8px;
   }
   .finding-row:hover { background: var(--chip); }
-  .finding-path {
-    color: var(--title); font-size: 14px; font-weight: 500; line-height: 20px;
-  }
-  .finding-row:hover .finding-path { text-decoration: underline; }
-  .finding-detail {
-    color: var(--muted); font-size: 13px; line-height: 19px; margin-top: 2px;
-  }
-  .finding-crumb {
-    color: var(--crumb); font-size: 12px; line-height: 17px;
-  }
+  .fr-name { color: var(--title); font-size: 14px; font-weight: 500; }
+  .finding-row:hover .fr-name { text-decoration: underline; }
+  .fr-crumb { color: var(--crumb); font-size: 12px; }
+  .fr-detail { color: var(--muted); font-size: 12px; flex-basis: 100%; }
+  .fr-open { margin-left: auto; color: var(--accent); font-size: 12px; opacity: 0; flex: none; white-space: nowrap; }
+  .finding-row:hover .fr-open { opacity: 1; }
+  .g-more { font-size: 12px; color: var(--faint); padding: 10px 0 2px; }
 
-  .health-empty {
-    color: var(--muted); font-size: 15px; padding: 40px 0; text-align: center;
-  }
-  .health-empty b { color: var(--fg); }
-  .health-loading { color: var(--muted); font-size: 14px; padding: 40px 0; text-align: center; }
-  .health-error { color: #c5221f; font-size: 14px; padding: 16px 0; }
+  /* structure / connection depth */
+  .structure { margin-top: 32px; }
+  .depth-chart { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+  .depth-row { display: flex; align-items: center; gap: 10px; }
+  .depth-k { width: 54px; flex: none; font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .depth-track { flex: 1 1 auto; height: 16px; background: var(--track); border-radius: 5px; overflow: hidden; }
+  .depth-bar { height: 100%; border-radius: 5px; min-width: 2px; }
+  .depth-c { width: 56px; flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-  /* Section headers above the worklist and metrics */
-  .section-heading {
-    font-size: 14px; font-weight: 600; color: var(--fg);
-    margin: 0 0 16px;
-  }
-  .section-sub {
-    font-size: 13px; color: var(--muted); margin: -10px 0 20px;
-  }
+  .clean { display: flex; align-items: center; gap: 12px; padding: 22px; border: 1px dashed var(--border-strong); border-radius: 12px; color: var(--muted); font-size: 14px; }
+  .clean .tick { width: 30px; height: 30px; border-radius: 50%; background: var(--good); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 17px; flex: none; }
+  .clean b { color: var(--fg); }
+  .state { color: var(--muted); font-size: 14px; padding: 48px 0; text-align: center; }
+  .state b { color: var(--fg); }
+  .state.err { color: var(--bad); }
 
   /* ----------------------------------------------------------------- footer */
 
   footer {
-    width: 100%; max-width: 1040px; padding: 14px 24px 40px;
+    width: 100%; max-width: 1040px; margin: 0 auto; padding: 16px 24px 36px;
     color: var(--muted); font-size: 12px;
     display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
   }
   footer .link { color: var(--muted); cursor: pointer; text-decoration: none; }
   footer .link:hover { color: var(--accent); text-decoration: underline; }
+  .foot-note { margin-left: auto; color: var(--faint); }
   .spinner {
-    width: 14px; height: 14px; border: 2px solid var(--border);
+    width: 14px; height: 14px; border: 2px solid var(--border-strong);
     border-top-color: var(--accent); border-radius: 50%;
     display: inline-block; animation: spin .7s linear infinite; vertical-align: -2px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .hidden { display: none !important; }
 </style>
 </head>
 <body>
-<div class="page">
+<div class="app">
 
-  <!-- ----------------------------------------------------------------- hero / search -->
-  <div class="hero" id="search-hero">
-    <div class="hero-inner">
-      <div class="wordmark" id="wordmark" title="Clear search">
+  <!-- ------------------------------------------------------------- top bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="wordmark" id="wordmark" title="hebb -- clear search">
         <span class="b">h</span><span class="r">e</span><span class="y">b</span><span class="g">b</span>
       </div>
-      <select id="vault-select" class="vault-select" aria-label="Vault" style="display:none"></select>
-      <div class="searchbar">
+      <nav class="vault-tabs" id="vault-tabs" aria-label="Vault"></nav>
+      <div class="search">
         <div class="box" id="box">
-          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
-          <input id="q" type="text" autocomplete="off" autofocus
-                 placeholder="Search your vault" aria-label="Search your vault" />
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
+          <input id="q" type="text" autocomplete="off"
+                 placeholder="Search the vault  (press /)" aria-label="Search the vault" />
           <button class="clear" id="clear" title="Clear" aria-label="Clear">&times;</button>
         </div>
       </div>
     </div>
+  </header>
 
-    <div class="tagline" id="tagline"></div>
+  <main>
+    <!-- ----------------------------------------- health dashboard (primary) -->
+    <section id="health-view" class="wrap">
+      <div class="dash" id="health-content"></div>
+    </section>
 
-    <div class="filters" id="filters">
-      <button class="chip active" data-prefix="">All</button>
-      <button class="chip" data-prefix="1-Projects/">Projects</button>
-      <button class="chip" data-prefix="2-Areas/">Areas</button>
-      <button class="chip" data-prefix="3-Resources/">Resources</button>
-      <button class="chip" data-prefix="4-Archives/">Archives</button>
-      <input class="tagfilter" id="tagfilter" type="text" placeholder="tag filter&#8230;" aria-label="Tag filter" />
-    </div>
-  </div>
-
-  <!-- ------------------------------------------------------------------- tabs -->
-  <div class="tabs" id="tabs">
-    <button class="tab-btn active" id="tab-search">Search</button>
-    <button class="tab-btn" id="tab-health">Health</button>
-  </div>
-
-  <!-- --------------------------------------------------- search results pane -->
-  <div class="results" id="results"></div>
-
-  <!-- ---------------------------------------------------- health dashboard pane -->
-  <div class="health-panel hidden" id="health-panel">
-    <div id="health-content"></div>
-  </div>
+    <!-- --------------------------------------------- search results (secondary) -->
+    <section id="search-view" class="wrap hidden">
+      <div class="filters" id="filters">
+        <button class="chip active" data-prefix="">All</button>
+        <button class="chip" data-prefix="1-Projects/">Projects</button>
+        <button class="chip" data-prefix="2-Areas/">Areas</button>
+        <button class="chip" data-prefix="3-Resources/">Resources</button>
+        <button class="chip" data-prefix="4-Archives/">Archives</button>
+        <input class="tagfilter" id="tagfilter" type="text" placeholder="tag filter&#8230;" aria-label="Tag filter" />
+      </div>
+      <div class="results" id="results"></div>
+    </section>
+  </main>
 
   <footer>
-    <span id="footstats"></span>
     <a class="link" id="reindex" title="Rebuild the search index from disk">&#8635; refresh index</a>
     <a class="link" id="refresh-health" title="Re-run vault health checks">&#8635; refresh health</a>
-    <span>Local &middot; FTS5 &middot; 127.0.0.1 only</span>
+    <span class="foot-note">Local &middot; FTS5 &middot; 127.0.0.1 only</span>
   </footer>
 </div>
 
 <script>
   const $ = (s) => document.querySelector(s);
   const qInput = $("#q"), box = $("#box"), clearBtn = $("#clear");
-  const resultsEl = $("#results"), healthPanel = $("#health-panel"), healthContent = $("#health-content");
-  const tabsEl = $("#tabs"), searchHero = $("#search-hero");
-  const taglineEl = $("#tagline"), footstats = $("#footstats"), tagInput = $("#tagfilter");
-  const tabSearch = $("#tab-search"), tabHealth = $("#tab-health");
-  const refreshHealthBtn = $("#refresh-health");
+  const healthView = $("#health-view"), healthContent = $("#health-content");
+  const searchView = $("#search-view"), resultsEl = $("#results"), tagInput = $("#tagfilter");
+  const vaultTabs = $("#vault-tabs");
   let prefix = "", tag = "", vaultName = "vault", sel = -1, lastResults = [];
-  let activeTab = "search"; // "search" | "health"
-  let healthLoaded = false;
+  let healthLoaded = false, multiVault = false;
 
   /* -------------------------------------------------------------- utilities */
 
@@ -345,35 +387,20 @@
     const file = path.replace(/\.md$/i, "");
     return "obsidian://open?vault=" + encodeURIComponent(vaultName) + "&file=" + encodeURIComponent(file);
   }
+  const num = (n) => (n || 0).toLocaleString("en-GB");
 
-  /* ----------------------------------------------------------- tab switching */
+  /* ------------------------------------------------------------ view switch */
 
-  function showTab(name) {
-    activeTab = name;
-    tabSearch.classList.toggle("active", name === "search");
-    tabHealth.classList.toggle("active", name === "health");
-    resultsEl.classList.toggle("hidden", name !== "search");
-    healthPanel.classList.toggle("hidden", name !== "health");
-    if (name === "health" && !healthLoaded) {
-      loadHealth();
-    }
-  }
-
-  tabSearch.addEventListener("click", () => showTab("search"));
-  tabHealth.addEventListener("click", () => { showTab("health"); });
-  refreshHealthBtn.addEventListener("click", () => { healthLoaded = false; loadHealth(); });
+  function showSearch() { healthView.classList.add("hidden"); searchView.classList.remove("hidden"); }
+  function showHealth() { searchView.classList.add("hidden"); healthView.classList.remove("hidden"); }
 
   /* ----------------------------------------------------- search view logic */
-
-  function setHasResults(on) {
-    document.body.classList.toggle("has-results", on);
-  }
 
   function render(data) {
     lastResults = data.results;
     sel = -1;
-    if (!data.query) { resultsEl.innerHTML = ""; setHasResults(false); return; }
-    setHasResults(true);
+    if (!data.query) { resultsEl.innerHTML = ""; showHealth(); return; }
+    showSearch();
     if (data.results.length === 0) {
       resultsEl.innerHTML =
         '<div class="meta">No results.</div>' +
@@ -426,7 +453,7 @@
   box.addEventListener("focusin", () => box.classList.add("focus"));
   box.addEventListener("focusout", () => box.classList.remove("focus"));
   clearBtn.addEventListener("click", () => { qInput.value = ""; qInput.focus(); search(); });
-  $("#wordmark").addEventListener("click", () => { qInput.value = ""; qInput.focus(); search(); });
+  $("#wordmark").addEventListener("click", () => { qInput.value = ""; search(); });
 
   document.querySelectorAll(".chip").forEach((c) =>
     c.addEventListener("click", () => {
@@ -440,12 +467,12 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "/" && document.activeElement !== qInput) { e.preventDefault(); qInput.focus(); return; }
-    if (!lastResults.length) return;
+    if (e.key === "Escape" && document.activeElement === qInput) { qInput.value = ""; search(); qInput.blur(); return; }
+    if (searchView.classList.contains("hidden") || !lastResults.length) return;
     const items = resultsEl.querySelectorAll(".result");
     if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, items.length - 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(sel - 1, 0); }
     else if (e.key === "Enter" && sel >= 0) { items[sel].click(); return; }
-    else if (e.key === "Escape") { qInput.value = ""; search(); qInput.blur(); return; }
     else return;
     items.forEach((it, i) => it.classList.toggle("sel", i === sel));
     if (items[sel]) items[sel].scrollIntoView({ block: "nearest" });
@@ -453,35 +480,42 @@
 
   /* -------------------------------------------------- health dashboard logic */
 
-  // findingTypeMeta maps the finding type key from the API to a display label
-  // and a ranking comparator. The comparator receives two finding objects and
-  // returns negative / zero / positive in the usual sort(a,b) convention.
+  // Per-type metadata: display label, the colour used in the segmented bar and
+  // group dots, a one-line summary for the collapsed row, the remediation hint
+  // shown when expanded, and a ranking comparator (negative/zero/positive).
   const findingTypeMeta = {
     dangling_link: {
-      label: "Dangling links",
-      desc: "A [[wiki-link]] whose target note does not exist. Create the note or fix the link.",
-      // Rank alphabetically by source path: all dangling links are equally
-      // urgent -- there is no honest proxy to order them further.
+      label: "Dangling links", color: "var(--t-dangling)",
+      short: "Links pointing at notes that do not exist",
+      how: "A [[wiki-link]] whose target note does not exist. Create the missing note, fix the spelling, or remove the link.",
+      sort: (a, b) => a.path.localeCompare(b.path),
+    },
+    ambiguous_link: {
+      label: "Ambiguous links", color: "var(--t-ambiguous)",
+      short: "Links that match more than one note",
+      how: "A [[wiki-link]] that matches several notes, so it cannot resolve to one. Rename a note or make the link more specific.",
       sort: (a, b) => a.path.localeCompare(b.path),
     },
     para_drift: {
-      label: "PARA drift",
-      desc: "A note under 1-Projects/ untouched for a long time: likely a finished or abandoned project to archive.",
+      label: "PARA drift", color: "var(--t-para)",
+      short: "Finished or stale projects still in 1-Projects",
+      how: "A note under 1-Projects/ that looks done or has gone untouched for a long time. Move it to 4-Archives/ or pick it back up.",
       sort: (a, b) => a.path.localeCompare(b.path),
     },
     oversized: {
-      label: "Oversized notes",
-      desc: "A long, multi-section note that may be worth splitting into smaller, focused notes.",
-      // The detail string contains "~N tokens"; rank by that number descending
-      // (largest split candidate first). Fall back to path if not parseable.
+      label: "Oversized notes", color: "var(--t-oversized)",
+      short: "Long, multi-section notes worth splitting",
+      how: "A long note with several distinct sections. Consider splitting it into smaller, focused notes that each link out.",
+      // The detail string contains "~N tokens"; rank by that number descending.
       sort: (a, b) => {
         const tok = (d) => { const m = d.detail.match(/~(\d+)\s+tokens/); return m ? parseInt(m[1], 10) : 0; };
         return tok(b) - tok(a);
       },
     },
     orphan: {
-      label: "Orphans",
-      desc: "A note nothing links to and that links to nothing: cut off from the rest of the graph.",
+      label: "Orphans", color: "var(--t-orphan)",
+      short: "Notes with no links in or out",
+      how: "A note nothing links to and that links to nothing, cut off from the rest of the graph. Link it to related notes or archive it.",
       // Detail contains "age N days"; rank by age descending (oldest first).
       sort: (a, b) => {
         const age = (d) => { const m = d.detail.match(/age\s+(\d+)\s+days/); return m ? parseInt(m[1], 10) : 0; };
@@ -489,16 +523,18 @@
       },
     },
     leaf: {
-      label: "Leaves (single link)",
-      desc: "A note with just one link: weakly connected. Consider linking it to related notes.",
+      label: "Weakly linked", color: "var(--t-leaf)",
+      short: "Notes hanging off a single link",
+      how: "A note with just one link, barely attached to the graph. Add links to related notes so it is easier to find.",
       sort: (a, b) => {
         const age = (d) => { const m = d.detail.match(/age\s+(\d+)\s+days/); return m ? parseInt(m[1], 10) : 0; };
         return age(b) - age(a);
       },
     },
     island: {
-      label: "Isolated clusters",
-      desc: "A small group of notes linked only to each other, disconnected from the main graph.",
+      label: "Isolated clusters", color: "var(--t-island)",
+      short: "Small groups linked only to each other",
+      how: "A small group of notes linked only to each other, disconnected from the main graph. Connect them to related notes.",
       // Detail contains "isolated cluster of N"; rank by cluster size descending.
       sort: (a, b) => {
         const sz = (d) => { const m = d.detail.match(/cluster of\s+(\d+)/); return m ? parseInt(m[1], 10) : 0; };
@@ -507,96 +543,220 @@
     },
   };
 
-  // How many findings to show per group before collapsing the rest behind a
-  // "show more" line, so a big vault's worklist stays scannable.
-  const FINDINGS_PER_GROUP = 8;
+  // typeOrder drives the display order of finding groups. Types not listed fall
+  // through to the end, sorted by type string.
+  const typeOrder = ["dangling_link", "ambiguous_link", "para_drift", "oversized", "orphan", "leaf", "island"];
+  // How many files to list inside an expanded group before truncating, so a big
+  // vault's drill-down stays in a sane DOM.
+  const FILES_PER_GROUP = 50;
 
-  // typeOrder drives the display order of finding groups in the worklist. Types
-  // not in this list fall through to the end, sorted by type string.
-  const typeOrder = ["dangling_link", "para_drift", "oversized", "orphan", "leaf", "island"];
-
-  function renderHealth(data) {
-    const findings = data.findings || [];
-    const stats = data.stats || {};
-    const num = (n) => (n || 0).toLocaleString("en-GB");
-
-    let html = "";
-
-    /* -- summary metrics, at the top for an at-a-glance read --------- */
-    html += '<p class="section-heading">Vault at a glance</p>';
-    html += '<p class="section-sub">Graph topology from the resolved link index. No single composite score.</p>';
-    html += '<div class="metric-tiles">';
-    html += tile("Notes", num(stats.node_count), "Indexed markdown notes");
-    html += tile("Links", num(stats.edge_count), "Resolved wiki-links between notes");
-    html += tile("Components", num(stats.component_count), "Disconnected clusters in the link graph");
-    html += tile("Giant ratio", ((stats.giant_ratio || 0) * 100).toFixed(1) + "%", "Share of notes in the largest cluster");
-    html += tile("Max k-core", stats.max_core || 0, "Densest core depth in the link graph");
-    html += '</div>';
-
-    /* -- worklist: grouped, explained, and capped per group ---------- */
-    html += '<p class="section-heading" style="margin-top:32px">Worklist</p>';
-    if (findings.length === 0) {
-      html += '<div class="health-empty"><b>Clean vault.</b> No findings to action.</div>';
-      healthContent.innerHTML = html;
-      return;
-    }
-    html += '<p class="section-sub">' + findings.length + ' finding' + (findings.length === 1 ? "" : "s")
-      + ' to review, grouped by type. Each links to the note in Obsidian.</p>';
-
-    const groups = {};
-    for (const f of findings) {
-      if (!groups[f.type]) groups[f.type] = [];
-      groups[f.type].push(f);
-    }
-    const sortedTypes = Object.keys(groups).sort((a, b) => {
+  function metaFor(type) {
+    return findingTypeMeta[type] || { label: type, color: "var(--muted)", short: "", how: "", sort: (a, b) => a.path.localeCompare(b.path) };
+  }
+  function sortTypes(types) {
+    return types.sort((a, b) => {
       const ia = typeOrder.indexOf(a), ib = typeOrder.indexOf(b);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
       if (ia === -1) return 1;
       if (ib === -1) return -1;
       return ia - ib;
     });
-
-    const rowHtml = (f) =>
-      '<a class="finding-row" href="' + escapeHtml(obsidianLink(f.path)) + '">' +
-        '<div class="finding-crumb">' + escapeHtml(breadcrumb(f.path)) + '</div>' +
-        '<div class="finding-path">' + escapeHtml(noteName(f.path)) + '</div>' +
-        '<div class="finding-detail">' + escapeHtml(f.detail) + '</div>' +
-      '</a>';
-
-    for (const type of sortedTypes) {
-      const rows = groups[type];
-      const meta = findingTypeMeta[type] || { label: type, sort: (a, b) => a.path.localeCompare(b.path) };
-      rows.sort(meta.sort);
-
-      html += '<div class="worklist-section">';
-      html += '<div class="worklist-header">' + escapeHtml(meta.label)
-        + ' <span class="worklist-count">' + rows.length + '</span></div>';
-      if (meta.desc) html += '<p class="worklist-desc">' + escapeHtml(meta.desc) + '</p>';
-
-      for (const f of rows.slice(0, FINDINGS_PER_GROUP)) html += rowHtml(f);
-
-      const rest = rows.slice(FINDINGS_PER_GROUP);
-      if (rest.length) {
-        html += '<details class="worklist-more"><summary>Show ' + rest.length + ' more</summary>';
-        for (const f of rest) html += rowHtml(f);
-        html += '</details>';
-      }
-      html += '</div>';
-    }
-
-    healthContent.innerHTML = html;
   }
 
-  function tile(label, value, desc) {
-    return '<div class="metric-tile">'
-      + '<div class="tile-value">' + escapeHtml(String(value)) + '</div>'
-      + '<div class="tile-label">' + escapeHtml(label) + (desc ? '<br><span style="font-style:italic">' + escapeHtml(desc) + '</span>' : '') + '</div>'
+  // ringColor keeps the connectivity ring honest: brand accent when most notes
+  // hang together, amber/red only when the vault is genuinely fragmented. It is
+  // a single named indicator, never a composite "health score".
+  function ringColor(ratio) {
+    if (ratio >= 0.6) return "var(--accent)";
+    if (ratio >= 0.3) return "var(--warn)";
+    return "var(--bad)";
+  }
+  // depthColor shades the connection-depth bars from sky (fringe) to indigo (core).
+  function depthColor(k, maxCore) {
+    if (maxCore <= 0) return "var(--t-orphan)";
+    const stops = ["#38bdf8", "#22d3ee", "#818cf8", "#a78bfa", "#6366f1"];
+    const i = Math.min(stops.length - 1, Math.round((k / maxCore) * (stops.length - 1)));
+    return stops[i];
+  }
+
+  function stat(value, label, hint) {
+    return '<div class="stat">'
+      + '<div class="stat-value">' + escapeHtml(String(value)) + '</div>'
+      + '<div class="stat-label">' + escapeHtml(label) + '</div>'
+      + (hint ? '<div class="stat-hint">' + escapeHtml(hint) + '</div>' : '')
       + '</div>';
+  }
+
+  function connectivityCard(stats) {
+    const nodes = stats.node_count || 0;
+    const ratio = stats.giant_ratio || 0;
+    const pct = Math.round(ratio * 100);
+    const connected = Math.round(ratio * nodes);
+    const C = 2 * Math.PI * 52;
+    const off = C * (1 - ratio);
+    const col = ringColor(ratio);
+    let verdict;
+    if (nodes === 0) verdict = "No notes indexed yet.";
+    else if (ratio >= 0.85) verdict = "Most of your notes hang together as one connected body.";
+    else if (ratio >= 0.5) verdict = "A solid core is connected, with some notes drifting off to the side.";
+    else verdict = "Your notes are fragmented into many disconnected pieces.";
+
+    return '<div class="card conn">'
+      + '<div class="ring-wrap">'
+      +   '<svg width="116" height="116" viewBox="0 0 116 116">'
+      +     '<circle class="ring-track" cx="58" cy="58" r="52" fill="none" stroke-width="11"></circle>'
+      +     '<circle cx="58" cy="58" r="52" fill="none" stroke-width="11" stroke-linecap="round" '
+      +       'stroke="' + col + '" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"></circle>'
+      +   '</svg>'
+      +   '<div class="ring-center"><div class="ring-pct">' + pct + '%</div><div class="ring-cap">connected</div></div>'
+      + '</div>'
+      + '<div class="conn-text">'
+      +   '<div class="conn-head">Connectedness</div>'
+      +   '<div class="conn-desc">' + escapeHtml(verdict) + ' '
+      +     '<b>' + num(connected) + '</b> of ' + num(nodes) + ' notes sit in the largest cluster, across '
+      +     num(stats.component_count) + ' cluster' + (stats.component_count === 1 ? '' : 's') + '.'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function statsCard(stats) {
+    const nodes = stats.node_count || 0;
+    const edges = stats.edge_count || 0;
+    const avg = nodes ? (2 * edges / nodes) : 0;
+    return '<div class="stat-grid">'
+      + stat(avg.toFixed(1), "Links per note", "Average resolved links on each note")
+      + stat(num(edges), "Connections", "Resolved wiki-links between notes")
+      + stat(num(stats.component_count), "Clusters", "Separate islands in the link graph")
+      + stat(stats.max_core || 0, "Core depth", "How deep the densest core of notes goes")
+      + '</div>';
+  }
+
+  function findingRow(f) {
+    return '<a class="finding-row" href="' + escapeHtml(obsidianLink(f.path)) + '">'
+      + '<span class="fr-name">' + escapeHtml(noteName(f.path)) + '</span>'
+      + '<span class="fr-crumb">' + escapeHtml(breadcrumb(f.path)) + '</span>'
+      + '<span class="fr-open">Open in Obsidian →</span>'
+      + '<span class="fr-detail">' + escapeHtml(f.detail) + '</span>'
+      + '</a>';
+  }
+
+  function attentionSection(findings) {
+    if (findings.length === 0) {
+      return '<div class="sec-head"><h2>Needs attention</h2></div>'
+        + '<div class="clean"><span class="tick">✓</span><div><b>Nothing to action.</b> '
+        + 'No dangling links, drift, orphans, or oversized notes right now.</div></div>';
+    }
+
+    const groups = {};
+    for (const f of findings) (groups[f.type] = groups[f.type] || []).push(f);
+    const types = sortTypes(Object.keys(groups));
+
+    // segmented bar + clickable legend
+    let bar = '<div class="seg-bar">';
+    let legend = '<div class="seg-legend">';
+    for (const t of types) {
+      const meta = metaFor(t), n = groups[t].length;
+      const pct = (n / findings.length) * 100;
+      bar += '<div class="seg" data-type="' + t + '" title="' + escapeHtml(meta.label + ": " + n) + '" '
+        + 'style="width:' + pct + '%;background:' + meta.color + '"></div>';
+      legend += '<button class="legend-item" data-type="' + t + '">'
+        + '<span class="dot" style="background:' + meta.color + '"></span>'
+        + escapeHtml(meta.label) + ' <span class="legend-count">' + n + '</span></button>';
+    }
+    bar += '</div>'; legend += '</div>';
+
+    // collapsible groups -- closed by default; files appear only on drill-down
+    let work = '<div class="worklist">';
+    for (const t of types) {
+      const meta = metaFor(t);
+      const rows = groups[t].slice().sort(meta.sort);
+      const shown = rows.slice(0, FILES_PER_GROUP);
+      const extra = rows.length - shown.length;
+      work += '<details class="group" id="grp-' + t + '">'
+        + '<summary>'
+        +   '<span class="g-dot" style="background:' + meta.color + '"></span>'
+        +   '<span class="g-label">' + escapeHtml(meta.label) + '</span>'
+        +   '<span class="g-count">' + rows.length + '</span>'
+        +   '<span class="g-short">' + escapeHtml(meta.short) + '</span>'
+        +   '<span class="g-chevron">❯</span>'
+        + '</summary>'
+        + '<div class="g-body">'
+        +   (meta.how ? '<p class="g-how">' + escapeHtml(meta.how) + '</p>' : '')
+        +   shown.map(findingRow).join('')
+        +   (extra > 0 ? '<div class="g-more">+ ' + extra + ' more not shown</div>' : '')
+        + '</div>'
+        + '</details>';
+    }
+    work += '</div>';
+
+    return '<div class="sec-head"><h2>Needs attention</h2>'
+      + '<span class="sec-total">' + findings.length + ' finding' + (findings.length === 1 ? '' : 's') + '</span></div>'
+      + '<p class="sec-note">Grouped by type and collapsed. Open a group to see the notes and jump into Obsidian to fix them.</p>'
+      + bar + legend + work;
+  }
+
+  function structureSection(stats) {
+    const maxCore = stats.max_core || 0;
+    const cc = stats.core_count || {};
+    if (!stats.node_count) return "";
+
+    // Compute widths against the largest bucket so the chart fills the track.
+    let max = 1;
+    for (let k = 0; k <= maxCore; k++) { const c = cc[k] || cc[String(k)] || 0; if (c > max) max = c; }
+
+    let chart = '<div class="depth-chart">';
+    for (let k = 0; k <= maxCore; k++) {
+      const c = cc[k] || cc[String(k)] || 0;
+      const pct = (c / max) * 100;
+      chart += '<div class="depth-row">'
+        + '<span class="depth-k">depth ' + k + '</span>'
+        + '<div class="depth-track"><div class="depth-bar" style="width:' + pct + '%;background:' + depthColor(k, maxCore) + '"></div></div>'
+        + '<span class="depth-c">' + num(c) + '</span>'
+        + '</div>';
+    }
+    chart += '</div>';
+
+    return '<div class="structure">'
+      + '<div class="sec-head"><h2>Connection depth</h2></div>'
+      + '<p class="sec-note">How deeply each note is woven into the graph (k-core). Most notes sit at low depth on the fringe; '
+      + 'a small, densely linked core holds the vault together. Depth 0 means no resolved links.</p>'
+      + chart
+      + '</div>';
+  }
+
+  function renderHealth(data) {
+    const findings = data.findings || [];
+    const stats = data.stats || {};
+
+    if (!stats.node_count) {
+      healthContent.innerHTML = '<h1 class="dash-title">Vault health</h1>'
+        + '<div class="state"><b>No notes indexed yet.</b><br>Add some markdown to the vault, then refresh.</div>';
+      return;
+    }
+
+    healthContent.innerHTML =
+      '<h1 class="dash-title">Vault health</h1>'
+      + '<p class="dash-sub">A read-only structural check of your link graph. Everything here is advisory and changes nothing in your notes.</p>'
+      + '<div class="dash-top">' + connectivityCard(stats) + statsCard(stats) + '</div>'
+      + attentionSection(findings)
+      + structureSection(stats);
+
+    // Wire the legend and segment shortcuts to open and scroll to their group.
+    healthContent.querySelectorAll("[data-type]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const g = healthContent.querySelector("#grp-" + el.dataset.type);
+        if (!g) return;
+        g.open = true;
+        g.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
   }
 
   function loadHealth() {
     healthLoaded = true;
-    healthContent.innerHTML = '<div class="health-loading"><span class="spinner"></span> Running health checks&hellip;</div>';
+    healthContent.innerHTML = '<h1 class="dash-title">Vault health</h1>'
+      + '<div class="state"><span class="spinner"></span> Running health checks&hellip;</div>';
     fetch("/api/health")
       .then((r) => {
         if (!r.ok) return r.json().then((e) => { throw new Error(e.error || r.statusText); });
@@ -605,9 +765,12 @@
       .then((data) => { renderHealth(data); })
       .catch((err) => {
         healthLoaded = false;
-        healthContent.innerHTML = '<div class="health-error">Health check failed: ' + escapeHtml(String(err)) + '</div>';
+        healthContent.innerHTML = '<h1 class="dash-title">Vault health</h1>'
+          + '<div class="state err">Health check failed: ' + escapeHtml(String(err)) + '</div>';
       });
   }
+
+  $("#refresh-health").addEventListener("click", () => { healthLoaded = false; loadHealth(); });
 
   /* ------------------------------------------------------- index refresh */
 
@@ -619,10 +782,9 @@
       .then((r) => r.json())
       .then((d) => {
         el.textContent = "✓ " + d.indexed + " notes";
-        loadStats();
-        search();
-        // Invalidate cached health so the next visit to the tab re-runs.
-        healthLoaded = false;
+        // The index changed: re-run search and health so both reflect disk.
+        loadHealth();
+        if (!searchView.classList.contains("hidden")) search();
         setTimeout(() => (el.textContent = old), 2500);
       })
       .catch(() => (el.textContent = old));
@@ -633,11 +795,38 @@
   function loadStats() {
     fetch("/api/stats").then((r) => r.json()).then((s) => {
       vaultName = s.vaultName || vaultName;
-      taglineEl.textContent = "Searching " + s.noteCount.toLocaleString("en-GB") +
-        " notes · " + s.linkCount.toLocaleString("en-GB") + " links";
-      footstats.textContent = s.noteCount.toLocaleString("en-GB") + " notes indexed";
-      if (lastResults.length || qInput.value) render({ query: qInput.value.trim(), count: lastResults.length, ms: 0, results: lastResults });
+      // Show the active vault name as a label unless the multi-vault switcher
+      // has already rendered tabs.
+      if (!multiVault) {
+        vaultTabs.innerHTML = '<span class="vault-label"><span class="dot"></span><b>' + escapeHtml(vaultName) + '</b></span>';
+      }
     });
+  }
+
+  /* -------------------------------------------------- multi-vault switcher */
+
+  // Populate vault tabs from /api/vaults and show them only when more than one
+  // vault is served. An absent endpoint (single-vault server) or a single vault
+  // leaves the plain label from loadStats(). Switching pins the vault by cookie.
+  function loadVaults() {
+    fetch("/api/vaults")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d || !d.vaults || d.vaults.length < 2) return;
+        multiVault = true;
+        vaultTabs.innerHTML = "";
+        for (const v of d.vaults) {
+          const b = document.createElement("button");
+          b.className = "vault-tab" + (v.slug === d.active ? " active" : "");
+          b.textContent = v.name;
+          b.title = v.name;
+          b.addEventListener("click", () => {
+            if (v.slug !== d.active) location.href = "/?vault=" + encodeURIComponent(v.slug);
+          });
+          vaultTabs.appendChild(b);
+        }
+      })
+      .catch(() => {});
   }
 
   /* -------------------------------------------------------- hash restore */
@@ -651,40 +840,12 @@
     }
     if (h.get("tag")) { tag = h.get("tag"); tagInput.value = tag; }
     if (h.get("q")) { qInput.value = h.get("q"); search(); }
-    if (h.get("view") === "health") {
-      showTab("health");
-    }
-  }
-
-  // Multi-vault switcher: populate the picker from /api/vaults and show it only
-  // when more than one vault is served. Absent endpoint (single-vault server) or
-  // a single vault leaves it hidden. Changing it pins the vault via a cookie.
-  function loadVaults() {
-    fetch("/api/vaults")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d || !d.vaults || d.vaults.length < 2) return;
-        const sel = document.getElementById("vault-select");
-        sel.innerHTML = "";
-        for (const v of d.vaults) {
-          const o = document.createElement("option");
-          o.value = v.slug;
-          o.textContent = v.name;
-          if (v.slug === d.active) o.selected = true;
-          sel.appendChild(o);
-        }
-        sel.style.display = "";
-        sel.addEventListener("change", () => {
-          location.href = "/?vault=" + encodeURIComponent(sel.value);
-        });
-      })
-      .catch(() => {});
   }
 
   loadVaults();
   loadStats();
+  loadHealth();
   restore();
-  qInput.focus();
 </script>
 </body>
 </html>

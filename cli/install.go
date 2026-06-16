@@ -121,18 +121,19 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 	}
 
 	rep, err := install.Run(install.Options{
-		VaultPath:  cfg.VaultPath,
-		MCPName:    p.serverName,
-		MCPCommand: install.DefaultMCPCommand,
-		Home:       home,
-		HebbBin:    hebbBin,
-		LaunchdDir: launchdDir,
-		Load:       p.load,
-		Assets:     hebbassets.Assets,
-		DataDir:    dataDir,
-		AssetRoot:  assetRoot,
-		MCPJSON:    p.mcpJSON,
-		SkipSkills: p.noSkills,
+		VaultPath:    cfg.VaultPath,
+		MCPName:      p.serverName,
+		MCPCommand:   install.DefaultMCPCommand,
+		Home:         home,
+		HebbBin:      hebbBin,
+		LaunchdDir:   launchdDir,
+		Load:         p.load,
+		Assets:       hebbassets.Assets,
+		DataDir:      dataDir,
+		AssetRoot:    assetRoot,
+		MCPJSON:      p.mcpJSON,
+		SkipSkills:   p.noSkills,
+		RegistryPath: core.RegistryPath(home),
 	})
 	if err != nil {
 		return err

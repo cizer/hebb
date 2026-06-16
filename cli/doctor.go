@@ -13,7 +13,7 @@ func doctorCmd() *cobra.Command {
 	var home, assetRoot, launchdDir, dataDir, codexConfig, claudeDesktopCfg string
 	c := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check vault and install health",
+		Short: "Check the install is wired correctly (config, agents, launchd)",
 		Long:  "Inspect a vault and its install (config, .mcp.json, index, settings,\nmemory, agent wiring, launchd, launchd-tcc) and report each. Read-only;\nrepairs nothing and never runs a configured command.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Resolve the vault path without opening the index (read-only).

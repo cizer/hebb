@@ -12,6 +12,9 @@ import (
 // returns combined output. A temp --home keeps the run hermetic.
 func runInstall(t *testing.T, vault string, extra ...string) string {
 	t.Helper()
+	// Keep the machine-global vault registry write hermetic (install registers
+	// the vault under $XDG_CONFIG_HOME).
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	root := newRoot("test")
 	var buf bytes.Buffer
 	root.SetOut(&buf)
@@ -144,8 +147,8 @@ func TestInstallCommandRendersLaunchd(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, buf.String())
 	}
 
-	matches, _ := filepath.Glob(filepath.Join(launchdDir, "local.hebb.*.web.plist"))
-	if len(matches) != 1 {
-		t.Errorf("expected one web plist in %s, got %v", launchdDir, matches)
+	// The web UI is one machine-global service (local.hebb.web), not per-vault.
+	if _, err := os.Stat(filepath.Join(launchdDir, "local.hebb.web.plist")); err != nil {
+		t.Errorf("expected the global web plist in %s: %v", launchdDir, err)
 	}
 }

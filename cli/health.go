@@ -16,8 +16,9 @@ func healthCmd() *cobra.Command {
 	var unresolved bool
 	var excludeFromGraph string
 	c := &cobra.Command{
-		Use:   "health",
-		Short: "Report vault-health findings (dangling links, PARA drift, oversized notes)",
+		Use:     "audit",
+		Aliases: []string{"health"},
+		Short:   "Audit vault content: dangling links, PARA drift, oversized notes",
 		Long: "Runs deterministic, read-only detectors over the vault index and prints a\n" +
 			"worklist of findings grouped by type. Repairs nothing.\n\n" +
 			"Detectors (Phase 1):\n" +

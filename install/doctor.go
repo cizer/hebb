@@ -473,6 +473,11 @@ func checkLaunchd(add func(string, string, string), opts Options, vc core.VaultC
 		bin = "hebb"
 	}
 	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs, vc.JobEnv)
+	// The web UI is one machine-global service, not a per-vault job; verify it
+	// too when this vault opts into "web".
+	if jobsInclude(vc.Jobs, "web") {
+		jobs = append(jobs, GlobalWebJob(bin, opts.Home))
+	}
 	if len(jobs) == 0 {
 		return
 	}

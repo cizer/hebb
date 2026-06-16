@@ -64,8 +64,8 @@ report_unresolved_links = false
 | --- | --- | --- | --- |
 | `name` | string | vault directory name | Human name for the vault. Used in launchd job labels. |
 | `exclude_dirs` | list of string | `[".obsidian", ".trash", ".hebb", ".git", ".claude"]` | Directory names skipped entirely during the index walk, matched at any depth. Notes inside become invisible to search. Setting this replaces the default list, so include the defaults you still want. |
-| `web_port` | int | `4321` | Port for `hebb serve` (also overridable per run with `--port` or `$HEBB_WEB_PORT`). |
-| `jobs` | list of string | `["daily-digest", "action-review", "web", "update-check"]` | Which launchd jobs `hebb install --launchd` renders. Known names: `daily-digest`, `action-review`, `web`, `update-check`. Unknown names are ignored. Automation jobs render only if their script is present. |
+| `web_port` | int | `4321` | Port for a manual `hebb serve` (override per run with `--port` or `$HEBB_WEB_PORT`). The launchd web service is one machine-global job on `4321` (it serves every vault), so this per-vault value does not change that job. |
+| `jobs` | list of string | `["daily-digest", "action-review", "web", "update-check"]` | Which launchd jobs `hebb install --launchd` renders. Known names: `daily-digest`, `action-review`, `web`, `update-check`. `web` is the single machine-global web service (`local.hebb.web`), rendered once rather than per vault. Unknown names are ignored; automation jobs render only if their script is present. |
 
 ## `[git]` — git auto-sync
 
@@ -126,15 +126,15 @@ fine for a private vault.
 
 ## `[health]` — vault-health detectors
 
-Thresholds and link-classification settings for `hebb health`, the read-only
-advisory worklist. Wiki-links are resolved case-insensitively (matching
+Thresholds and link-classification settings for `hebb audit` (alias `hebb
+health`), the read-only advisory worklist. Wiki-links are resolved case-insensitively (matching
 Obsidian).
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `project_stale_days` | int | `180` | Days without modification before a `1-Projects/` note is flagged as PARA drift. |
 | `size_threshold` | int | `1200` | Estimated token count (`len(body)/4`) above which a note is checked for multiple sections (oversized candidate). |
-| `report_unresolved_links` | bool | `false` | List each unresolved wiki-link (a link to a note that does not exist) as a `dangling_link` finding. Obsidian treats these as expected future notes, so they are counted but not listed by default. `hebb health --unresolved` forces listing for one run. |
+| `report_unresolved_links` | bool | `false` | List each unresolved wiki-link (a link to a note that does not exist) as a `dangling_link` finding. Obsidian treats these as expected future notes, so they are counted but not listed by default. `hebb audit --unresolved` forces listing for one run. |
 | `attachment_extensions` | list of string | built-in list | File extensions (no leading dot) treated as attachment links and excluded from dangling checks, since hebb does not index non-note files. Empty uses the built-in default (`png`, `jpg`, `pdf`, `pptx`, `canvas`, `excalidraw`, ...). Setting it replaces the default rather than extending it. |
 | `exclude_from_graph` | list of string | empty | Glob patterns matched against a note's title, basename without `.md`, and vault-relative path (any match excludes the note). A matched note is removed from the link graph before computing connected components, k-core coreness, orphans, leaves, and islands, so machine-generated scaffolding that links to hundreds of notes does not dominate those metrics. Content detectors (`dangling_link`, `ambiguous_link`, `para_drift`, `oversized`) are unaffected and still run over all notes. Patterns use `path.Match` semantics (shell-style globs over the `/`-separated vault path; `*` does not cross `/`). A malformed pattern fails the run with a clear error rather than being silently ignored. Default: empty (exclude nothing). The `--exclude-from-graph` flag on `hebb health` overrides this list for a single run and is useful for ad-hoc experiments. Example: `exclude_from_graph = ["Vault Daily Digest", "Ingest Log", "Action Review", "My Open Actions", "Open Actions*"]` |
 

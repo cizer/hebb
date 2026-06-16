@@ -236,3 +236,41 @@ func mustExistT(t *testing.T, path string) {
 		t.Errorf("expected %s to still exist: %v", path, err)
 	}
 }
+
+func TestTeardownDeregistersAndRetiresGlobalWeb(t *testing.T) {
+	reg := filepath.Join(t.TempDir(), "vaults.toml")
+	a, b := t.TempDir(), t.TempDir()
+	if err := core.RegisterVault(reg, "A", a); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.RegisterVault(reg, "B", b); err != nil {
+		t.Fatal(err)
+	}
+	launchdDir := t.TempDir()
+	globalWeb := filepath.Join(launchdDir, GlobalWebLabel+".plist")
+	if err := os.WriteFile(globalWeb, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Tearing down one of two vaults deregisters it but keeps the global web job.
+	if _, err := Teardown(TeardownOptions{VaultPath: a, RegistryPath: reg, LaunchdDir: launchdDir, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := core.LoadRegistry(reg); len(r.Vaults) != 1 {
+		t.Fatalf("expected 1 vault left, got %+v", r.Vaults)
+	}
+	if _, err := os.Stat(globalWeb); err != nil {
+		t.Error("global web should remain while another vault exists")
+	}
+
+	// Tearing down the last vault retires the global web service.
+	if _, err := Teardown(TeardownOptions{VaultPath: b, RegistryPath: reg, LaunchdDir: launchdDir, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := core.LoadRegistry(reg); len(r.Vaults) != 0 {
+		t.Fatalf("expected 0 vaults, got %+v", r.Vaults)
+	}
+	if _, err := os.Stat(globalWeb); err == nil {
+		t.Error("global web should be retired when the last vault is removed")
+	}
+}

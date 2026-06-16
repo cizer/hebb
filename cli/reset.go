@@ -16,8 +16,9 @@ func resetCmd() *cobra.Command {
 	var home, launchdDir, codexConfig, desktopConfig, mcpName string
 	var force, keepIndex bool
 	c := &cobra.Command{
-		Use:   "reset",
-		Short: "Un-wire this vault from the machine (keeps all vault content)",
+		Use:     "unwire",
+		Aliases: []string{"reset"},
+		Short:   "Un-wire this vault from the machine (keeps all vault content)",
 		Long: "Remove the machine-side wiring `hebb install` created: the Claude\n" +
 			"memory symlink, this vault's launchd jobs, the Codex [mcp_servers.hebb]\n" +
 			"block, the opt-in per-vault .mcp.json/settings, and the (regenerable)\n" +
@@ -39,6 +40,7 @@ func resetCmd() *cobra.Command {
 				CodexConfig:   codexConfig,
 				DesktopConfig: desktopConfig,
 				MCPName:       mcpName,
+				RegistryPath:  core.RegistryPath(home),
 				Force:         force,
 				KeepIndex:     keepIndex,
 			})

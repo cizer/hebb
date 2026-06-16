@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+
+	"github.com/cizer/hebb/core"
 )
 
 func TestRunWiresEverythingLocal(t *testing.T) {
@@ -39,6 +41,40 @@ func TestRunWiresEverythingLocal(t *testing.T) {
 	}
 	if statusOf(rep, "memory") != "symlinked" {
 		t.Errorf("memory step = %q, want symlinked", statusOf(rep, "memory"))
+	}
+}
+
+func TestRunRegistersVault(t *testing.T) {
+	vault := t.TempDir()
+	registry := filepath.Join(t.TempDir(), "vaults.toml")
+
+	rep, err := Run(Options{
+		VaultPath:    vault,
+		MCPName:      DefaultMCPServerName,
+		MCPCommand:   DefaultMCPCommand,
+		RegistryPath: registry,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if statusOf(rep, "registry") != "registered" {
+		t.Errorf("expected a registry step, got steps %+v", rep.Steps)
+	}
+	r, err := core.LoadRegistry(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Vaults) != 1 || r.Vaults[0].Name != filepath.Base(vault) {
+		t.Fatalf("vault not registered: %+v", r.Vaults)
+	}
+
+	// Empty RegistryPath skips registration entirely.
+	rep2, err := Run(Options{VaultPath: t.TempDir(), MCPName: DefaultMCPServerName, MCPCommand: DefaultMCPCommand})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusOf(rep2, "registry") != "" {
+		t.Error("registration should be skipped when RegistryPath is empty")
 	}
 }
 
@@ -94,7 +130,7 @@ func TestRunVaultLocalOnly(t *testing.T) {
 	}
 }
 
-func TestRunRendersLaunchdWebJob(t *testing.T) {
+func TestRunRendersGlobalWebJob(t *testing.T) {
 	vault := t.TempDir()
 	home := t.TempDir()
 	launchdDir := t.TempDir()
@@ -110,10 +146,41 @@ func TestRunRendersLaunchdWebJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	// The web UI is one machine-global job (no vault slug), not per-vault.
+	if _, err := os.Stat(filepath.Join(launchdDir, GlobalWebLabel+".plist")); err != nil {
+		t.Fatalf("global web plist not rendered: %v", err)
+	}
 	slug := Slugify(filepath.Base(vault))
-	plist := filepath.Join(launchdDir, "local.hebb."+slug+".web.plist")
-	if _, err := os.Stat(plist); err != nil {
-		t.Fatalf("web plist not rendered at %s: %v", plist, err)
+	if _, err := os.Stat(filepath.Join(launchdDir, "local.hebb."+slug+".web.plist")); err == nil {
+		t.Error("a per-vault web plist should no longer be rendered")
+	}
+}
+
+func TestRunRetiresStalePerVaultWebPlist(t *testing.T) {
+	vault := t.TempDir()
+	home := t.TempDir()
+	launchdDir := t.TempDir()
+	// A leftover per-vault web plist from a previous version.
+	stale := filepath.Join(launchdDir, "local.hebb.work.web.plist")
+	if err := os.WriteFile(stale, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Run(Options{
+		VaultPath:  vault,
+		MCPName:    DefaultMCPServerName,
+		MCPCommand: DefaultMCPCommand,
+		Home:       home,
+		HebbBin:    "/usr/local/bin/hebb",
+		LaunchdDir: launchdDir,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("stale per-vault web plist should be removed on install (web consolidated)")
+	}
+	if _, err := os.Stat(filepath.Join(launchdDir, GlobalWebLabel+".plist")); err != nil {
+		t.Errorf("global web plist should remain: %v", err)
 	}
 }
 

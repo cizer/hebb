@@ -2,6 +2,7 @@ package install
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -22,6 +23,10 @@ type Options struct {
 	Load       bool   // if true, bootstrap rendered jobs via launchctl
 	MCPJSON    bool   // if true, write a per-vault .mcp.json + settings (plugin-less wiring)
 	SkipSkills bool   // if true, do not install agent skills into ~/.claude/skills
+
+	// RegistryPath is the machine-global vault registry to register this vault
+	// in (so one web server can enumerate it). Empty skips registration.
+	RegistryPath string
 
 	// Agent config paths, used only by Doctor to re-verify wiring drift
 	// read-only. Empty means "use the conventional default under Home"; when
@@ -55,6 +60,21 @@ func Run(opts Options) (Report, error) {
 	rep, err := VaultLocal(opts.VaultPath)
 	if err != nil {
 		return rep, err
+	}
+
+	// Register the vault in the machine-global registry so one web server can
+	// enumerate and switch between vaults. Idempotent; skipped when no registry
+	// path is given (e.g. a vault-local-only run).
+	if opts.RegistryPath != "" {
+		vc, _, _ := core.LoadVaultConfig(opts.VaultPath)
+		name := vc.Name
+		if name == "" {
+			name = filepath.Base(opts.VaultPath)
+		}
+		if err := core.RegisterVault(opts.RegistryPath, name, opts.VaultPath); err != nil {
+			return rep, err
+		}
+		rep.add("registry", "registered")
 	}
 
 	if opts.MCPJSON {
@@ -147,9 +167,27 @@ func renderLaunchd(rep *Report, opts Options, assetDir string) error {
 	}
 	slug := Slugify(vc.Name)
 	jobs := VaultJobs(opts.VaultPath, slug, opts.HebbBin, assetDir, opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs, vc.JobEnv)
+	// The web UI is one machine-global service, not per-vault. Render it when this
+	// vault opts into "web" (the default). Its content is identical from any
+	// vault, so writing it on each install is idempotent.
+	if jobsInclude(vc.Jobs, "web") {
+		jobs = append(jobs, GlobalWebJob(opts.HebbBin, opts.Home))
+	}
 	changed, err := launchd.WriteJobs(jobs, opts.LaunchdDir)
 	if err != nil {
 		return err
+	}
+	// Migration: retire any old per-vault web plists (local.hebb.<slug>.web),
+	// now superseded by the single global service. The global plist
+	// (local.hebb.web) has no slug segment, so it does not match this glob.
+	if stale, _ := filepath.Glob(filepath.Join(opts.LaunchdDir, "local.hebb.*.web.plist")); len(stale) > 0 {
+		for _, p := range stale {
+			lbl := strings.TrimSuffix(filepath.Base(p), ".plist")
+			Bootout(lbl)
+			if err := os.Remove(p); err == nil {
+				rep.add(lbl, "removed (web consolidated)")
+			}
+		}
 	}
 	changedSet := map[string]bool{}
 	for _, l := range changed {
@@ -166,6 +204,15 @@ func renderLaunchd(rep *Report, opts Options, assetDir string) error {
 		}
 	}
 	return nil
+}
+
+func jobsInclude(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
 }
 
 func wroteOrUnchanged(changed bool) string {

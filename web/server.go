@@ -184,7 +184,12 @@ type healthResp struct {
 
 func obsidianURI(path, vaultName string) string {
 	file := strings.TrimSuffix(path, ".md")
-	return "obsidian://open?vault=" + url.QueryEscape(vaultName) + "&file=" + url.QueryEscape(file)
+	// url.QueryEscape encodes spaces as "+", which the obsidian:// handler reads
+	// as a literal plus, so any note path or vault name with a space produces a
+	// broken link. Percent-encode with %20 for spaces (valid in the URI and what
+	// Obsidian expects).
+	enc := func(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+	return "obsidian://open?vault=" + enc(vaultName) + "&file=" + enc(file)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

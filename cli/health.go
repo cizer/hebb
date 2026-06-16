@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/cizer/hebb/core"
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 func healthCmd() *cobra.Command {
 	var asJSON bool
 	var unresolved bool
+	var excludeFromGraph string
 	c := &cobra.Command{
 		Use:     "audit",
 		Aliases: []string{"health"},
@@ -57,6 +59,20 @@ func healthCmd() *cobra.Command {
 			// default (report_unresolved_links, off unless set).
 			reportUnresolved := unresolved || cfg.Health.ReportUnresolvedLinks
 
+			// Effective exclude-from-graph list: the --exclude-from-graph flag
+			// (comma-separated glob patterns) overrides the config list for this
+			// run. When the flag is empty, the config list is used unchanged.
+			if excludeFromGraph != "" {
+				parts := strings.Split(excludeFromGraph, ",")
+				trimmed := make([]string, 0, len(parts))
+				for _, p := range parts {
+					if s := strings.TrimSpace(p); s != "" {
+						trimmed = append(trimmed, s)
+					}
+				}
+				cfg.Health.ExcludeFromGraph = trimmed
+			}
+
 			result, err := core.RunHealthFull(cfg, db, reportUnresolved)
 			if err != nil {
 				return fmt.Errorf("health check failed: %w", err)
@@ -90,6 +106,12 @@ func healthCmd() *cobra.Command {
 	}
 	c.Flags().BoolVar(&asJSON, "json", false, "emit findings as a JSON array (for the Phase 2 dashboard)")
 	c.Flags().BoolVar(&unresolved, "unresolved", false, "list unresolved wiki-links (links to non-existent notes), suppressed by default")
+	c.Flags().StringVar(&excludeFromGraph, "exclude-from-graph", "",
+		"comma-separated glob patterns to drop from the graph for this run (overrides exclude_from_graph in config.toml). "+
+			"Patterns are matched against a note's title, basename without .md, and vault-relative path. "+
+			"Excluded notes are removed from graph metrics (coreness, components, orphans, islands) but content "+
+			"detectors (dangling_link, oversized, ...) still run over them. "+
+			"Example: --exclude-from-graph=\"Vault Daily Digest,Ingest Log,Open Actions*\"")
 	return c
 }
 

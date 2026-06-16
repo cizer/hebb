@@ -156,6 +156,26 @@ coreness ranking actually puts your known durable reference notes at high corene
 mis-ranks them as periphery, the structural axis is wrong (likely a Phase 0 resolution
 bug) and no later access logging saves it.
 
+**Validation result (2026-06-16, OneVault, 1067 notes): the gate FAILED as framed.**
+k-core coreness does not track durable knowledge on a meeting-and-action-heavy work
+vault. The maximum core was dominated by machine-generated hubs (the daily digest at
+degree 297, the ingest log, the action-review and open-actions registers) plus the
+recurring dated sync/meeting stream, with person notes mixed in. The human
+maps-of-content (project indexes, dashboards) sat mid-core (k=8 of 13), only 1 of ~25
+reaching the top two core levels. Coreness tracked raw degree closely (19/30 top-set
+overlap), so it is essentially "centrality in the operational mesh".
+
+An `exclude_from_graph` experiment (recompute coreness with scaffolding removed) showed
+the effect is real but needs aggressive curation: excluding the 9 automation hubs alone
+just promoted person notes (MOCs still 1/16); only after also excluding the recurring
+sync/meeting notes (about 10% of the vault) did the MOCs reach the top tier (8/16).
+
+Conclusion: coreness is a structural-centrality descriptor, not a durability axis, on a
+work vault. `exclude_from_graph` is worth shipping to keep the dashboard's graph metrics
+(orphans, islands, coreness) meaningful by stripping machine scaffolding, but Phase 5
+must NOT gate protect/forget on coreness. Durability must come from the Phase 3
+two-strength (access + stability) signal, as this plan already sequences.
+
 ---
 
 ## Phase 3 — Access log as a silent observer (~20 lines, no scorer)
@@ -352,7 +372,7 @@ spent ~20 lines, not a scorer plus a dashboard plus two jobs, finding out.
 - [x] Phase 1: `core/health.go` + `hebb health` CLI: dangling-link, PARA-drift, oversized detectors
 - [ ] Phase 1: dedup precision test (throwaway script, top-30 eyeball) before building dedup
 - [x] Phase 2: orphans / components / k-core in `core/health.go`; worklist-first panel on `hebb serve`
-- [ ] Phase 2: validate coreness puts known-durable notes at high coreness
+- [x] Phase 2: validate coreness puts known-durable notes at high coreness — FAILED (2026-06-16): coreness tracks operational centrality, not durability, on a work vault (see "Validation result" in Phase 2). `exclude_from_graph` helps only with aggressive curation; durability deferred to Phase 3.
 - [ ] Phase 3: `access_log` table + writes in the three MCP handlers (post-result), behind a config flag
 - [ ] Phase 3: capture `return_count` and `followup_count` separately
 - [ ] EXP: run the vault for two weeks; hand-label 30 durable + 30 transitory

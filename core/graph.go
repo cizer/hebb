@@ -3,6 +3,7 @@ package core
 import (
 	"database/sql"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -38,22 +39,87 @@ func (g *noteGraph) edgeCount() int {
 	return total / 2
 }
 
+// validateExcludePatterns checks every glob pattern for validity up front, so a
+// malformed pattern (e.g. an unclosed "[") is reported rather than silently
+// treated as a non-match. The whole point of the feature is graph-metric
+// fidelity, so silently computing the wrong graph from a typo would invalidate
+// the result. path.Match reports a bad pattern via ErrBadPattern regardless of
+// the candidate string, so an empty candidate is enough to validate. An empty
+// patterns slice validates trivially.
+func validateExcludePatterns(patterns []string) error {
+	for _, pat := range patterns {
+		if _, err := path.Match(pat, ""); err != nil {
+			return fmt.Errorf("invalid exclude_from_graph pattern %q: %w", pat, err)
+		}
+	}
+	return nil
+}
+
+// matchesExcludePatterns reports whether a note should be excluded from the
+// graph. A note is excluded when any of the supplied glob patterns matches any
+// of the three candidates: title, basename-without-.md, or vault-relative path.
+// Matching uses path.Match semantics (shell-style globs over the '/'-separated
+// vault path, OS-independent: "*" does not cross "/"). Patterns are assumed
+// pre-validated by validateExcludePatterns, so a match error here cannot occur.
+// An empty patterns slice always returns false (exclude nothing).
+func matchesExcludePatterns(patterns []string, title, notePath string) bool {
+	if len(patterns) == 0 {
+		return false
+	}
+	base := strings.TrimSuffix(path.Base(notePath), ".md")
+	for _, pat := range patterns {
+		if ok, _ := path.Match(pat, title); ok {
+			return true
+		}
+		if ok, _ := path.Match(pat, base); ok {
+			return true
+		}
+		if ok, _ := path.Match(pat, notePath); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // buildGraph reads the notes and resolved links tables and constructs the
 // undirected note graph. It is called by RunHealthFull (once per invocation,
 // shared across all graph-based detectors) and by GraphHealth (for stats-only
 // callers such as tests and future tooling).
 func buildGraph(db *sql.DB) (*noteGraph, error) {
-	// Load all note paths, ordered for determinism.
-	rows, err := db.Query("SELECT path FROM notes ORDER BY path")
+	return buildGraphExcluding(db, nil)
+}
+
+// buildGraphExcluding is the underlying implementation for buildGraph. It
+// accepts an optional slice of glob patterns (see matchesExcludePatterns); when
+// non-empty, any note whose title, basename-without-.md, or vault-relative path
+// matches ANY pattern is excluded from the graph entirely: it becomes neither a
+// node nor the endpoint of any edge. Pass nil (or an empty slice) to build the
+// full graph without exclusions.
+func buildGraphExcluding(db *sql.DB, excludePatterns []string) (*noteGraph, error) {
+	// Validate the patterns before touching the DB: a malformed glob must fail
+	// the run with a clear message, not silently exclude nothing and report
+	// metrics over the unfiltered graph.
+	if err := validateExcludePatterns(excludePatterns); err != nil {
+		return nil, err
+	}
+	// Load all note paths and titles, ordered for determinism.
+	rows, err := db.Query("SELECT path, title FROM notes ORDER BY path")
 	if err != nil {
 		return nil, fmt.Errorf("graph: load notes: %w", err)
 	}
 	var nodes []string
+	// excluded is the set of paths that are filtered out by excludePatterns. It
+	// is used when loading edges to drop any edge incident to an excluded node.
+	excluded := make(map[string]bool)
 	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
+		var p, title string
+		if err := rows.Scan(&p, &title); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("graph: scan note path: %w", err)
+		}
+		if matchesExcludePatterns(excludePatterns, title, p) {
+			excluded[p] = true
+			continue
 		}
 		nodes = append(nodes, p)
 	}
@@ -89,6 +155,10 @@ func buildGraph(db *sql.DB) (*noteGraph, error) {
 		if err := lrows.Scan(&src, &tgt); err != nil {
 			lrows.Close()
 			return nil, fmt.Errorf("graph: scan link: %w", err)
+		}
+		// Drop any edge incident to an excluded note.
+		if excluded[src] || excluded[tgt] {
+			continue
 		}
 		si, sok := nodeIdx[src]
 		ti, tok := nodeIdx[tgt]
@@ -152,13 +222,16 @@ type GraphStats struct {
 // It returns the full GraphStats summary. GraphHealth is used directly by the
 // web layer (/api/health calls RunHealthFull, which builds its own graph
 // internally) and by graph-stats tests. RunHealthFull does not call GraphHealth;
-// it calls buildGraph itself and then calls computeComponents and
+// it calls buildGraphExcluding itself and then calls computeComponents and
 // computeCoreness directly so it can reuse the same graph for detectOrphansAndLeaves
 // and detectIslands without a second DB round-trip. Consolidating the two paths
 // would require changing GraphHealth's signature to accept a pre-built graph;
 // left separate to keep the public API stable.
+//
+// Any notes matched by cfg.Health.GetExcludeFromGraph() are removed from the
+// graph before metrics are computed (see matchesExcludePatterns).
 func GraphHealth(cfg Config, db *sql.DB) (GraphStats, error) {
-	g, err := buildGraph(db)
+	g, err := buildGraphExcluding(db, cfg.Health.GetExcludeFromGraph())
 	if err != nil {
 		return GraphStats{}, err
 	}

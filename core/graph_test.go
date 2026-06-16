@@ -837,3 +837,397 @@ func equalStrSlice(a, b []string) bool {
 	}
 	return true
 }
+
+// buildExcludeVault creates a vault topology for exclude_from_graph tests.
+//
+// Topology:
+//
+//	Notes/Hub.md          links to A, B, C, D, E (hub: degree 5)
+//	Notes/A.md            links to Hub, B
+//	Notes/B.md            links to Hub
+//	Notes/C.md            links to Hub
+//	Notes/D.md            links to Hub
+//	Notes/E.md            links to Hub
+//	3-Resources/Island1.md links to Island2 (2-note island)
+//	3-Resources/Island2.md links to Island1
+//	2-Areas/OldOrphan.md  no links, aged 60 days
+//	Daily/Digest.md       links to every note (297-style hub, excluded note under test)
+//	Daily/OpenActions.md  no links (for glob exclusion test)
+//
+// Notes/Hub.md is placed in Notes/ (expected-orphan, never orphan-flagged).
+// Daily/Digest.md is the machine-generated hub we exclude in tests.
+func buildExcludeVault(t *testing.T) (Config, *sql.DB) {
+	t.Helper()
+	vault := t.TempDir()
+
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("Notes/Hub.md", "# Hub\n\n[[A]] [[B]] [[C]] [[D]] [[E]]\n")
+	write("Notes/A.md", "# A\n\n[[Hub]] [[B]]\n")
+	write("Notes/B.md", "# B\n\n[[Hub]]\n")
+	write("Notes/C.md", "# C\n\n[[Hub]]\n")
+	write("Notes/D.md", "# D\n\n[[Hub]]\n")
+	write("Notes/E.md", "# E\n\n[[Hub]]\n")
+
+	// 2-note island in 3-Resources.
+	write("3-Resources/Island1.md", "# Island1\n\n[[Island2]]\n")
+	write("3-Resources/Island2.md", "# Island2\n\nSee [[Island1]].\n")
+
+	// Old orphan in a connective folder.
+	write("2-Areas/OldOrphan.md", "# OldOrphan\n\nNo links here.\n")
+
+	// Machine-generated hub: links to every named note, inflating their coreness.
+	// Title is "Vault Daily Digest"; basename without .md is "Digest".
+	// Vault-relative path is "Daily/Digest.md".
+	write("Daily/Digest.md", "# Vault Daily Digest\n\n"+
+		"[[Hub]] [[A]] [[B]] [[C]] [[D]] [[E]] [[Island1]] [[Island2]] [[OldOrphan]]\n")
+
+	// Note for glob matching tests: "Open Actions Register" basename "OpenActions".
+	write("Daily/OpenActions.md", "# Open Actions Register\n\nNo content.\n")
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+		Health: HealthConfig{
+			OrphanStaleDays: 30,
+		},
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+
+	// Age OldOrphan to 60 days so the orphan detector fires.
+	oldTime := timeNowForTest().AddDate(0, 0, -60)
+	orphanPath := filepath.Join(vault, "2-Areas/OldOrphan.md")
+	if err := os.Chtimes(orphanPath, oldTime, oldTime); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := FullReindexForce(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+
+	return cfg, db
+}
+
+// TestExcludeFromGraph_ExcludedHubAbsentFromCoreness verifies that when the
+// machine-generated hub ("Vault Daily Digest") is listed in exclude_from_graph,
+// it does not appear in Stats.Coreness and its absence causes the neighbours'
+// coreness to be recomputed as if the hub were never in the graph.
+func TestExcludeFromGraph_ExcludedHubAbsentFromCoreness(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	// With Digest excluded, the graph is just Hub+A+B+C+D+E + Island1+Island2 +
+	// OldOrphan + OpenActions. Hub is the remaining highest-degree node.
+	cfg.Health.ExcludeFromGraph = []string{"Vault Daily Digest"}
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	// The excluded note must not appear in Coreness at all.
+	for path := range result.Stats.Coreness {
+		if strings.Contains(path, "Digest") {
+			t.Errorf("excluded note Daily/Digest.md appears in Coreness as %q", path)
+		}
+	}
+
+	// NodeCount must not include the excluded note.
+	totalNotes := 11 // Hub A B C D E Island1 Island2 OldOrphan OpenActions + full set minus Digest
+	// buildExcludeVault has 11 notes total; 1 excluded -> 10 in the graph.
+	if result.Stats.NodeCount != totalNotes-1 {
+		t.Errorf("NodeCount = %d, want %d (excluded 1 note)", result.Stats.NodeCount, totalNotes-1)
+	}
+}
+
+// TestExcludeFromGraph_NeighboursRecomputed verifies that the coreness values
+// of nodes that were neighbours of the excluded hub are recalculated as if the
+// hub never existed. Without Digest in the graph, Hub, A, B, C, D, E form their
+// own cluster, and C/D/E (degree 1 within that cluster) have lower coreness than
+// A and B.
+func TestExcludeFromGraph_NeighboursRecomputed(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	// Baseline: without exclusion, every spoke gets extra coreness from Digest.
+	cfgWithout := cfg
+	cfgWithout.Health.ExcludeFromGraph = nil
+	baseResult, err := RunHealthFull(cfgWithout, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull (baseline): %v", err)
+	}
+	baseHubCoreness := baseResult.Stats.Coreness["Notes/Hub.md"]
+
+	// With Digest excluded, Hub's coreness must be at most the baseline value.
+	// The point is that the graph without Digest is strictly smaller, so
+	// coreness values can only be equal to or less than the baseline.
+	cfg.Health.ExcludeFromGraph = []string{"Vault Daily Digest"}
+	excludedResult, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull (excluded): %v", err)
+	}
+
+	if _, present := excludedResult.Stats.Coreness["Daily/Digest.md"]; present {
+		t.Error("Daily/Digest.md must not appear in Coreness after exclusion")
+	}
+
+	hubAfter := excludedResult.Stats.Coreness["Notes/Hub.md"]
+	if hubAfter > baseHubCoreness {
+		t.Errorf("Hub coreness after exclusion (%d) exceeds baseline (%d), expected <= baseline",
+			hubAfter, baseHubCoreness)
+	}
+}
+
+// TestExcludeFromGraph_NotOrphanOrIsland verifies that an excluded note is not
+// reported as an orphan or island even when it would qualify (degree 0 in the
+// filtered graph).
+func TestExcludeFromGraph_NotOrphanOrIsland(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	cfg.Health.ExcludeFromGraph = []string{"Vault Daily Digest"}
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for _, f := range result.Findings {
+		if strings.Contains(f.Path, "Digest") {
+			if f.Type == "orphan" || f.Type == "island" || f.Type == "leaf" {
+				t.Errorf("excluded note must not be reported as %s: %+v", f.Type, f)
+			}
+		}
+	}
+}
+
+// TestExcludeFromGraph_MatchByBasename verifies that a pattern matching the
+// basename without .md (e.g. "Digest") correctly excludes the note.
+func TestExcludeFromGraph_MatchByBasename(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	// "Digest" is the basename without .md of Daily/Digest.md.
+	cfg.Health.ExcludeFromGraph = []string{"Digest"}
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for path := range result.Stats.Coreness {
+		if strings.Contains(path, "Digest") {
+			t.Errorf("basename-matched note appears in Coreness as %q", path)
+		}
+	}
+}
+
+// TestExcludeFromGraph_MatchByPath verifies that a pattern matching the
+// vault-relative path (e.g. "Daily/Digest.md") correctly excludes the note.
+func TestExcludeFromGraph_MatchByPath(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	// "Daily/Digest.md" is the vault-relative path.
+	cfg.Health.ExcludeFromGraph = []string{"Daily/Digest.md"}
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for path := range result.Stats.Coreness {
+		if strings.Contains(path, "Digest") {
+			t.Errorf("path-matched note appears in Coreness as %q", path)
+		}
+	}
+}
+
+// TestExcludeFromGraph_GlobMatch verifies that a glob pattern (e.g.
+// "Open Actions*") correctly excludes notes whose title, basename, or path
+// matches the glob.
+func TestExcludeFromGraph_GlobMatch(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	// "Open Actions*" should match the title "Open Actions Register".
+	cfg.Health.ExcludeFromGraph = []string{"Open Actions*"}
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for path := range result.Stats.Coreness {
+		if strings.Contains(path, "OpenActions") {
+			t.Errorf("glob-matched note appears in Coreness as %q", path)
+		}
+	}
+}
+
+// TestExcludeFromGraph_ContentDetectorStillRuns verifies that content detectors
+// (oversized, para_drift, dangling_link) still run over excluded notes. Exclusion
+// is graph-only; it must not hide content findings.
+func TestExcludeFromGraph_ContentDetectorStillRuns(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Mainland: two connected notes so there is a graph with > 0 edges.
+	write("Notes/A.md", "# A\n\n[[B]]\n")
+	write("Notes/B.md", "# B\n\n[[A]]\n")
+
+	// An oversized note that will be excluded from the graph. It must still
+	// trigger the oversized detector.
+	bigBody := strings.Builder{}
+	bigBody.WriteString("# Digest\n\n")
+	for section := 0; section < 4; section++ {
+		bigBody.WriteString("## Section\n\n")
+		for line := 0; line < 40; line++ {
+			bigBody.WriteString("This is a line of body text to pad the token count beyond 1200.\n")
+		}
+		bigBody.WriteString("\n")
+	}
+	write("Daily/Digest.md", bigBody.String())
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+		Health: HealthConfig{
+			ExcludeFromGraph: []string{"Digest"},
+		},
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	// Digest must not appear in the graph stats.
+	if _, present := result.Stats.Coreness["Daily/Digest.md"]; present {
+		t.Error("excluded note Daily/Digest.md must not appear in graph Coreness")
+	}
+
+	// The oversized detector must still flag Daily/Digest.md.
+	var found bool
+	for _, f := range result.Findings {
+		if f.Type == "oversized" && f.Path == "Daily/Digest.md" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("oversized detector must still fire on excluded note Daily/Digest.md; findings: %+v", result.Findings)
+	}
+}
+
+// TestExcludeFromGraph_EmptyListChangesNothing verifies that an empty
+// exclude_from_graph list (the default) leaves all graph metrics unchanged.
+func TestExcludeFromGraph_EmptyListChangesNothing(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	// Explicitly empty list.
+	cfg.Health.ExcludeFromGraph = []string{}
+	result, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	// All 11 notes must appear in the graph.
+	if result.Stats.NodeCount != 11 {
+		t.Errorf("NodeCount = %d, want 11 (empty exclude list must change nothing)", result.Stats.NodeCount)
+	}
+	// Digest must appear in Coreness.
+	if _, present := result.Stats.Coreness["Daily/Digest.md"]; !present {
+		t.Error("Daily/Digest.md must appear in Coreness when exclude list is empty")
+	}
+}
+
+// TestGetExcludeFromGraph_Default verifies the accessor returns an empty slice
+// when the field is not set.
+func TestGetExcludeFromGraph_Default(t *testing.T) {
+	hc := HealthConfig{}
+	got := hc.GetExcludeFromGraph()
+	if got == nil {
+		t.Error("GetExcludeFromGraph() must return a non-nil slice, got nil")
+	}
+	if len(got) != 0 {
+		t.Errorf("GetExcludeFromGraph() = %v, want empty slice", got)
+	}
+}
+
+// TestGetExcludeFromGraph_Custom verifies the accessor returns the configured
+// list unchanged when it is non-empty.
+func TestGetExcludeFromGraph_Custom(t *testing.T) {
+	patterns := []string{"Vault Daily Digest", "Ingest Log", "Open Actions*"}
+	hc := HealthConfig{ExcludeFromGraph: patterns}
+	got := hc.GetExcludeFromGraph()
+	if !equalStrSlice(got, patterns) {
+		t.Errorf("GetExcludeFromGraph() = %v, want %v", got, patterns)
+	}
+}
+
+// TestExcludeFromGraph_MalformedPatternErrors verifies that a malformed glob in
+// exclude_from_graph fails the health run with an error naming the pattern,
+// rather than being silently ignored (which would compute graph metrics over the
+// unfiltered graph and quietly invalidate the result).
+func TestExcludeFromGraph_MalformedPatternErrors(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	cfg.Health.ExcludeFromGraph = []string{"[unclosed"}
+	_, err := RunHealthFull(cfg, db, false)
+	if err == nil {
+		t.Fatal("RunHealthFull must fail on a malformed exclude_from_graph pattern")
+	}
+	if !strings.Contains(err.Error(), "[unclosed") {
+		t.Errorf("error should name the offending pattern, got: %v", err)
+	}
+
+	// The stats-only path (used by the dashboard's /api/health) must reject it too.
+	if _, err := GraphHealth(cfg, db); err == nil {
+		t.Fatal("GraphHealth must fail on a malformed exclude_from_graph pattern")
+	}
+
+	// A valid glob is unaffected: the guard rejects only malformed patterns.
+	cfg.Health.ExcludeFromGraph = []string{"Open Actions*"}
+	if _, err := RunHealthFull(cfg, db, false); err != nil {
+		t.Fatalf("valid pattern must not error: %v", err)
+	}
+}

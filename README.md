@@ -65,16 +65,12 @@ hebb is a single static binary for **macOS or Linux** (arm64 or amd64). Pick one
 **Install script.** Downloads the matching release binary to `~/.local/bin`:
 
 ```sh
-# public repo:
 curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh
-
-# private repo (uses your GitHub CLI auth for both the script and the binary):
-gh api repos/cizer/hebb/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
 ```
 
 Override the target dir with `HEBB_INSTALL_DIR`, or pin a version with `HEBB_VERSION=vX.Y.Z`.
 
-**Go:** `go install github.com/cizer/hebb/cmd/hebb@latest` (set `GOPRIVATE=github.com/cizer/*` while the repo is private).
+**Go:** `go install github.com/cizer/hebb/cmd/hebb@latest`.
 
 **Homebrew:** planned, not yet enabled.
 

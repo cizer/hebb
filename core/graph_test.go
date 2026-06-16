@@ -1202,3 +1202,32 @@ func TestGetExcludeFromGraph_Custom(t *testing.T) {
 		t.Errorf("GetExcludeFromGraph() = %v, want %v", got, patterns)
 	}
 }
+
+// TestExcludeFromGraph_MalformedPatternErrors verifies that a malformed glob in
+// exclude_from_graph fails the health run with an error naming the pattern,
+// rather than being silently ignored (which would compute graph metrics over the
+// unfiltered graph and quietly invalidate the result).
+func TestExcludeFromGraph_MalformedPatternErrors(t *testing.T) {
+	cfg, db := buildExcludeVault(t)
+	defer db.Close()
+
+	cfg.Health.ExcludeFromGraph = []string{"[unclosed"}
+	_, err := RunHealthFull(cfg, db, false)
+	if err == nil {
+		t.Fatal("RunHealthFull must fail on a malformed exclude_from_graph pattern")
+	}
+	if !strings.Contains(err.Error(), "[unclosed") {
+		t.Errorf("error should name the offending pattern, got: %v", err)
+	}
+
+	// The stats-only path (used by the dashboard's /api/health) must reject it too.
+	if _, err := GraphHealth(cfg, db); err == nil {
+		t.Fatal("GraphHealth must fail on a malformed exclude_from_graph pattern")
+	}
+
+	// A valid glob is unaffected: the guard rejects only malformed patterns.
+	cfg.Health.ExcludeFromGraph = []string{"Open Actions*"}
+	if _, err := RunHealthFull(cfg, db, false); err != nil {
+		t.Fatalf("valid pattern must not error: %v", err)
+	}
+}

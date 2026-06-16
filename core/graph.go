@@ -3,7 +3,7 @@ package core
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -39,24 +39,42 @@ func (g *noteGraph) edgeCount() int {
 	return total / 2
 }
 
+// validateExcludePatterns checks every glob pattern for validity up front, so a
+// malformed pattern (e.g. an unclosed "[") is reported rather than silently
+// treated as a non-match. The whole point of the feature is graph-metric
+// fidelity, so silently computing the wrong graph from a typo would invalidate
+// the result. path.Match reports a bad pattern via ErrBadPattern regardless of
+// the candidate string, so an empty candidate is enough to validate. An empty
+// patterns slice validates trivially.
+func validateExcludePatterns(patterns []string) error {
+	for _, pat := range patterns {
+		if _, err := path.Match(pat, ""); err != nil {
+			return fmt.Errorf("invalid exclude_from_graph pattern %q: %w", pat, err)
+		}
+	}
+	return nil
+}
+
 // matchesExcludePatterns reports whether a note should be excluded from the
 // graph. A note is excluded when any of the supplied glob patterns matches any
 // of the three candidates: title, basename-without-.md, or vault-relative path.
-// Matching uses filepath.Match semantics (same as shell globs). An empty
-// patterns slice always returns false (exclude nothing).
-func matchesExcludePatterns(patterns []string, title, path string) bool {
+// Matching uses path.Match semantics (shell-style globs over the '/'-separated
+// vault path, OS-independent: "*" does not cross "/"). Patterns are assumed
+// pre-validated by validateExcludePatterns, so a match error here cannot occur.
+// An empty patterns slice always returns false (exclude nothing).
+func matchesExcludePatterns(patterns []string, title, notePath string) bool {
 	if len(patterns) == 0 {
 		return false
 	}
-	base := strings.TrimSuffix(filepath.Base(path), ".md")
+	base := strings.TrimSuffix(path.Base(notePath), ".md")
 	for _, pat := range patterns {
-		if ok, _ := filepath.Match(pat, title); ok {
+		if ok, _ := path.Match(pat, title); ok {
 			return true
 		}
-		if ok, _ := filepath.Match(pat, base); ok {
+		if ok, _ := path.Match(pat, base); ok {
 			return true
 		}
-		if ok, _ := filepath.Match(pat, path); ok {
+		if ok, _ := path.Match(pat, notePath); ok {
 			return true
 		}
 	}
@@ -78,6 +96,12 @@ func buildGraph(db *sql.DB) (*noteGraph, error) {
 // node nor the endpoint of any edge. Pass nil (or an empty slice) to build the
 // full graph without exclusions.
 func buildGraphExcluding(db *sql.DB, excludePatterns []string) (*noteGraph, error) {
+	// Validate the patterns before touching the DB: a malformed glob must fail
+	// the run with a clear message, not silently exclude nothing and report
+	// metrics over the unfiltered graph.
+	if err := validateExcludePatterns(excludePatterns); err != nil {
+		return nil, err
+	}
 	// Load all note paths and titles, ordered for determinism.
 	rows, err := db.Query("SELECT path, title FROM notes ORDER BY path")
 	if err != nil {

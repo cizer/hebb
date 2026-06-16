@@ -89,7 +89,9 @@ type HealthConfig struct {
 
 	// ExcludeFromGraph is an optional list of glob patterns matched against each
 	// note's title, basename-without-.md, and vault-relative path (any match
-	// excludes the note). Matching uses filepath.Match semantics. Notes that match
+	// excludes the note). Matching uses path.Match semantics (shell-style globs
+	// over the '/'-separated vault path; a malformed pattern fails the health run
+	// rather than being silently ignored). Notes that match
 	// are removed from the link graph BEFORE computing connected components,
 	// k-core coreness, orphans, leaves, and islands, so a machine-generated hub
 	// that would otherwise dominate those metrics is invisible to the graph
@@ -478,7 +480,8 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                             without .md, and vault-relative path. A note is dropped\n")
 	buf.WriteString("#                             from the link graph (and thus from coreness, components,\n")
 	buf.WriteString("#                             orphan, leaf, and island metrics) when ANY pattern\n")
-	buf.WriteString("#                             matches ANY of those three candidates via filepath.Match.\n")
+	buf.WriteString("#                             matches ANY of those three candidates via path.Match\n")
+	buf.WriteString("#                             (a malformed glob fails the run, not silently ignored).\n")
 	buf.WriteString("#                             Content detectors (dangling_link, oversized, ...) are\n")
 	buf.WriteString("#                             unaffected and still run over ALL notes. Default: empty\n")
 	buf.WriteString("#                             (exclude nothing). Use for machine-generated scaffolding\n")

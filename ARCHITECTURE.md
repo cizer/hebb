@@ -28,7 +28,8 @@ The engine and its MCP surface are identical across agents; only the adapter dif
 - **Surfaces over the engine**: the `hebb` CLI, an MCP server (`hebb mcp`), and a local web UI (`hebb serve`).
 - **Per-agent adapters**, each pinning a vault via `HEBB_VAULT`:
   - **Claude Code** — the plugin (`plugin/`): the MCP server plus the `vault-ingest` skill. Installed once, user-level (via the marketplace), and resolves the opened vault through `HEBB_VAULT=${CLAUDE_PROJECT_DIR}`, so it serves every vault without per-vault setup.
-  - **Claude Desktop / Codex** — an `mcpServers` / `[mcp_servers]` entry pinned to a vault, written by the `hebb install` picker (or `hebb codex`). Skills are Claude-only; for these, vault guidance lives in the vault's `AGENTS.md`.
+  - **Codex** — an `[mcp_servers.hebb]` entry pinned to a vault plus the same skills installed into Codex's skills dir (`~/.agents/skills`), written by `hebb codex` (or the `hebb install` picker). The Codex counterpart to the Claude Code plugin.
+  - **Claude Desktop** — an `mcpServers` entry pinned to a vault, written by the `hebb install` picker. It does not load skills, so vault guidance lives in the vault's `AGENTS.md`.
   - **Any MCP client** — point it at `hebb mcp`.
 - **Standalone binary.** Automation scripts and the vault template are embedded; `install` materialises the automation to the data dir (`$XDG_DATA_HOME/hebb`, else `~/.local/share/hebb`) for launchd. No repo checkout needed at runtime.
 

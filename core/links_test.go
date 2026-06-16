@@ -190,6 +190,26 @@ func TestResolveCaseInsensitiveSubpathAnchor(t *testing.T) {
 	}
 }
 
+// TestResolveCaseOnlyPathCollisionIsAmbiguous guards review finding A: on a
+// case-sensitive filesystem a vault can hold two notes whose paths differ only
+// in case ("Foo.md" and "foo.md"). The lowercased exact-path index must keep
+// both, so a root link [[foo]] or [[FOO.md]] is reported Ambiguous rather than
+// silently resolving to whichever note was loaded last. The index is built
+// directly from a paths slice because a case-insensitive FS cannot hold both
+// files at once.
+func TestResolveCaseOnlyPathCollisionIsAmbiguous(t *testing.T) {
+	ix := newNoteIndex(
+		[]string{"Foo.md", "foo.md"},
+		map[string]string{"Foo.md": "Foo", "foo.md": "Foo Lower"},
+	)
+	for _, target := range []string{"foo", "FOO.md"} {
+		got, status := ix.resolve(target)
+		if status != Ambiguous || got != "" {
+			t.Errorf("resolve(%q) = (%q, %v), want (\"\", Ambiguous)", target, got, status)
+		}
+	}
+}
+
 // TestFullReindexResolvesCaseMismatchedLink is the end-to-end guard for the
 // case-insensitivity fix: a vault link [[foo]] to a note filed as Foo.md must
 // resolve through a full reindex (target_path = Foo.md), where before the fix it
@@ -231,6 +251,65 @@ func TestResolveTargetDBCaseInsensitive(t *testing.T) {
 	got, status := ResolveTargetDB(db, "foo")
 	if status != Resolved || got != "Foo.md" {
 		t.Fatalf("ResolveTargetDB(foo) = (%q, %v), want (Foo.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveTargetDBCaseInsensitiveFullPath guards review finding B for the
+// per-call DB resolver: a slash-bearing target whose case differs from the note
+// path, and which already carries a ".md" suffix ("SUB/NOTE.md" for a note at
+// "sub/Note.md"), must resolve. Before the fix the lowercased target gained a
+// second ".md" in the basename anchored-suffix check ("sub/note.md.md"), so it
+// missed; the exact-path stage must also match case-insensitively.
+func TestResolveTargetDBCaseInsensitiveFullPath(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("sub/Note.md", "# Note\n\nThe target note.")
+
+	db := reindexedDB(t, vault)
+	defer db.Close()
+
+	// Full-path, case-mismatched, with the explicit ".md" suffix: must resolve to
+	// the real on-disk path and must not suffer a "sub/note.md.md" miss.
+	if got, status := ResolveTargetDB(db, "SUB/NOTE.md"); status != Resolved || got != "sub/Note.md" {
+		t.Fatalf("ResolveTargetDB(SUB/NOTE.md) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
+	}
+	// A bare basename in a different case still resolves via the basename stage.
+	if got, status := ResolveTargetDB(db, "NOTE"); status != Resolved || got != "sub/Note.md" {
+		t.Fatalf("ResolveTargetDB(NOTE) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveTargetDBSubpathAnchors proves the DB resolver still anchors a
+// slash-bearing target to its directory after the trailing-.md normalisation:
+// [[dir/Note]] resolves to the note in that directory, not a same-named note
+// elsewhere.
+func TestResolveTargetDBSubpathAnchors(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("dir/Note.md", "# Note\n\nThe anchored target.")
+	write("other/Note.md", "# Note\n\nA same-named note elsewhere.")
+
+	db := reindexedDB(t, vault)
+	defer db.Close()
+
+	if got, status := ResolveTargetDB(db, "dir/Note"); status != Resolved || got != "dir/Note.md" {
+		t.Fatalf("ResolveTargetDB(dir/Note) = (%q, %v), want (dir/Note.md, Resolved)", got, status)
 	}
 }
 

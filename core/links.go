@@ -27,7 +27,7 @@ const (
 // the path/basename/title, while the stored values remain the notes' real
 // on-disk paths so a resolution returns the canonical (original-case) path.
 type noteIndex struct {
-	paths   map[string]string   // lowercased note path -> real path (e.g. "sub/note.md" -> "sub/Note.md")
+	paths   map[string][]string // lowercased note path -> real paths (case-only collisions keep every hit, e.g. "foo.md" -> ["Foo.md", "foo.md"])
 	byBase  map[string][]string // lowercased final segment without ".md" -> note paths
 	byTitle map[string][]string // lowercased title -> note paths
 }
@@ -59,14 +59,17 @@ func basenameNoExt(p string) string {
 // stored title. Both come from a single scan of the notes table.
 func newNoteIndex(paths []string, titles map[string]string) *noteIndex {
 	ix := &noteIndex{
-		paths:   make(map[string]string, len(paths)),
+		paths:   make(map[string][]string, len(paths)),
 		byBase:  make(map[string][]string, len(paths)),
 		byTitle: make(map[string][]string, len(titles)),
 	}
 	for _, p := range paths {
 		// Key by the lowercased path so an exact-path lookup is case-insensitive;
-		// keep the real path as the value so resolution returns the on-disk case.
-		ix.paths[strings.ToLower(p)] = p
+		// keep every real path as the value so a case-only collision (two notes
+		// whose paths differ only in case on a case-sensitive FS) is preserved as
+		// an ambiguous match rather than silently overwriting one with the other.
+		lp := strings.ToLower(p)
+		ix.paths[lp] = append(ix.paths[lp], p)
 		base := strings.ToLower(basenameNoExt(p))
 		ix.byBase[base] = append(ix.byBase[base], p)
 	}
@@ -100,32 +103,35 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 	// directory-anchored suffix comparisons below run against this form so case
 	// never decides a match (mirrors Obsidian's case-insensitive resolution).
 	lower := strings.ToLower(target)
+	// Strip a single trailing ".md" for the basename/anchoring comparisons so a
+	// target that already carries the extension (e.g. "sub/note.md") is not given
+	// a second one ("sub/note.md.md") that could never match a real path.
+	lowerNoExt := strings.TrimSuffix(lower, ".md")
 
-	// (a) exact path match against target or target+".md".
-	var pathHits []string
-	if real, ok := ix.paths[lower]; ok {
-		pathHits = append(pathHits, real)
+	// (a) exact path match against target or target+".md". Both forms are gathered
+	// from the (possibly multi-valued) path index: a single distinct hit Resolves,
+	// while two or more (a case-only path collision) are Ambiguous and must not
+	// fall through to basename/title.
+	pathHits := distinct(append(append([]string(nil), ix.paths[lower]...), ix.paths[lower+".md"]...))
+	if len(pathHits) == 1 {
+		return pathHits[0], Resolved
 	}
-	if withMD := lower + ".md"; withMD != lower {
-		if real, ok := ix.paths[withMD]; ok {
-			pathHits = append(pathHits, real)
-		}
-	}
-	if r, ok := decide(pathHits); ok {
-		return r, Resolved
+	if len(pathHits) > 1 {
+		return "", Ambiguous
 	}
 
 	// (b) basename match. When the target itself contains a slash, require the
 	// note path to end with target+".md" so a subpath target stays anchored to
 	// its directory and cannot collide with a same-named note elsewhere. The
-	// suffix comparison is done on the lowercased path so it stays
-	// case-insensitive like the rest of the resolver.
+	// suffix comparison is done on the lowercased, extension-stripped path so it
+	// stays case-insensitive like the rest of the resolver and never compares
+	// against a doubled ".md".
 	base := strings.ToLower(basenameNoExt(target))
 	var baseHits []string
 	for _, p := range ix.byBase[base] {
 		if strings.Contains(lower, "/") {
 			lp := strings.ToLower(p)
-			if strings.HasSuffix(lp, "/"+lower+".md") || lp == lower+".md" {
+			if strings.HasSuffix(lp, "/"+lowerNoExt+".md") || lp == lowerNoExt+".md" {
 				baseHits = append(baseHits, p)
 			}
 			continue
@@ -148,12 +154,8 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 		return "", Ambiguous
 	}
 
-	// A single path hit short-circuited above; reaching here means zero path
-	// hits and zero/one basename or title hits already handled, so report the
-	// remaining ambiguity from the path stage if any, else dangling.
-	if len(pathHits) > 1 {
-		return "", Ambiguous
-	}
+	// The exact-path stage already returned for one or more path hits, so reaching
+	// here means no precedence yielded a single match: the target is dangling.
 	return "", Dangling
 }
 
@@ -165,6 +167,27 @@ func decide(hits []string) (string, bool) {
 		return hits[0], true
 	}
 	return "", false
+}
+
+// distinct returns hits with duplicate real paths removed, preserving first-seen
+// order. The exact-path stage unions the lookups for "target" and "target.md",
+// which can surface the same on-disk path twice; collapsing them keeps a lone
+// note from reading as an ambiguous match while still counting two genuinely
+// different paths (a case-only collision) as two.
+func distinct(hits []string) []string {
+	if len(hits) <= 1 {
+		return hits
+	}
+	seen := make(map[string]bool, len(hits))
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		if seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	return out
 }
 
 // loadNoteIndex reads the full notes table into an in-memory index for batch
@@ -207,9 +230,16 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 	// COLLATE NOCASE so all three precedences match case-insensitively, mirroring
 	// the in-memory resolver and Obsidian.
 	lower := strings.ToLower(target)
+	// Strip a single trailing ".md" for the basename/anchoring comparisons so a
+	// target that already carries the extension (e.g. "sub/note.md") is not given
+	// a second one ("sub/note.md.md") that could never match a real path.
+	lowerNoExt := strings.TrimSuffix(lower, ".md")
 
-	// (a) exact path (case-insensitive via COLLATE NOCASE).
-	if hits := queryPaths(q, "SELECT path FROM notes WHERE path = ? COLLATE NOCASE OR path = ? COLLATE NOCASE", target, target+".md"); len(hits) > 0 {
+	// (a) exact path against the raw target or target+".md". The collation is
+	// attached to the column operand (path COLLATE NOCASE) so the case-insensitive
+	// comparison applies regardless of the parameter's own collation, making a
+	// case-mismatched full path such as "SUB/NOTE.md" match "sub/Note.md".
+	if hits := queryPaths(q, "SELECT path FROM notes WHERE path COLLATE NOCASE = ? OR path COLLATE NOCASE = ?", target, target+".md"); len(hits) > 0 {
 		if len(hits) == 1 {
 			return hits[0], Resolved
 		}
@@ -217,8 +247,9 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 	}
 
 	// (b) basename. Match by final segment, then anchor to the directory when
-	// the target contains a slash. All comparisons are lowercased so case never
-	// decides the match.
+	// the target contains a slash. All comparisons are lowercased and use the
+	// extension-stripped target so case never decides the match and a target that
+	// already ends in ".md" is not anchored against a doubled ".md".
 	base := strings.ToLower(basenameNoExt(target))
 	var baseHits []string
 	for _, p := range queryPaths(q, "SELECT path FROM notes") {
@@ -227,7 +258,7 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 		}
 		if strings.Contains(lower, "/") {
 			lp := strings.ToLower(p)
-			if strings.HasSuffix(lp, "/"+lower+".md") || lp == lower+".md" {
+			if strings.HasSuffix(lp, "/"+lowerNoExt+".md") || lp == lowerNoExt+".md" {
 				baseHits = append(baseHits, p)
 			}
 			continue

@@ -86,6 +86,17 @@ type HealthConfig struct {
 	// cannot judge them broken. When empty the accessor returns the built-in
 	// default list. Setting this replaces the default rather than extending it.
 	AttachmentExtensions []string `toml:"attachment_extensions"`
+
+	// ExcludeFromGraph is an optional list of glob patterns matched against each
+	// note's title, basename-without-.md, and vault-relative path (any match
+	// excludes the note). Matching uses filepath.Match semantics. Notes that match
+	// are removed from the link graph BEFORE computing connected components,
+	// k-core coreness, orphans, leaves, and islands, so a machine-generated hub
+	// that would otherwise dominate those metrics is invisible to the graph
+	// detectors. Content detectors (dangling_link, ambiguous_link, para_drift,
+	// oversized) are unaffected: they still run over ALL notes, including excluded
+	// ones. Default: empty (exclude nothing).
+	ExcludeFromGraph []string `toml:"exclude_from_graph"`
 }
 
 // defaultAttachmentExtensions is the built-in set of file extensions the
@@ -173,6 +184,18 @@ func (h HealthConfig) GetArchiveFolders() []string {
 		return []string{"4-Archives"}
 	}
 	return h.ArchiveFolders
+}
+
+// GetExcludeFromGraph returns the configured list of glob patterns used to drop
+// notes from the link graph before computing graph metrics (connected
+// components, k-core coreness, orphans, leaves, islands). Returns an empty
+// (non-nil) slice when the field is not set; the default behaviour is to
+// exclude nothing.
+func (h HealthConfig) GetExcludeFromGraph() []string {
+	if h.ExcludeFromGraph == nil {
+		return []string{}
+	}
+	return h.ExcludeFromGraph
 }
 
 // IngestConfig is the committed [ingest] block. It records ingest policy that
@@ -451,6 +474,19 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                             (hebb does not index non-note files). Empty uses the\n")
 	buf.WriteString("#                             built-in default (png pdf pptx canvas excalidraw ...);\n")
 	buf.WriteString("#                             setting it replaces the default rather than extending.\n")
+	buf.WriteString("#     exclude_from_graph    - glob patterns matched against a note's title, basename\n")
+	buf.WriteString("#                             without .md, and vault-relative path. A note is dropped\n")
+	buf.WriteString("#                             from the link graph (and thus from coreness, components,\n")
+	buf.WriteString("#                             orphan, leaf, and island metrics) when ANY pattern\n")
+	buf.WriteString("#                             matches ANY of those three candidates via filepath.Match.\n")
+	buf.WriteString("#                             Content detectors (dangling_link, oversized, ...) are\n")
+	buf.WriteString("#                             unaffected and still run over ALL notes. Default: empty\n")
+	buf.WriteString("#                             (exclude nothing). Use for machine-generated scaffolding\n")
+	buf.WriteString("#                             that would otherwise dominate graph-centrality metrics.\n")
+	buf.WriteString("#                             Example:\n")
+	buf.WriteString("#                             exclude_from_graph = [\"Vault Daily Digest\", \"Ingest Log\",\n")
+	buf.WriteString("#                                                   \"Action Review\", \"My Open Actions\",\n")
+	buf.WriteString("#                                                   \"Open Actions*\"]\n")
 	buf.WriteString("\n")
 	if err := toml.NewEncoder(&buf).Encode(vc); err != nil {
 		return err

@@ -145,7 +145,15 @@
   main { flex: 1 1 auto; width: 100%; }
 
   /* ---- search results ---- */
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 18px 0 4px; }
+  .back-health {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 16px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    border-radius: 16px; padding: 5px 14px 5px 11px; font-size: 13px; cursor: pointer;
+    transition: border-color .12s, color .12s, background .12s;
+  }
+  .back-health:hover { border-color: var(--border-strong); color: var(--accent); background: var(--chip); }
+  .back-health .bk { font-size: 17px; line-height: 1; margin-top: -2px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px 0 4px; }
   .chip {
     border: 1px solid var(--border); background: var(--chip); color: var(--chip-fg);
     border-radius: 16px; padding: 5px 13px; font-size: 13px; cursor: pointer;
@@ -334,6 +342,9 @@
 
     <!-- --------------------------------------------- search results (secondary) -->
     <section id="search-view" class="wrap hidden">
+      <button class="back-health" id="back-health" type="button" title="Back to the health dashboard">
+        <span class="bk">&#8249;</span> Health
+      </button>
       <div class="filters" id="filters">
         <button class="chip active" data-prefix="">All</button>
         <button class="chip" data-prefix="1-Projects/">Projects</button>
@@ -454,6 +465,7 @@
   box.addEventListener("focusout", () => box.classList.remove("focus"));
   clearBtn.addEventListener("click", () => { qInput.value = ""; qInput.focus(); search(); });
   $("#wordmark").addEventListener("click", () => { qInput.value = ""; search(); });
+  $("#back-health").addEventListener("click", () => { qInput.value = ""; search(); });
 
   document.querySelectorAll(".chip").forEach((c) =>
     c.addEventListener("click", () => {

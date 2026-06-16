@@ -124,15 +124,15 @@ fine for a private vault.
 
 ## `[health]` — vault-health detectors
 
-Thresholds and link-classification settings for `hebb health`, the read-only
-advisory worklist. Wiki-links are resolved case-insensitively (matching
+Thresholds and link-classification settings for `hebb audit` (alias `hebb
+health`), the read-only advisory worklist. Wiki-links are resolved case-insensitively (matching
 Obsidian).
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `project_stale_days` | int | `180` | Days without modification before a `1-Projects/` note is flagged as PARA drift. |
 | `size_threshold` | int | `1200` | Estimated token count (`len(body)/4`) above which a note is checked for multiple sections (oversized candidate). |
-| `report_unresolved_links` | bool | `false` | List each unresolved wiki-link (a link to a note that does not exist) as a `dangling_link` finding. Obsidian treats these as expected future notes, so they are counted but not listed by default. `hebb health --unresolved` forces listing for one run. |
+| `report_unresolved_links` | bool | `false` | List each unresolved wiki-link (a link to a note that does not exist) as a `dangling_link` finding. Obsidian treats these as expected future notes, so they are counted but not listed by default. `hebb audit --unresolved` forces listing for one run. |
 | `attachment_extensions` | list of string | built-in list | File extensions (no leading dot) treated as attachment links and excluded from dangling checks, since hebb does not index non-note files. Empty uses the built-in default (`png`, `jpg`, `pdf`, `pptx`, `canvas`, `excalidraw`, ...). Setting it replaces the default rather than extending it. |
 
 Folder links (a target ending in `/`, or one naming a real directory) are never

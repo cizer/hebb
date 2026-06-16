@@ -46,7 +46,10 @@ func digestCmd() *cobra.Command {
 
 			opts := core.DigestOptions{Output: output}
 			if date != "" {
-				d, err := time.Parse("2006-01-02", date)
+				// Parse in the local zone so a --date override uses the same local
+				// day boundaries (window label and cutoff) as a normal run, which
+				// defaults to time.Now() in local time. time.Parse would return UTC.
+				d, err := time.ParseInLocation("2006-01-02", date, time.Local)
 				if err != nil {
 					return fmt.Errorf("invalid --date %q (want YYYY-MM-DD): %w", date, err)
 				}

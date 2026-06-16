@@ -2,6 +2,7 @@ package core
 
 import (
 	"database/sql"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -159,9 +160,14 @@ func migrateNotesContentChange(db *sql.DB) error {
 
 // backfillNotesContentHash fills content_hash / content_changed_at /
 // first_indexed_at for every legacy row that lacks them, computing the hash from
-// the stored indexed columns and seeding both timestamps from the stored mtime.
-// It runs once, on the migration that adds the columns.
+// the stored indexed columns and seeding both timestamps from the stored mtime,
+// clamped to now via changedAtSeed (the same intent as the index path): a legacy
+// row whose mtime is in the future (clock skew, a restore) must not seed a future
+// change time, or the digest would report it as changed in a window it has not
+// reached and re-report it on every run. It runs once, on the migration that adds
+// the columns.
 func backfillNotesContentHash(db *sql.DB) error {
+	nowMs := float64(time.Now().UnixNano()) / 1e6
 	rows, err := db.Query("SELECT path, title, body, tags, frontmatter, mtime FROM notes WHERE content_hash IS NULL")
 	if err != nil {
 		return err
@@ -204,7 +210,8 @@ func backfillNotesContentHash(db *sql.DB) error {
 		return err
 	}
 	for _, r := range pending {
-		if _, err := stmt.Exec(r.hash, r.mtime, r.mtime, r.path); err != nil {
+		seed := changedAtSeed(r.mtime, nowMs)
+		if _, err := stmt.Exec(r.hash, seed, seed, r.path); err != nil {
 			return err
 		}
 	}

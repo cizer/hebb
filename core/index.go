@@ -50,13 +50,15 @@ func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
 		}
 	}
 
+	nowMs := float64(time.Now().UnixNano()) / 1e6
+
 	tx, err := db.Begin()
 	if err != nil {
 		return IndexResult{}, err
 	}
 	defer tx.Rollback()
 
-	upsert, err := tx.Prepare(`INSERT OR REPLACE INTO notes (path, title, body, tags, frontmatter, mtime) VALUES (?, ?, ?, ?, ?, ?)`)
+	upsert, err := tx.Prepare(noteUpsertSQL)
 	if err != nil {
 		return IndexResult{}, err
 	}
@@ -92,7 +94,10 @@ func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
 		}
 		n := ParseNote(string(content), rel)
 		fmJSON, _ := json.Marshal(n.Frontmatter)
-		if _, err := upsert.Exec(rel, n.Title, n.Body, strings.Join(n.Tags, " "), string(fmJSON), mtime); err != nil {
+		tags := strings.Join(n.Tags, " ")
+		hash := contentHash(n.Title, n.Body, tags, string(fmJSON))
+		seed := changedAtSeed(mtime, nowMs)
+		if _, err := upsert.Exec(rel, n.Title, n.Body, tags, string(fmJSON), mtime, hash, seed, seed); err != nil {
 			return IndexResult{}, err
 		}
 		if _, err := delLinks.Exec(rel); err != nil {

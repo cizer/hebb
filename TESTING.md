@@ -82,7 +82,7 @@ Against a throwaway fixture vault and a temp `HOME`, it:
 5. `hebb serve --port <free>` → `curl /api/stats` and `/api/search` → assert the JSON
 6. `hebb mcp` over stdio → JSON-RPC `initialize`, `tools/list` (the 5 tools), `tools/call search_vault` (canary) and `get_context_for_topic` (tag consistency) → assert responses
 7. macOS only: `plutil -lint` the rendered plists
-8. run the materialised automation against the fixture: the `run-vault-digest.sh` launchd entrypoint (reindexes), `generate-vault-digest.py` (digest note), and `generate-action-review.py` (action review + JSON, owner/overdue flags) → assert their output
+8. run the automation against the fixture: `hebb digest` (the Go launchd entrypoint: index refresh + content-driven digest note; assert a canary note appears and the retired Python generator/wrapper are not materialised) and the materialised `generate-action-review.py` (action review + JSON, owner/overdue flags) → assert their output
 
 Notes: `--load` (launchctl bootstrap) is **not** run in CI (no GUI session, and
 it would mutate the runner); acceptance renders and validates plists instead.

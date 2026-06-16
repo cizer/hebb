@@ -6,30 +6,34 @@ materialised to the hebb data dir by `hebb install` (`$XDG_DATA_HOME/hebb`, else
 vault whose `.hebb/config.toml` lists them under `jobs` (see `install.VaultJobs`).
 Every script takes its vault from `--vault-root`; nothing is hardcoded.
 
-| Script | Job | Schedule | What it does |
+| Job | Entrypoint | Schedule | What it does |
 | --- | --- | --- | --- |
-| `generate-vault-digest.py` | `daily-digest` (via `hebb digest`) | weekdays 08:00 | Writes a rolling digest of notes touched in the last working-day window to `2-Areas/_DAILY-DIGEST.md`. |
-| `generate-action-review.py` | `action-review` | Sundays 07:03 | Collates open actions from every `OPEN-ACTIONS.md` register into a prioritised `2-Areas/_ACTION-REVIEW.md` + a `.json` export. |
-| `run-vault-digest.sh` | (none) | - | Deprecated shell wrapper for manual digest runs only; see below. |
+| `daily-digest` | `hebb digest` (Go, in the binary) | weekdays 08:00 | Refreshes the index, then writes a rolling digest of notes whose content changed since the last run to `2-Areas/_DAILY-DIGEST.md`. |
+| `action-review` | `generate-action-review.py` | Sundays 07:03 | Collates open actions from every `OPEN-ACTIONS.md` register into a prioritised `2-Areas/_ACTION-REVIEW.md` + a `.json` export. |
+
+The digest is built into the `hebb` binary (`hebb digest`), not a Python script.
+Its selection is driven by the index's content-level change detection, not by
+filesystem mtime: each note carries a content hash and a `content_changed_at`
+watermark, and the digest reports notes whose content changed since the last
+successful run. A vault-wide operation that rewrites bytes or bumps mtimes
+without changing content (a sync client, a restore, a no-op find/replace) does
+not register, and a genuine edit is reported even if a later rewrite bumps its
+mtime past a wall-clock window.
 
 The `daily-digest` job's launchd `Program[0]` is the `hebb` binary running
-`hebb digest --vault-root <vault>`, which runs `generate-vault-digest.py` then
-refreshes the index in-process. It is the hebb binary rather than the
-`run-vault-digest.sh` wrapper because macOS TCC attributes Full Disk Access to a
-launchd job's `Program[0]`: a shell wrapper has no grantable identity, so the
-child interpreter's reads into a protected vault folder (`~/Documents`, iCloud
-Drive) block indefinitely. `hebb doctor` lints installed plists for this and
-points at the grant step. `run-vault-digest.sh` is retained for manual use only
-and honours `PYTHON` and `HEBB_BIN`; for scheduled and manual runs alike prefer
-`hebb digest`, which honours `PYTHON` (launchd ships a minimal PATH that resolves
-python3 to the Full-Disk-Access-less Xcode shim).
+`hebb digest --vault-root <vault>`. It must be a grantable binary because macOS
+TCC attributes Full Disk Access to a launchd job's `Program[0]`: a shell wrapper
+has no grantable identity, so its child's reads into a protected vault folder
+(`~/Documents`, iCloud Drive) would block indefinitely. `hebb doctor` lints
+installed plists for this and points at the grant step. Because the digest is
+pure Go, the job needs no `PYTHON` env and no materialised script.
 
-Overrides: both Python scripts take `--output`/`--json-output`; the action
-review also takes `--register-name`, `--owner` (the name highlighted under
-"My Actions"; empty by default), and `--mine-output` (off by default; with
+Overrides: `hebb digest` takes `--output` (digest note path) and `--date`
+(override the run date, for testing). The action review takes
+`--output`/`--json-output`, `--register-name`, `--owner` (the name highlighted
+under "My Actions"; empty by default), and `--mine-output` (off by default; with
 `--owner`, also writes a personal worklist of just the owner's actions,
-bucketed Overdue/Current/Waiting and sorted by due date). Arguments after `--`
-on `hebb digest` are passed through to `generate-vault-digest.py`.
+bucketed Overdue/Current/Waiting and sorted by due date).
 
 Per-vault flags: a vault passes extra arguments to its jobs via the
 `[job_args]` table in `.hebb/config.toml`; `hebb install` appends them to the
@@ -78,7 +82,7 @@ standard output.
 Delivery is best-effort: a webhook failure is logged but never blocks or fails the
 note write. `hebb doctor` warns when `[notify] enabled = true` but no URL resolves.
 
-- `daily-digest`: sends note path and indexed note count via `hebb digest` (in Go).
+- `daily-digest`: sends the count of notes that changed via `hebb digest` (in Go).
 - `action-review`: shells out to `hebb notify` after writing the review note; uses
   `$HEBB_BIN` (pinned by the rendered launchd job) so it works without hebb on PATH.
 - `update-check`: sends available version via `hebb update --check` (in Go).

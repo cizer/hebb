@@ -12,7 +12,7 @@ The stock per-vault jobs (`install.VaultJobs`):
 | Job | `Program[0]` | Schedule | What it runs |
 | --- | --- | --- | --- |
 | `web` | `hebb` | RunAtLoad, KeepAlive | `hebb serve` (the local web UI). |
-| `daily-digest` | `hebb` | weekdays 08:00 | `hebb digest` (digest note + index refresh). |
+| `daily-digest` | `hebb` | weekdays 08:00 | `hebb digest` (index refresh + digest note, pure Go). |
 | `action-review` | `python3` | Sundays 07:03 | `generate-action-review.py`. |
 | `update-check` | `hebb` | Mondays 09:00 | `hebb update --check`. |
 

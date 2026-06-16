@@ -31,11 +31,12 @@ func Slugify(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// VaultJobs builds launchd job specs for the named jobs of a vault. The web and
-// update-check jobs are built in (they run the hebb binary). The daily-digest
-// and action-review jobs are only included when their script exists under
-// <assetRoot>/automation, so no broken plists are written if the automation
-// scripts are absent. updateAuto makes the update-check job install updates
+// VaultJobs builds launchd job specs for the named jobs of a vault. The web,
+// update-check and daily-digest jobs are built in (they run the hebb binary;
+// `hebb digest` no longer needs a materialised script). The action-review job
+// is only included when its script exists under <assetRoot>/automation, so no
+// broken plist is written if the automation script is absent. updateAuto makes
+// the update-check job install updates
 // rather than only reporting them. jobArgs carries the per-job extra arguments
 // from config.toml's [job_args]; they are appended to the matching job's
 // program. jobEnv carries per-job extra environment variables from config.toml's
@@ -74,35 +75,25 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				LogPath:    logPath("web"),
 			})
 		case "daily-digest":
-			// Gate on the generator the `hebb digest` subcommand runs, so no broken
-			// plist is written when the automation scripts are absent.
-			if _, ok := autoScript("generate-vault-digest.py"); !ok {
-				continue
-			}
+			// No script gate: `hebb digest` is built into the binary now (it selects
+			// changed notes from the index and writes the digest in Go), so the job
+			// needs only the hebb binary, never a materialised generator.
 			var days []launchd.CalInterval
 			for wd := 1; wd <= 5; wd++ {
 				days = append(days, launchd.CalInterval{Weekday: wd, Hour: 8, Minute: 0})
 			}
 			jobs = append(jobs, launchd.Job{
 				Label: label("daily-digest"),
-				// Program[0] is the grantable hebb binary, not the run-vault-digest.sh
-				// wrapper: macOS TCC attributes file-access permission to Program[0],
-				// and a shell interpreter (env/bash) has no grantable identity, so the
-				// child python's open() into a protected vault folder blocks
-				// indefinitely. Running `hebb digest` makes Program[0] a binary the
-				// user can grant Full Disk Access to, then the binary invokes python
-				// itself. This was the one stock job that silently failed for weeks in
-				// the field (SPEC item 2).
+				// Program[0] is the grantable hebb binary: macOS TCC attributes
+				// file-access permission to Program[0], and a shell interpreter
+				// (env/bash) has no grantable identity, so a wrapper's child reads into
+				// a protected vault folder block indefinitely. Running `hebb digest`
+				// makes Program[0] a binary the user can grant Full Disk Access to. No
+				// PYTHON env: the digest is pure Go now, with no interpreter to find.
 				Program:    []string{hebbBin, "digest", "--vault-root", vaultPath},
 				WorkingDir: vaultPath,
-				// PYTHON stays: launchd's minimal PATH resolves python3 to the Xcode
-				// shim (no Full Disk Access), so `hebb digest` reads this pin to find a
-				// real interpreter. HEBB_BIN is gone now that hebb is Program[0].
-				EnvVars: []launchd.EnvVar{
-					{Key: "PYTHON", Value: pythonPath()},
-				},
-				Schedule: days,
-				LogPath:  logPath("daily-digest"),
+				Schedule:   days,
+				LogPath:    logPath("daily-digest"),
 			})
 		case "action-review":
 			script, ok := autoScript("generate-action-review.py")

@@ -147,7 +147,7 @@ Then ask your agent something only your vault knows. It will search, expand the 
 - `hebb search <query>`: full-text search (`--tag`, `--path-prefix`, `--limit`).
 - `hebb mcp`: MCP server over stdio (the five tools above).
 - `hebb serve`: local web search and health UI on 127.0.0.1 (`--port`, `$HEBB_WEB_PORT`).
-- `hebb health`: read-only vault health check (dangling links, PARA drift, oversized notes, orphans, islands); non-zero exit on a breach. `--json` for machine output.
+- `hebb health`: advisory worklist of vault-content issues (dangling links, ambiguous links, PARA drift, oversized notes) over the index. Read-only, repairs nothing; exits 0 even with findings (`--json` for tooling). Thresholds in `[health]`. Distinct from `hebb doctor`, which checks the install.
 - `hebb codex`: register the vault as a Codex MCP server (`~/.codex/config.toml`) and install hebb's agent skills into Codex's skills dir (`~/.agents/skills`), non-destructively. `--no-skills` to skip the skills.
 - `hebb doctor`: read-only health check (config, `.mcp.json`, index, settings, memory, Codex and Claude Desktop wiring, launchd); content-compares each against what install would write today and reports drift, warning on a binary path that still resolves to a working hebb and failing on one that points at nothing. Never runs a configured command; non-zero exit if anything is broken.
 - `hebb reset`: un-wire a vault from the machine (memory link, launchd jobs, agent configs, index). Dry run by default; `--force` to apply. Never touches your notes.
@@ -172,7 +172,7 @@ hebb is the engine; thin adapters connect it to each tool, all over the same MCP
 
 Commit `.hebb/config.toml` and your notes, so a cloned or synced vault self-identifies. The index (`.hebb/index.db`) is derived and rebuilt on demand, so gitignore it. Memory under `.hebb/memory/` travels with the vault. If the vault is a git repo, `hebb install` enables `[git]` auto-sync by default when it first writes `config.toml` (set `enabled = false` to opt out; an existing config is never changed). See `hebb sync` above.
 
-`config.toml` holds `name`, `exclude_dirs`, `web_port`, `jobs`, per-job `[job_args]` / `[job_env]`, and the `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), `[ingest]` (ingest policy), and `[notify]` (headless webhook) sections. Every key is optional and falls back to a sensible default. See **[CONFIG.md](CONFIG.md)** for the full reference, with an annotated example and per-field defaults.
+`config.toml` holds `name`, `exclude_dirs`, `web_port`, `jobs`, per-job `[job_args]` / `[job_env]`, and the `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), `[ingest]` (ingest policy), `[notify]` (headless webhook), and `[health]` (health thresholds) sections. Every key is optional and falls back to a sensible default. See **[CONFIG.md](CONFIG.md)** for the full reference, with an annotated example and per-field defaults.
 
 ## Multiple vaults
 

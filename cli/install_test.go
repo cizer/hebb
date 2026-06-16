@@ -147,8 +147,8 @@ func TestInstallCommandRendersLaunchd(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, buf.String())
 	}
 
-	matches, _ := filepath.Glob(filepath.Join(launchdDir, "local.hebb.*.web.plist"))
-	if len(matches) != 1 {
-		t.Errorf("expected one web plist in %s, got %v", launchdDir, matches)
+	// The web UI is one machine-global service (local.hebb.web), not per-vault.
+	if _, err := os.Stat(filepath.Join(launchdDir, "local.hebb.web.plist")); err != nil {
+		t.Errorf("expected the global web plist in %s: %v", launchdDir, err)
 	}
 }

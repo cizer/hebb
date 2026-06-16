@@ -2,6 +2,7 @@ package install
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -166,9 +167,27 @@ func renderLaunchd(rep *Report, opts Options, assetDir string) error {
 	}
 	slug := Slugify(vc.Name)
 	jobs := VaultJobs(opts.VaultPath, slug, opts.HebbBin, assetDir, opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs, vc.JobEnv)
+	// The web UI is one machine-global service, not per-vault. Render it when this
+	// vault opts into "web" (the default). Its content is identical from any
+	// vault, so writing it on each install is idempotent.
+	if jobsInclude(vc.Jobs, "web") {
+		jobs = append(jobs, GlobalWebJob(opts.HebbBin, opts.Home))
+	}
 	changed, err := launchd.WriteJobs(jobs, opts.LaunchdDir)
 	if err != nil {
 		return err
+	}
+	// Migration: retire any old per-vault web plists (local.hebb.<slug>.web),
+	// now superseded by the single global service. The global plist
+	// (local.hebb.web) has no slug segment, so it does not match this glob.
+	if stale, _ := filepath.Glob(filepath.Join(opts.LaunchdDir, "local.hebb.*.web.plist")); len(stale) > 0 {
+		for _, p := range stale {
+			lbl := strings.TrimSuffix(filepath.Base(p), ".plist")
+			Bootout(lbl)
+			if err := os.Remove(p); err == nil {
+				rep.add(lbl, "removed (web consolidated)")
+			}
+		}
 	}
 	changedSet := map[string]bool{}
 	for _, l := range changed {
@@ -185,6 +204,15 @@ func renderLaunchd(rep *Report, opts Options, assetDir string) error {
 		}
 	}
 	return nil
+}
+
+func jobsInclude(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
 }
 
 func wroteOrUnchanged(changed bool) string {

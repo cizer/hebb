@@ -39,6 +39,7 @@ func resetCmd() *cobra.Command {
 				CodexConfig:   codexConfig,
 				DesktopConfig: desktopConfig,
 				MCPName:       mcpName,
+				RegistryPath:  core.RegistryPath(home),
 				Force:         force,
 				KeepIndex:     keepIndex,
 			})

@@ -63,17 +63,11 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 	for _, name := range names {
 		before := len(jobs)
 		switch name {
-		case "web":
-			jobs = append(jobs, launchd.Job{
-				Label:      label("web"),
-				Program:    []string{hebbBin, "serve", "--vault", vaultPath, "--port", strconv.Itoa(port)},
-				WorkingDir: vaultPath,
-				EnvVars:    []launchd.EnvVar{{Key: "HEBB_WEB_PORT", Value: strconv.Itoa(port)}},
-				RunAtLoad:  true,
-				KeepAlive:  true,
-				Throttle:   10,
-				LogPath:    logPath("web"),
-			})
+		// "web" is no longer a per-vault job: a single machine-global web service
+		// (GlobalWebJob) serves every vault on one port, switchable in the UI, so
+		// vaults never collide on a port. install renders the global job and
+		// retires any old per-vault web plists; "web" here is intentionally a
+		// no-op (kept in the jobs list for back-compat config).
 		case "daily-digest":
 			// No script gate: `hebb digest` is built into the binary now (it selects
 			// changed notes from the index and writes the digest in Go), so the job
@@ -146,6 +140,30 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 		}
 	}
 	return jobs
+}
+
+// GlobalWebPort is the port the single machine-global web service binds.
+const GlobalWebPort = 4321
+
+// GlobalWebLabel is the launchd label of the one machine-global web service. It
+// has no vault slug (unlike per-vault jobs), so per-vault teardown never touches
+// it.
+const GlobalWebLabel = "local.hebb.web"
+
+// GlobalWebJob is the single machine-global web service: one `hebb serve` (no
+// --vault) that serves every registered vault on one loopback port, switchable
+// in the UI. It replaces the per-vault web jobs, which all defaulted to the same
+// port and collided.
+func GlobalWebJob(hebbBin, home string) launchd.Job {
+	return launchd.Job{
+		Label:     GlobalWebLabel,
+		Program:   []string{hebbBin, "serve", "--port", strconv.Itoa(GlobalWebPort)},
+		EnvVars:   []launchd.EnvVar{{Key: "HEBB_WEB_PORT", Value: strconv.Itoa(GlobalWebPort)}},
+		RunAtLoad: true,
+		KeepAlive: true,
+		Throttle:  10,
+		LogPath:   filepath.Join(home, "Library", "Logs", "hebb-web.log"),
+	}
 }
 
 // mergeEnvVars merges built-in env (a slice) with user-supplied env (a map).

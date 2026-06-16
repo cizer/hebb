@@ -20,6 +20,7 @@ type TeardownOptions struct {
 	CodexConfig   string // "" -> <home>/.codex/config.toml
 	DesktopConfig string // "" -> the macOS Claude Desktop config under Home
 	MCPName       string // server/block name (default "hebb")
+	RegistryPath  string // "" -> <home>/.config/hebb/vaults.toml via core.RegistryPath
 	Force         bool   // false = dry run
 	KeepIndex     bool   // default false -> clear .hebb/index.db (cheap to rebuild)
 }
@@ -79,8 +80,61 @@ func Teardown(opts TeardownOptions) (TeardownReport, error) {
 	teardownCodex(&rep, opts)
 	teardownClaudeDesktop(&rep, opts)
 	teardownMCPJSON(&rep, opts)
+	teardownRegistry(&rep, opts)
 	teardownIndex(&rep, opts)
 	return rep, nil
+}
+
+// teardownRegistry deregisters the vault from the machine-global registry so the
+// web server stops listing it. When that leaves no vaults, it also retires the
+// global web service, which would otherwise crash-loop serving nothing.
+func teardownRegistry(rep *TeardownReport, opts TeardownOptions) {
+	regPath := opts.RegistryPath
+	if regPath == "" && opts.Home != "" {
+		regPath = core.RegistryPath(opts.Home)
+	}
+	if regPath == "" {
+		return
+	}
+	reg, err := core.LoadRegistry(regPath)
+	if err != nil {
+		rep.add("registry", "skipped: "+err.Error())
+		return
+	}
+	if !reg.Remove(opts.VaultPath) {
+		rep.add("registry", "absent")
+		return
+	}
+	if opts.Force {
+		if err := reg.Save(regPath); err != nil {
+			rep.add("registry", "skipped: "+err.Error())
+			return
+		}
+		if len(reg.Vaults) == 0 {
+			removeGlobalWebJob(rep, opts)
+		}
+	}
+	rep.add("registry", rep.did(opts.Force))
+}
+
+// removeGlobalWebJob boots out and removes the single global web plist. Called
+// only when the last vault is deregistered.
+func removeGlobalWebJob(rep *TeardownReport, opts TeardownOptions) {
+	dir := opts.LaunchdDir
+	if dir == "" && opts.Home != "" {
+		dir = filepath.Join(opts.Home, "Library", "LaunchAgents")
+	}
+	if dir == "" {
+		return
+	}
+	p := filepath.Join(dir, GlobalWebLabel+".plist")
+	if _, err := os.Stat(p); err != nil {
+		return
+	}
+	Bootout(GlobalWebLabel)
+	if err := os.Remove(p); err == nil {
+		rep.add(GlobalWebLabel, "removed (last vault)")
+	}
 }
 
 // teardownMemoryLink removes the Claude project memory symlink, but only if it is

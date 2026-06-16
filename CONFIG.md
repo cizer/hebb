@@ -62,8 +62,8 @@ report_unresolved_links = false
 | --- | --- | --- | --- |
 | `name` | string | vault directory name | Human name for the vault. Used in launchd job labels. |
 | `exclude_dirs` | list of string | `[".obsidian", ".trash", ".hebb", ".git", ".claude"]` | Directory names skipped entirely during the index walk, matched at any depth. Notes inside become invisible to search. Setting this replaces the default list, so include the defaults you still want. |
-| `web_port` | int | `4321` | Port for `hebb serve` (also overridable per run with `--port` or `$HEBB_WEB_PORT`). |
-| `jobs` | list of string | `["daily-digest", "action-review", "web", "update-check"]` | Which launchd jobs `hebb install --launchd` renders. Known names: `daily-digest`, `action-review`, `web`, `update-check`. Unknown names are ignored. Automation jobs render only if their script is present. |
+| `web_port` | int | `4321` | Port for a manual `hebb serve` (override per run with `--port` or `$HEBB_WEB_PORT`). The launchd web service is one machine-global job on `4321` (it serves every vault), so this per-vault value does not change that job. |
+| `jobs` | list of string | `["daily-digest", "action-review", "web", "update-check"]` | Which launchd jobs `hebb install --launchd` renders. Known names: `daily-digest`, `action-review`, `web`, `update-check`. `web` is the single machine-global web service (`local.hebb.web`), rendered once rather than per vault. Unknown names are ignored; automation jobs render only if their script is present. |
 
 ## `[git]` — git auto-sync
 

@@ -82,8 +82,10 @@ until migrated.
 
 ## Build slices
 
-1. **Registry** (`core/registry.go`) + `hebb install` registration. Tested.
+1. **Registry** (`core/registry.go`) + `hebb install` registration. Done.
 2. **Multi-vault server** (`web.ServeMulti`) + `hebb serve` wiring + the page
-   selector. Tested.
-3. **launchd**: one global `web` service; retire per-vault `web` jobs; `hebb
-   reset` deregisters from the registry.
+   selector. Done.
+3. **launchd**: one global `local.hebb.web` service (`GlobalWebJob`); `hebb
+   install` renders it and retires stale per-vault `web` plists; `hebb reset`
+   deregisters from the registry and retires the global service when the last
+   vault goes. Done.

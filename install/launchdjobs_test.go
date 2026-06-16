@@ -32,21 +32,32 @@ func jobByLabel(jobs []launchd.Job, label string) (launchd.Job, bool) {
 	return launchd.Job{}, false
 }
 
-func TestVaultJobsWebIsBuiltIn(t *testing.T) {
+func TestVaultJobsWebIsNoLongerPerVault(t *testing.T) {
+	// "web" is now a single machine-global service, so VaultJobs renders no
+	// per-vault web job for it.
+	jobs := VaultJobs("/vaults/work", "work", "/usr/local/bin/hebb", t.TempDir(), t.TempDir(), 4399, []string{"web"}, false, nil, nil)
+	if len(jobs) != 0 {
+		t.Errorf("web should not render a per-vault job, got %d: %+v", len(jobs), jobs)
+	}
+}
+
+func TestGlobalWebJob(t *testing.T) {
 	home := t.TempDir()
-	jobs := VaultJobs("/vaults/work", "work", "/usr/local/bin/hebb", t.TempDir(), home, 4399, []string{"web"}, false, nil, nil)
-	j, ok := jobByLabel(jobs, "local.hebb.work.web")
-	if !ok {
-		t.Fatalf("web job not built; got %d jobs", len(jobs))
+	j := GlobalWebJob("/usr/local/bin/hebb", home)
+	if j.Label != GlobalWebLabel {
+		t.Errorf("label = %q, want %q", j.Label, GlobalWebLabel)
 	}
 	prog := strings.Join(j.Program, " ")
-	for _, want := range []string{"/usr/local/bin/hebb", "serve", "--vault", "/vaults/work", "--port", "4399"} {
+	for _, want := range []string{"/usr/local/bin/hebb", "serve", "--port", "4321"} {
 		if !strings.Contains(prog, want) {
-			t.Errorf("web program %q missing %q", prog, want)
+			t.Errorf("global web program %q missing %q", prog, want)
 		}
 	}
+	if strings.Contains(prog, "--vault") {
+		t.Error("global web job must not pin a single --vault")
+	}
 	if !j.KeepAlive || !j.RunAtLoad {
-		t.Error("web job should KeepAlive and RunAtLoad")
+		t.Error("global web job should KeepAlive and RunAtLoad")
 	}
 	if filepath.Dir(j.LogPath) != filepath.Join(home, "Library", "Logs") {
 		t.Errorf("log path %q not under ~/Library/Logs", j.LogPath)
@@ -131,7 +142,7 @@ func TestVaultJobsAppendsPerJobArgs(t *testing.T) {
 		"bogus":         {"--ignored"},
 	}
 	jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
-		[]string{"action-review", "web"}, false, jobArgs, nil)
+		[]string{"action-review", "update-check"}, false, jobArgs, nil)
 
 	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 	if !ok {
@@ -145,17 +156,17 @@ func TestVaultJobsAppendsPerJobArgs(t *testing.T) {
 	}
 
 	// Jobs without configured args are untouched.
-	web, ok := jobByLabel(jobs, "local.hebb.work.web")
+	uc, ok := jobByLabel(jobs, "local.hebb.work.update-check")
 	if !ok {
-		t.Fatal("web job not built")
+		t.Fatal("update-check job not built")
 	}
-	if got := strings.Join(web.Program, " "); strings.Contains(got, "--owner") || strings.Contains(got, "--ignored") {
-		t.Errorf("web program %q should not pick up other jobs' args", got)
+	if got := strings.Join(uc.Program, " "); strings.Contains(got, "--owner") || strings.Contains(got, "--ignored") {
+		t.Errorf("update-check program %q should not pick up other jobs' args", got)
 	}
 }
 
 func TestVaultJobsSkipsUnknown(t *testing.T) {
-	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"web", "bogus"}, false, nil, nil)
+	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321, []string{"update-check", "bogus"}, false, nil, nil)
 	if len(jobs) != 1 {
 		t.Errorf("unknown job name should be skipped, got %d jobs", len(jobs))
 	}
@@ -177,11 +188,12 @@ func TestVaultJobsNoShellProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The default jobs list from DefaultVaultConfig.
-	names := []string{"daily-digest", "action-review", "web", "update-check"}
+	// The default scheduled jobs (web is now the separate global service).
+	names := []string{"daily-digest", "action-review", "update-check"}
 	jobs := VaultJobs("/vaults/work", "work", "/opt/homebrew/bin/hebb", assetRoot, home, 4321, names, false, nil, nil)
-	if len(jobs) != len(names) {
-		t.Fatalf("expected %d default jobs to render, got %d", len(names), len(jobs))
+	jobs = append(jobs, GlobalWebJob("/opt/homebrew/bin/hebb", home)) // include the global web service
+	if len(jobs) != 4 {
+		t.Fatalf("expected 4 jobs to render (3 scheduled + global web), got %d", len(jobs))
 	}
 
 	badPrefixes := []string{"/bin/sh", "/bin/bash", "/usr/bin/env"}
@@ -216,42 +228,55 @@ func TestVaultJobsDigestAppendsArgs(t *testing.T) {
 	}
 }
 
+// actionReviewAssetRoot returns an asset root with the action-review generator
+// present, so the action-review job (the env-merge exemplar, built-in HEBB_BIN)
+// renders.
+func actionReviewAssetRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "automation")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generate-action-review.py"), []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 // TestVaultJobsJobEnvAppendsAfterBuiltIn proves that [job_env] entries render
 // into that job's EnvironmentVariables after the built-in env, deterministically
-// ordered. The web job carries a built-in HEBB_WEB_PORT, so it is the env-merge
-// exemplar (the daily-digest job no longer pins any built-in env).
+// ordered. The action-review job carries a built-in HEBB_BIN, so it is the
+// env-merge exemplar.
 func TestVaultJobsJobEnvAppendsAfterBuiltIn(t *testing.T) {
 	home := t.TempDir()
 
 	jobEnv := map[string]map[string]string{
-		"web":   {"HEBB_NOTIFY_URL": "https://hooks.example.com/abc", "EXTRA_KEY": "extra-val"},
-		"bogus": {"IGNORED": "yes"},
+		"action-review": {"HEBB_NOTIFY_URL": "https://hooks.example.com/abc", "EXTRA_KEY": "extra-val"},
+		"bogus":         {"IGNORED": "yes"},
 	}
-	jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), home, 4321,
-		[]string{"web"}, false, nil, jobEnv)
+	jobs := VaultJobs("/vaults/work", "work", "hebb", actionReviewAssetRoot(t), home, 4321,
+		[]string{"action-review"}, false, nil, jobEnv)
 
-	web, ok := jobByLabel(jobs, "local.hebb.work.web")
+	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 	if !ok {
-		t.Fatal("web job not built")
+		t.Fatal("action-review job not built")
 	}
 	env := map[string]string{}
-	for _, e := range web.EnvVars {
+	for _, e := range review.EnvVars {
 		env[e.Key] = e.Value
 	}
-	// Built-in HEBB_WEB_PORT must still be present.
-	if env["HEBB_WEB_PORT"] == "" {
-		t.Error("built-in HEBB_WEB_PORT env var missing after job_env injection")
+	if env["HEBB_BIN"] == "" {
+		t.Error("built-in HEBB_BIN env var missing after job_env injection")
 	}
-	// [job_env] extras must also be present.
 	if env["HEBB_NOTIFY_URL"] != "https://hooks.example.com/abc" {
 		t.Errorf("HEBB_NOTIFY_URL = %q, want url", env["HEBB_NOTIFY_URL"])
 	}
 	if env["EXTRA_KEY"] != "extra-val" {
 		t.Errorf("EXTRA_KEY = %q, want extra-val", env["EXTRA_KEY"])
 	}
-	// Built-in env must appear before user-supplied env (HEBB_WEB_PORT is first).
-	if len(web.EnvVars) < 2 || web.EnvVars[0].Key != "HEBB_WEB_PORT" {
-		t.Errorf("built-in env (HEBB_WEB_PORT) should precede user env, got %v", web.EnvVars)
+	if len(review.EnvVars) < 2 || review.EnvVars[0].Key != "HEBB_BIN" {
+		t.Errorf("built-in env (HEBB_BIN) should precede user env, got %v", review.EnvVars)
 	}
 }
 
@@ -261,31 +286,31 @@ func TestVaultJobsJobEnvAppendsAfterBuiltIn(t *testing.T) {
 func TestVaultJobsJobEnvOverridesBuiltIn(t *testing.T) {
 	home := t.TempDir()
 
-	// Override the built-in HEBB_WEB_PORT env var on the web job.
+	// Override the built-in HEBB_BIN env var on the action-review job.
 	jobEnv := map[string]map[string]string{
-		"web": {"HEBB_WEB_PORT": "9999"},
+		"action-review": {"HEBB_BIN": "/custom/hebb"},
 	}
-	jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), home, 4321,
-		[]string{"web"}, false, nil, jobEnv)
+	jobs := VaultJobs("/vaults/work", "work", "hebb", actionReviewAssetRoot(t), home, 4321,
+		[]string{"action-review"}, false, nil, jobEnv)
 
-	web, ok := jobByLabel(jobs, "local.hebb.work.web")
+	review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 	if !ok {
-		t.Fatal("web job not built")
+		t.Fatal("action-review job not built")
 	}
-	// Count HEBB_WEB_PORT keys: must be exactly 1 (no duplicate).
+	// Count HEBB_BIN keys: must be exactly 1 (no duplicate).
 	count := 0
 	overrideValue := ""
-	for _, e := range web.EnvVars {
-		if e.Key == "HEBB_WEB_PORT" {
+	for _, e := range review.EnvVars {
+		if e.Key == "HEBB_BIN" {
 			count++
 			overrideValue = e.Value
 		}
 	}
 	if count != 1 {
-		t.Errorf("HEBB_WEB_PORT appears %d times in EnvVars, want exactly 1 (no duplicate keys)", count)
+		t.Errorf("HEBB_BIN appears %d times in EnvVars, want exactly 1 (no duplicate keys)", count)
 	}
-	if overrideValue != "9999" {
-		t.Errorf("HEBB_WEB_PORT override = %q, want 9999 (user wins)", overrideValue)
+	if overrideValue != "/custom/hebb" {
+		t.Errorf("HEBB_BIN override = %q, want /custom/hebb (user wins)", overrideValue)
 	}
 }
 
@@ -293,8 +318,8 @@ func TestVaultJobsJobEnvOverridesBuiltIn(t *testing.T) {
 // entry render byte-identically to today (no regression for absent config).
 func TestVaultJobsJobEnvNoEntryIsIdentical(t *testing.T) {
 	home := t.TempDir()
-	jobs1 := VaultJobs("/v", "v", "hebb", t.TempDir(), home, 4321, []string{"web"}, false, nil, nil)
-	jobs2 := VaultJobs("/v", "v", "hebb", t.TempDir(), home, 4321, []string{"web"}, false, nil, map[string]map[string]string{"other-job": {"KEY": "val"}})
+	jobs1 := VaultJobs("/v", "v", "hebb", t.TempDir(), home, 4321, []string{"daily-digest"}, false, nil, nil)
+	jobs2 := VaultJobs("/v", "v", "hebb", t.TempDir(), home, 4321, []string{"daily-digest"}, false, nil, map[string]map[string]string{"other-job": {"KEY": "val"}})
 
 	if len(jobs1) != 1 || len(jobs2) != 1 {
 		t.Fatalf("expected 1 job each, got %d and %d", len(jobs1), len(jobs2))
@@ -317,24 +342,25 @@ func TestVaultJobsJobEnvDeterministicOrder(t *testing.T) {
 	home := t.TempDir()
 
 	jobEnv := map[string]map[string]string{
-		"web": {"Z_KEY": "z", "A_KEY": "a", "M_KEY": "m"},
+		"action-review": {"Z_KEY": "z", "A_KEY": "a", "M_KEY": "m"},
 	}
+	assetRoot := actionReviewAssetRoot(t)
 	// Run twice to confirm order is stable across calls.
 	for i := 0; i < 2; i++ {
-		jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), home, 4321,
-			[]string{"web"}, false, nil, jobEnv)
-		web, ok := jobByLabel(jobs, "local.hebb.work.web")
+		jobs := VaultJobs("/vaults/work", "work", "hebb", assetRoot, home, 4321,
+			[]string{"action-review"}, false, nil, jobEnv)
+		review, ok := jobByLabel(jobs, "local.hebb.work.action-review")
 		if !ok {
-			t.Fatal("web job not built")
+			t.Fatal("action-review job not built")
 		}
-		// Built-in HEBB_WEB_PORT first, then A_KEY, M_KEY, Z_KEY (sorted).
-		wantOrder := []string{"HEBB_WEB_PORT", "A_KEY", "M_KEY", "Z_KEY"}
-		if len(web.EnvVars) != len(wantOrder) {
-			t.Fatalf("run %d: want %d env vars, got %d: %v", i+1, len(wantOrder), len(web.EnvVars), web.EnvVars)
+		// Built-in HEBB_BIN first, then A_KEY, M_KEY, Z_KEY (sorted).
+		wantOrder := []string{"HEBB_BIN", "A_KEY", "M_KEY", "Z_KEY"}
+		if len(review.EnvVars) != len(wantOrder) {
+			t.Fatalf("run %d: want %d env vars, got %d: %v", i+1, len(wantOrder), len(review.EnvVars), review.EnvVars)
 		}
 		for j, k := range wantOrder {
-			if web.EnvVars[j].Key != k {
-				t.Errorf("run %d: EnvVars[%d].Key = %q, want %q", i+1, j, web.EnvVars[j].Key, k)
+			if review.EnvVars[j].Key != k {
+				t.Errorf("run %d: EnvVars[%d].Key = %q, want %q", i+1, j, review.EnvVars[j].Key, k)
 			}
 		}
 	}

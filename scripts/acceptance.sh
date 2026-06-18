@@ -99,7 +99,7 @@ sed 's/^/      /' "$WORK/install.out"
 [ -d "$VAULT/.hebb/memory" ]; report $? "memory dir under .hebb"
 ls "$HOME_DIR"/.claude/projects/*/memory >/dev/null 2>&1; report $? "memory linked into claude project dir"
 [ ! -e "$VAULT/.claude/skills" ]; report $? "no project skills dir (the plugin delivers skills)"
-ls "$LAUNCHD"/local.hebb.*.web.plist >/dev/null 2>&1; report $? "web launchd plist rendered"
+ls "$LAUNCHD"/local.hebb.web.plist >/dev/null 2>&1; report $? "web launchd plist rendered"
 
 # --- plugin-less wiring (--mcp-json opt-in) -----------------------------------
 echo "==> install --mcp-json (opt-in plugin-less wiring)"

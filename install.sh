@@ -7,7 +7,7 @@
 #   gh api repos/cizer/hebb/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
 #
 # Env overrides:
-#   HEBB_VERSION=v1.2.3    install a specific tag (default: latest release)
+#   HEBB_VERSION=v1.2.3    install a specific tag (default, or "latest": newest release)
 #   HEBB_INSTALL_DIR=DIR   install location (default: ~/.local/bin)
 set -eu
 
@@ -35,7 +35,9 @@ have_gh=0
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then have_gh=1; fi
 
 tag="${HEBB_VERSION:-}"
-if [ -z "$tag" ]; then
+# Empty or the literal "latest" both mean "resolve the newest release", so
+# HEBB_VERSION=latest works (as a one-liner override or in a vault bootstrap.sh).
+if [ -z "$tag" ] || [ "$tag" = "latest" ]; then
 	if [ "$have_gh" -eq 1 ]; then
 		tag=$(gh release view --repo "$REPO" --json tagName --jq .tagName 2>/dev/null) || true
 	else

@@ -14,12 +14,17 @@ import (
 // installs the hebb binary from GitHub if absent, then wires the vault with
 // `hebb install`. This is the "clone-and-go / from-scratch always works" guarantee.
 
-// RenderBootstrap returns the bootstrap.sh contents, pinning the hebb version
-// when version is a clean release (so a clone gets a binary new enough to open
-// the vault's index); a dev or unknown version leaves the pin off so install.sh
-// fetches the latest release.
-func RenderBootstrap(version string) []byte {
+// RenderBootstrap returns the bootstrap.sh contents. By default it pins the hebb
+// version when version is a clean release (so a clone gets a binary new enough
+// to open the vault's index); a dev or unknown version leaves the pin off so
+// install.sh fetches the latest release. When trackLatest is true it pins to
+// "latest" so a clone always installs the newest release (config [bootstrap]
+// track_latest).
+func RenderBootstrap(version string, trackLatest bool) []byte {
 	pin := releasePin(version)
+	if trackLatest {
+		pin = "latest"
+	}
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString("# hebb vault bootstrap - committed; makes this vault self-installing.\n")
@@ -43,9 +48,9 @@ func RenderBootstrap(version string) []byte {
 // WriteBootstrap writes bootstrap.sh (executable) at the vault root. Idempotent:
 // it rewrites only when the contents differ, so the version pin tracks the hebb
 // that last installed the vault. Returns true if the file was created or changed.
-func WriteBootstrap(vaultPath, version string) (bool, error) {
+func WriteBootstrap(vaultPath, version string, trackLatest bool) (bool, error) {
 	path := filepath.Join(vaultPath, "bootstrap.sh")
-	want := RenderBootstrap(version)
+	want := RenderBootstrap(version, trackLatest)
 	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, want) {
 		return false, nil
 	}

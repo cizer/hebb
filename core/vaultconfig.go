@@ -17,18 +17,28 @@ import (
 // Skills are not configured here: install delivers the full bundle to the
 // user-global skills dirs, shared across vaults.
 type VaultConfig struct {
-	Name        string       `toml:"name"`
-	ExcludeDirs []string     `toml:"exclude_dirs"`
-	WebPort     int          `toml:"web_port"`
-	Jobs        []string     `toml:"jobs"`
-	JobArgs     JobArgs      `toml:"job_args"`
-	JobEnv      JobEnv       `toml:"job_env"`
-	Git         GitConfig    `toml:"git"`
-	Update      UpdateConfig `toml:"update"`
-	Index       IndexConfig  `toml:"index"`
-	Ingest      IngestConfig `toml:"ingest"`
-	Notify      NotifyConfig `toml:"notify"`
-	Health      HealthConfig `toml:"health"`
+	Name        string          `toml:"name"`
+	ExcludeDirs []string        `toml:"exclude_dirs"`
+	WebPort     int             `toml:"web_port"`
+	Jobs        []string        `toml:"jobs"`
+	JobArgs     JobArgs         `toml:"job_args"`
+	JobEnv      JobEnv          `toml:"job_env"`
+	Git         GitConfig       `toml:"git"`
+	Update      UpdateConfig    `toml:"update"`
+	Index       IndexConfig     `toml:"index"`
+	Ingest      IngestConfig    `toml:"ingest"`
+	Notify      NotifyConfig    `toml:"notify"`
+	Health      HealthConfig    `toml:"health"`
+	Bootstrap   BootstrapConfig `toml:"bootstrap"`
+}
+
+// BootstrapConfig is the committed [bootstrap] block, governing the generated
+// bootstrap.sh. When TrackLatest is true the script installs the latest hebb
+// release on a clone instead of the version pinned at write time. The pin gives
+// reproducible clones; latest keeps an ephemeral or CI vault current (safe,
+// since a newer hebb always opens an older vault's index via migrations).
+type BootstrapConfig struct {
+	TrackLatest bool `toml:"track_latest"`
 }
 
 // HealthConfig is the committed [health] block. It governs the thresholds used

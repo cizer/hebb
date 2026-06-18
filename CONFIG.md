@@ -56,6 +56,9 @@ report_unresolved_links = false
 # attachment_extensions defaults to a built-in list when omitted.
 # exclude_from_graph defaults to empty (exclude nothing).
 # exclude_from_graph = ["Vault Daily Digest", "Ingest Log", "Action Review", "My Open Actions", "Open Actions*"]
+
+[bootstrap]
+track_latest = false
 ```
 
 ## Top-level keys
@@ -153,6 +156,17 @@ are ignored.
   environment. Each value is a string-to-string map. A key matching a built-in
   env var overrides it (you win). The main use is `$HEBB_NOTIFY_URL` (see
   `[notify]`). Example: `action-review = { HEBB_NOTIFY_URL = "https://..." }`.
+
+## `[bootstrap]` — clone self-install
+
+`hebb install`/`hebb new` commit a `bootstrap.sh` at the vault root so a fresh
+clone or ephemeral machine can self-install (run `./bootstrap.sh`: it installs
+the hebb binary if absent, then wires the vault). It pins the hebb version that
+wrote it, for reproducible clones.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `track_latest` | bool | `false` | When `true`, the committed `bootstrap.sh` installs the **latest** hebb release on a clone instead of the pinned version. Use for vaults you want always-current (ephemeral, CI). Safe, since a newer hebb opens an older vault's index via migrations; you trade reproducibility for freshness. (`HEBB_VERSION=latest ./bootstrap.sh` also forces latest for a single run without changing this.) |
 
 ## Two distinctions worth remembering
 

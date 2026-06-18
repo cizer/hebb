@@ -82,8 +82,10 @@ func Run(opts Options) (Report, error) {
 	}
 
 	// Commit a self-install bootstrap.sh so a clone or ephemeral runner can
-	// provision hebb and wire the vault from scratch.
-	bootChanged, err := WriteBootstrap(opts.VaultPath, opts.HebbVersion)
+	// provision hebb and wire the vault from scratch. [bootstrap] track_latest
+	// makes the script install the newest release instead of the pinned version.
+	bootVC, _, _ := core.LoadVaultConfig(opts.VaultPath)
+	bootChanged, err := WriteBootstrap(opts.VaultPath, opts.HebbVersion, bootVC.Bootstrap.TrackLatest)
 	if err != nil {
 		return rep, err
 	}

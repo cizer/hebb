@@ -244,6 +244,13 @@ func checkSettings(add func(string, string, string), vaultPath, mcpName string) 
 		add("settings", "warn", "invalid JSON")
 		return
 	}
+	// A settings.json with no companion .mcp.json is plugin mode (the plugin
+	// provides the MCP server) or a hook-only settings file (e.g. the vault's
+	// SessionStart self-provision hook). In neither case is enabling a
+	// per-vault MCP server expected, so do not warn that one is missing.
+	if _, err := os.Stat(filepath.Join(vaultPath, ".mcp.json")); err != nil {
+		return
+	}
 	enabled, _ := m["enabledMcpjsonServers"].([]any)
 	for _, x := range enabled {
 		if s, ok := x.(string); ok && s == mcpName {

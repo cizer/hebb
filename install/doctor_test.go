@@ -36,6 +36,26 @@ func TestDoctorEmptyVault(t *testing.T) {
 	}
 }
 
+// A settings.json without a companion .mcp.json (e.g. the vault's SessionStart
+// self-provision hook, or plain plugin mode) must not warn that an MCP server
+// is not enabled: a per-vault server is not expected in that mode.
+func TestDoctorHookOnlySettingsNoMCPWarning(t *testing.T) {
+	vault := t.TempDir()
+	claudeDir := filepath.Join(vault, ".claude")
+	if err := os.MkdirAll(filepath.Join(claudeDir, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sh hook.sh"}]}]}}`
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No .mcp.json on disk: this is hook-only / plugin mode.
+	checks := Doctor(Options{VaultPath: vault, MCPName: DefaultMCPServerName})
+	if c, ok := checkByName(checks, "settings"); ok {
+		t.Errorf("settings check should be silent without .mcp.json, got %q (%s)", c.Status, c.Detail)
+	}
+}
+
 func TestDoctorHealthyAfterInstall(t *testing.T) {
 	vault := t.TempDir()
 	home := t.TempDir()

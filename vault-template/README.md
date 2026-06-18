@@ -26,3 +26,12 @@ This vault is self-installing. On a fresh clone or an ephemeral machine, run:
 It installs the `hebb` binary (from GitHub, if not already on your PATH) and
 wires this vault (`hebb install`). It is idempotent, so it is safe to re-run.
 Afterwards, re-auth any connectors (the one manual step).
+
+### Claude Code on the web
+
+This vault provisions itself automatically in an ephemeral Claude Code on the
+web session. A committed `SessionStart` hook (`.claude/hooks/session-start.sh`,
+registered in `.claude/settings.json`) runs `./bootstrap.sh` when the container
+starts, before the session and its MCP servers load, so `hebb` and its tools are
+ready when the agent begins. The hook is a no-op on a local machine (it only
+runs when `CLAUDE_CODE_REMOTE=true`), so committing it is safe everywhere.

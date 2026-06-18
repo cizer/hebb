@@ -51,6 +51,8 @@ func TestNewFromScratch(t *testing.T) {
 		"CLAUDE.md",
 		"AGENTS.md",
 		"bootstrap.sh",
+		filepath.Join(".claude", "settings.json"),
+		filepath.Join(".claude", "hooks", "session-start.sh"),
 		"templates/note.md",
 		"1-Projects", "2-Areas", "3-Resources", "4-Archives",
 		filepath.Join(".hebb", "config.toml"),

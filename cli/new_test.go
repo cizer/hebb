@@ -50,6 +50,7 @@ func TestNewFromScratch(t *testing.T) {
 	for _, rel := range []string{
 		"CLAUDE.md",
 		"AGENTS.md",
+		"bootstrap.sh",
 		"templates/note.md",
 		"1-Projects", "2-Areas", "3-Resources", "4-Archives",
 		filepath.Join(".hebb", "config.toml"),

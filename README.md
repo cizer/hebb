@@ -172,7 +172,7 @@ hebb is the engine; thin adapters connect it to each tool, all over the same MCP
 
 ## What to commit
 
-Commit `.hebb/config.toml` and your notes, so a cloned or synced vault self-identifies. The index (`.hebb/index.db`) is derived and rebuilt on demand, so gitignore it. Memory under `.hebb/memory/` travels with the vault. If the vault is a git repo, `hebb install` enables `[git]` auto-sync by default when it first writes `config.toml` (set `enabled = false` to opt out; an existing config is never changed). See `hebb sync` above.
+Commit `.hebb/config.toml` and your notes, so a cloned or synced vault self-identifies. The index (`.hebb/index.db`) is derived and rebuilt on demand, so gitignore it. Memory under `.hebb/memory/` travels with the vault. `hebb` also commits a `bootstrap.sh` at the vault root, so a fresh clone or an ephemeral machine self-installs: run `./bootstrap.sh` to install the binary (pinned to the version that wrote it) and wire the vault. If the vault is a git repo, `hebb install` enables `[git]` auto-sync by default when it first writes `config.toml` (set `enabled = false` to opt out; an existing config is never changed). See `hebb sync` above.
 
 `config.toml` holds `name`, `exclude_dirs`, `web_port`, `jobs`, per-job `[job_args]` / `[job_env]`, and the `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), `[ingest]` (ingest policy), `[notify]` (headless webhook), and `[health]` (health thresholds) sections. Every key is optional and falls back to a sensible default. See **[CONFIG.md](CONFIG.md)** for the full reference, with an annotated example and per-field defaults.
 

@@ -35,7 +35,7 @@ type installParams struct {
 	noSkills         bool   // skip installing agent skills into the skills dirs
 }
 
-func installCmd() *cobra.Command {
+func installCmd(version string) *cobra.Command {
 	var p installParams
 	c := &cobra.Command{
 		Use:   "install",
@@ -53,7 +53,7 @@ func installCmd() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			return installVault(cmd, cfg, db, p)
+			return installVault(cmd, cfg, db, p, version)
 		},
 	}
 	bindInstallFlags(c, &p)
@@ -87,7 +87,7 @@ func bindInstallFlags(c *cobra.Command, p *installParams) {
 // installVault performs the file-level install for an already-resolved vault
 // and builds its first index, printing a step report. Shared by `install` and
 // the install phase of `new`.
-func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installParams) error {
+func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installParams, version string) error {
 	home := p.home
 	if home == "" {
 		home, _ = os.UserHomeDir()
@@ -134,6 +134,7 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		MCPJSON:      p.mcpJSON,
 		SkipSkills:   p.noSkills,
 		RegistryPath: core.RegistryPath(home),
+		HebbVersion:  version,
 	})
 	if err != nil {
 		return err

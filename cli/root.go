@@ -53,7 +53,7 @@ func newRoot(version string) *cobra.Command {
 		"codex": "agents", "digest": "agents", "notify": "agents", "restart-services": "agents",
 	}
 	for _, cmd := range []*cobra.Command{
-		newCmd(), installCmd(), vaultsCmd(),
+		newCmd(version), installCmd(version), vaultsCmd(),
 		searchCmd(), serveCmd(), mcpCmd(version), syncCmd(),
 		doctorCmd(), healthCmd(), indexCmd(), updateCmd(version), resetCmd(),
 		codexCmd(), digestCmd(), notifyCmd(), restartServicesCmd(),

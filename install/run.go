@@ -28,6 +28,10 @@ type Options struct {
 	// in (so one web server can enumerate it). Empty skips registration.
 	RegistryPath string
 
+	// HebbVersion is stamped into the committed bootstrap.sh as the pinned
+	// release for clones to install (empty / dev leaves it unpinned -> latest).
+	HebbVersion string
+
 	// Agent config paths, used only by Doctor to re-verify wiring drift
 	// read-only. Empty means "use the conventional default under Home"; when
 	// that default file is absent the check stays silent (never-wired is silent).
@@ -76,6 +80,14 @@ func Run(opts Options) (Report, error) {
 		}
 		rep.add("registry", "registered")
 	}
+
+	// Commit a self-install bootstrap.sh so a clone or ephemeral runner can
+	// provision hebb and wire the vault from scratch.
+	bootChanged, err := WriteBootstrap(opts.VaultPath, opts.HebbVersion)
+	if err != nil {
+		return rep, err
+	}
+	rep.add("bootstrap.sh", wroteOrUnchanged(bootChanged))
 
 	if opts.MCPJSON {
 		// Plugin-less wiring: write the per-vault MCP server + tool allow-list.

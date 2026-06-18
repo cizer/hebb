@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newCmd() *cobra.Command {
+func newCmd(version string) *cobra.Command {
 	var p installParams
 	c := &cobra.Command{
 		Use:   "new <path>",
@@ -52,7 +52,7 @@ func newCmd() *cobra.Command {
 			for _, s := range screp.Steps {
 				fmt.Fprintf(out, "  %-16s %s\n", s.Name, s.Status)
 			}
-			return installVault(cmd, cfg, db, p)
+			return installVault(cmd, cfg, db, p, version)
 		},
 	}
 	bindInstallFlags(c, &p)

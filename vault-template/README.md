@@ -14,3 +14,15 @@ conventions and structure.
 
 This vault is self-contained: `.hebb/config.toml` and `.mcp.json` identify and
 wire it, and the search index (`.hebb/index.db`) is rebuilt on demand.
+
+## Setup on a new machine
+
+This vault is self-installing. On a fresh clone or an ephemeral machine, run:
+
+```sh
+./bootstrap.sh
+```
+
+It installs the `hebb` binary (from GitHub, if not already on your PATH) and
+wires this vault (`hebb install`). It is idempotent, so it is safe to re-run.
+Afterwards, re-auth any connectors (the one manual step).

@@ -39,7 +39,8 @@ If the vault keeps an ingest log, window from the most recent meetings-sweep row
 Search the calendar across the window. Triage **before** fetching any transcripts — fetches are expensive and most meetings don't need capturing:
 
 - **Keep:** 1:1s with reports and stakeholders, recurring syncs that have an existing series folder, decision/planning meetings, programme-substantive sessions.
-- **Drop:** cancelled/declined events, leave notices, socials, focus blocks, meetings the user didn't attend, logistics-only invites.
+- **Drop:** cancelled events, leave notices, socials, focus blocks, logistics-only invites, and broadcasts/all-hands whose transcript is access-restricted anyway.
+- **A decline is NOT a drop reason.** The user can't attend everything and needs updates from the meetings they miss, so apply the normal signal/substance triage to declined and not-attended meetings exactly as to attended ones, and **pull the transcript** for the substantive ones (1:1s, recurring syncs with a series folder, decision/planning/governance forums, programme-substantive sessions). Only drop a declined meeting if it would be noise even had they attended. Many transcripts will still be empty (transcription off) — record it and move on.
 - **Dedup now, not later:** check the vault and the ingest log. Meetings often arrive by other routes (pasted AI summaries, recap emails via ingest-inbox), so a transcript is frequently the *second* copy. If a note exists, the transcript at most enriches it — never duplicates it.
 
 ### 3. Fetch transcripts (shortlist only)

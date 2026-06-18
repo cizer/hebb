@@ -320,3 +320,86 @@ func TestHealthCommandStructuralSummaryLine(t *testing.T) {
 		}
 	}
 }
+
+// buildExcludeVaultCLI builds a vault with a high-degree hub note ("Vault Daily
+// Digest") and ordinary notes, returning the vault path and the name of the hub.
+func buildExcludeVaultCLI(t *testing.T) string {
+	t.Helper()
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := core.DefaultVaultConfig("test").Save(vault); err != nil {
+		t.Fatal(err)
+	}
+
+	write("Notes/A.md", "# A\n\n[[B]] [[C]]\n")
+	write("Notes/B.md", "# B\n\n[[A]]\n")
+	write("Notes/C.md", "# C\n\n[[A]]\n")
+	// Hub links to every other note.
+	write("Daily/Digest.md", "# Vault Daily Digest\n\n[[A]] [[B]] [[C]]\n")
+
+	cfg, err := core.ResolveVault(vault, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	return vault
+}
+
+// TestHealthCommandExcludeFromGraphFlag verifies that passing
+// --exclude-from-graph="Vault Daily Digest" drops the hub note from the graph
+// stats (node count falls by 1, the hub does not appear in text output's node
+// count comparison).
+func TestHealthCommandExcludeFromGraphFlag(t *testing.T) {
+	vault := buildExcludeVaultCLI(t)
+
+	// Without the flag: 4 notes in the graph.
+	outAll, err := runHealth(t, vault)
+	if err != nil {
+		t.Fatalf("hebb health (baseline): %v\n%s", err, outAll)
+	}
+	if !strings.Contains(outAll, "4 notes") {
+		t.Errorf("baseline graph summary should report 4 notes:\n%s", outAll)
+	}
+
+	// With the flag: 3 notes (Digest excluded).
+	outExcl, err := runHealth(t, vault, "--exclude-from-graph=Vault Daily Digest")
+	if err != nil {
+		t.Fatalf("hebb health --exclude-from-graph: %v\n%s", err, outExcl)
+	}
+	if !strings.Contains(outExcl, "3 notes") {
+		t.Errorf("excluded graph summary should report 3 notes:\n%s", outExcl)
+	}
+}
+
+// TestHealthCommandExcludeFromGraphFlagMultiple verifies that a
+// comma-separated list of patterns in --exclude-from-graph excludes each one.
+func TestHealthCommandExcludeFromGraphFlagMultiple(t *testing.T) {
+	vault := buildExcludeVaultCLI(t)
+
+	// Exclude both "Vault Daily Digest" and "A" (by title/basename).
+	outExcl, err := runHealth(t, vault, "--exclude-from-graph=Vault Daily Digest,A")
+	if err != nil {
+		t.Fatalf("hebb health --exclude-from-graph (multi): %v\n%s", err, outExcl)
+	}
+	if !strings.Contains(outExcl, "2 notes") {
+		t.Errorf("two excluded notes: graph summary should report 2 notes:\n%s", outExcl)
+	}
+}

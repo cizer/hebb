@@ -40,7 +40,29 @@ func newRoot(version string) *cobra.Command {
 	root.PersistentFlags().StringVar(&flagVault, "vault", "", "vault path (default: nearest .hebb/ above cwd, or $HEBB_VAULT)")
 	root.PersistentFlags().StringVar(&flagDB, "db", "", "index db path (default: <vault>/.hebb/index.db)")
 
-	root.AddCommand(indexCmd(), searchCmd(), mcpCmd(version), serveCmd(), installCmd(), doctorCmd(), healthCmd(), newCmd(), codexCmd(), resetCmd(), syncCmd(), updateCmd(version), digestCmd(), notifyCmd(), restartServicesCmd())
+	root.AddGroup(
+		&cobra.Group{ID: "setup", Title: "Set up a vault:"},
+		&cobra.Group{ID: "use", Title: "Use a vault:"},
+		&cobra.Group{ID: "maintain", Title: "Check & maintain:"},
+		&cobra.Group{ID: "agents", Title: "Agents & automation:"},
+	)
+	group := map[string]string{
+		"new": "setup", "install": "setup", "vaults": "setup",
+		"search": "use", "serve": "use", "mcp": "use", "sync": "use",
+		"doctor": "maintain", "audit": "maintain", "index": "maintain", "update": "maintain", "unwire": "maintain",
+		"codex": "agents", "digest": "agents", "notify": "agents", "restart-services": "agents",
+	}
+	for _, cmd := range []*cobra.Command{
+		newCmd(), installCmd(), vaultsCmd(),
+		searchCmd(), serveCmd(), mcpCmd(version), syncCmd(),
+		doctorCmd(), healthCmd(), indexCmd(), updateCmd(version), resetCmd(),
+		codexCmd(), digestCmd(), notifyCmd(), restartServicesCmd(),
+	} {
+		if g, ok := group[cmd.Name()]; ok {
+			cmd.GroupID = g
+		}
+		root.AddCommand(cmd)
+	}
 	return root
 }
 
@@ -59,7 +81,7 @@ func openVault() (core.Config, *sql.DB, error) {
 func indexCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "index",
-		Short: "Build or refresh the search index",
+		Short: "Rebuild the search index (normally automatic)",
 		RunE: func(*cobra.Command, []string) error {
 			cfg, db, err := openVault()
 			if err != nil {
@@ -121,7 +143,7 @@ func searchCmd() *cobra.Command {
 func mcpCmd(version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
-		Short: "Run the MCP server over stdio (for Claude)",
+		Short: "Run the MCP server over stdio (Claude, Codex, any MCP client)",
 		RunE: func(*cobra.Command, []string) error {
 			cfg, err := core.ResolveVault(flagVault, flagDB)
 			if err != nil {

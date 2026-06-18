@@ -25,7 +25,7 @@ server that can enumerate them (and is useful beyond the web UI: `update`,
 - **Shape:** a list of `{ name, path }`, `path` canonicalised (abs, symlinks
   resolved). De-duplicated by path.
 - **Writers:** `hebb install` / `hebb new` register the vault (idempotent);
-  `hebb reset` deregisters it (follow-up).
+  `hebb unwire` (alias `reset`) deregisters it.
 - **Readers:** the web server; later, other machine-global commands.
 
 ```toml
@@ -86,6 +86,6 @@ until migrated.
 2. **Multi-vault server** (`web.ServeMulti`) + `hebb serve` wiring + the page
    selector. Done.
 3. **launchd**: one global `local.hebb.web` service (`GlobalWebJob`); `hebb
-   install` renders it and retires stale per-vault `web` plists; `hebb reset`
+   install` renders it and retires stale per-vault `web` plists; `hebb unwire`
    deregisters from the registry and retires the global service when the last
    vault goes. Done.

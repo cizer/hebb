@@ -82,8 +82,12 @@ func RunHealthFull(cfg Config, db *sql.DB, reportUnresolved bool) (HealthResult,
 	}
 	all = append(all, os_...)
 
-	// Phase 2a: build the graph once and reuse it for all three graph metrics.
-	g, err := buildGraph(db)
+	// Phase 2a: build the graph once (with any exclude_from_graph patterns applied)
+	// and reuse it for all three graph metrics. Content detectors above this point
+	// (dangling_link, para_drift, oversized) are unaffected: they run over ALL
+	// notes regardless of exclusion, because exclusion is about graph centrality
+	// only, not about hiding note content.
+	g, err := buildGraphExcluding(db, cfg.Health.GetExcludeFromGraph())
 	if err != nil {
 		return HealthResult{}, fmt.Errorf("graph build: %w", err)
 	}

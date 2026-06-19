@@ -51,12 +51,14 @@ Platform mechanics worth knowing (Microsoft Graph specifics; analogous elsewhere
 
 - **Occurrence-window misses are common.** A recurring meeting that ran earlier or later than its scheduled slot can return not-found for the scheduled occurrence. Retry without the occurrence time bounds to list the series' recent transcripts, then match by creation timestamp to the window.
 - A recurring series returns its most recent transcripts, capped; older occurrences may be gone.
-- Many meetings are simply not transcribed. **Don't fake reach** — record "no transcript available" in the plan and move on. An AI recap sometimes exists in the meeting chat even when the transcript doesn't; the chat pass can catch it.
+- Many meetings are simply not transcribed. **Don't fake reach** — record "no transcript available" in the plan and move on. An AI recap sometimes exists in the meeting chat even when the transcript doesn't; the chat pass picks these up: step 4 checks each no-transcript meeting's chat explicitly.
+- **Persist the raw transcript, always.** When a transcript is found, the raw VTT is saved to the destination's `Artifacts/` as the canonical source — **including, especially, when a sub-agent fetched and read it during a sweep.** An agent's in-context read is not the record: if the agent returned the substance but did not save the file, re-fetch and save it before filing, so the synthesis stays auditable against source. Large transcripts exceed the tool read-limit and get written to a temp file — extract the transcript from there and copy it into `Artifacts/`. The only acceptable miss is a genuinely empty/unavailable transcript.
 
 ### 4. Chat pass
 
 Search chats across the window. **Prefer undated keyword/scoped queries** (e.g. `from:person`) and filter by returned timestamps: on Microsoft Graph the undated path uses the search index and reaches channels, DMs, and older chats, while date-bounded scans cover only a small set of recently-modified chats with no channels. Use the date-bounded path only for a queryless recency sweep, and state the coverage gap in the report. Search a few angles (key people, key topics, decision language, shared-file messages) rather than one query.
 
+- **Close the transcript gaps first.** Carry the no-transcript meetings from step 3 into this pass and look up each one's meeting chat directly for an AI recap or substantive wrap-up, before the broader keyword sweep. This is the deliberate fallback step 3 defers to; a generic people/topic query will not reliably surface a specific meeting's chat.
 - **Signal:** decisions, ownership/scope changes, substantive updates, AI recaps posted into meeting chats, shared documents worth pulling.
 - **Noise:** logistics, social chatter, reactions, link-only messages with no decision attached.
 - Read promising threads in full before judging.
@@ -95,6 +97,7 @@ When in doubt, append. Fragmentation is the failure mode to avoid.
 
 - Do not run headless or assume the platform MCP is available outside an interactive session.
 - Do not fetch transcripts for unshortlisted meetings — triage first.
+- Do not rely on a sub-agent's in-context read as the record. Always persist the raw VTT to `Artifacts/` when a transcript exists, even when the agent only returned a summary.
 - Do not imply full chat coverage when the scan is bounded.
 - Do not file verbatim candour or promote offhand personal remarks into dossiers.
 - Do not advance the run stage on its own; stages are shared with ingest-inbox and changed only by the user.

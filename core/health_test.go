@@ -30,15 +30,15 @@ func buildHealthVault(t *testing.T) (Config, *sql.DB) {
 	// (ii) A 1-Projects note with status: done (PARA drift by status).
 	write("1-Projects/Foo.md", "---\ntitle: Foo\nstatus: done\n---\n\nFinished project.\n")
 
-	// (iii) An oversized note: body long enough to exceed the default 1200-token
-	// threshold (1200 * 4 = 4800 chars) and containing >= 3 H2/H3 sections,
+	// (iii) An oversized note: body long enough to exceed the default 4000-token
+	// threshold (4000 * 4 = 16000 chars) and containing >= 3 H2/H3 sections,
 	// each with non-trivial content.
 	bigBody := strings.Builder{}
 	bigBody.WriteString("# Big Note\n\n")
 	for section := 0; section < 4; section++ {
 		bigBody.WriteString("## Section\n\n")
 		// Each section needs enough text to be considered substantial.
-		for line := 0; line < 40; line++ {
+		for line := 0; line < 160; line++ {
 			bigBody.WriteString("This is a line of body text in the section to pad out the token count.\n")
 		}
 		bigBody.WriteString("\n")
@@ -49,8 +49,9 @@ func buildHealthVault(t *testing.T) (Config, *sql.DB) {
 	//   - A resolved link (target exists).
 	write("Notes/Target.md", "# Target\n\nA real note.\n")
 	write("Notes/Resolved.md", "# Resolved\n\nSee [[Target]] for details.\n")
-	//   - A 1-Projects note with an active status.
-	write("1-Projects/Active.md", "---\ntitle: Active\nstatus: in-progress\n---\n\nStill going.\n")
+	//   - A 1-Projects note with an active status and a link to the target note (so
+	//     the stub detector does not flag it: it has an outbound resolved link).
+	write("1-Projects/Active.md", "---\ntitle: Active\nstatus: in-progress\n---\n\nStill going. See [[Target]].\n")
 	//   - A small note (well under the token threshold).
 	write("Notes/Small.md", "# Small\n\nJust a tiny note.\n")
 
@@ -437,6 +438,7 @@ func TestRunHealthCleanNotesNotFlagged(t *testing.T) {
 		"dangling_link": true,
 		"para_drift":    true,
 		"oversized":     true,
+		"stub":          true,
 	}
 	clean := []string{"Notes/Target.md", "Notes/Resolved.md", "1-Projects/Active.md", "Notes/Small.md"}
 	for _, path := range clean {
@@ -534,8 +536,11 @@ func TestHealthConfigDefaults(t *testing.T) {
 	if hc.GetProjectStaleDays() != 180 {
 		t.Errorf("ProjectStaleDays default = %d, want 180", hc.GetProjectStaleDays())
 	}
-	if hc.GetSizeThreshold() != 1200 {
-		t.Errorf("SizeThreshold default = %d, want 1200", hc.GetSizeThreshold())
+	if hc.GetSizeThreshold() != 4000 {
+		t.Errorf("SizeThreshold default = %d, want 4000", hc.GetSizeThreshold())
+	}
+	if hc.GetStubThreshold() != 20 {
+		t.Errorf("StubThreshold default = %d, want 20", hc.GetStubThreshold())
 	}
 }
 
@@ -546,5 +551,243 @@ func TestHealthConfigCustom(t *testing.T) {
 	}
 	if hc.GetSizeThreshold() != 500 {
 		t.Errorf("SizeThreshold = %d, want 500", hc.GetSizeThreshold())
+	}
+}
+
+// buildStubVault creates a minimal vault for stub-detector tests and returns
+// cfg + an open, reindexed DB. Caller must defer db.Close().
+//
+// Notes written:
+//   - 2-Areas/Stub.md         -- 5 words, no outbound links -> should fire
+//   - 2-Areas/ThinLinker.md   -- 5 words but has an outbound link -> should NOT fire
+//   - Journal/ShortJournal.md -- 5 words, no links, but under Journal/ -> NOT fired
+//   - 2-Areas/LongNote.md     -- many words, no outbound links -> NOT fired (token count too high)
+//   - 2-Areas/Target.md       -- target for the ThinLinker resolved link
+//
+// Note: "Notes/" is in the default expected_orphan_folders, so stub notes are
+// placed under "2-Areas/" which is NOT an expected-orphan folder.
+func buildStubVault(t *testing.T) (Config, *sql.DB) {
+	t.Helper()
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A near-empty note with no outbound links and not in an expected-orphan folder:
+	// should be flagged as a stub. Under 2-Areas/ which is not an orphan folder.
+	write("2-Areas/Stub.md", "# Stub\n\nhello world tiny note\n")
+
+	// A thin note that has an outbound link: intentional index stub, NOT flagged.
+	write("2-Areas/Target.md", "# Target\n\nA real note with content.\n")
+	write("2-Areas/ThinLinker.md", "# Thin\n\nSee [[Target]] here\n")
+
+	// A thin note under Journal/: expected-orphan folder, NOT flagged.
+	write("Journal/ShortJournal.md", "# Entry\n\nhello world entry\n")
+
+	// A longer note with no outbound links: token count above stub threshold, NOT flagged.
+	longBody := strings.Builder{}
+	longBody.WriteString("# Long\n\n")
+	for i := 0; i < 30; i++ {
+		longBody.WriteString("This is a longer line of text to push the token estimate above the stub threshold.\n")
+	}
+	write("2-Areas/LongNote.md", longBody.String())
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	return cfg, db
+}
+
+// TestStubDetectorFlagsNearEmptyNote proves a near-empty note (few tokens) with
+// no outbound resolved links and not under an expected-orphan folder is flagged
+// as a stub finding.
+func TestStubDetectorFlagsNearEmptyNote(t *testing.T) {
+	cfg, db := buildStubVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	stubs := findingsByType(report.Findings, "stub")
+	var found bool
+	for _, f := range stubs {
+		if f.Path == "2-Areas/Stub.md" {
+			found = true
+			if f.Severity != "warn" {
+				t.Errorf("stub finding severity = %q, want warn", f.Severity)
+			}
+			if !strings.Contains(f.Detail, "tokens") {
+				t.Errorf("stub detail %q should mention tokens", f.Detail)
+			}
+			if !strings.Contains(strings.ToLower(f.Detail), "merge") && !strings.Contains(strings.ToLower(f.Detail), "archive") {
+				t.Errorf("stub detail %q should mention merge or archive", f.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("2-Areas/Stub.md should be flagged as a stub; stubs: %+v, all findings: %+v", stubs, report.Findings)
+	}
+}
+
+// TestStubDetectorDoesNotFlagNoteWithOutboundLink proves a thin note that has
+// at least one resolved outbound link is NOT flagged: it is an intentional
+// index/map stub, not a dead stub.
+func TestStubDetectorDoesNotFlagNoteWithOutboundLink(t *testing.T) {
+	cfg, db := buildStubVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for _, f := range findingsByType(report.Findings, "stub") {
+		if f.Path == "2-Areas/ThinLinker.md" {
+			t.Errorf("2-Areas/ThinLinker.md has an outbound link and must NOT be flagged as a stub: %+v", f)
+		}
+	}
+}
+
+// TestStubDetectorDoesNotFlagJournalNote proves a short note under Journal/
+// (an expected-orphan folder) is NOT flagged even if it has no outbound links.
+func TestStubDetectorDoesNotFlagJournalNote(t *testing.T) {
+	cfg, db := buildStubVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for _, f := range findingsByType(report.Findings, "stub") {
+		if f.Path == "Journal/ShortJournal.md" {
+			t.Errorf("Journal/ShortJournal.md is in an expected-orphan folder and must NOT be flagged as a stub: %+v", f)
+		}
+	}
+}
+
+// TestStubDetectorDoesNotFlagLongNote proves a note whose token estimate
+// exceeds the stub threshold is NOT flagged even if it has no outbound links.
+func TestStubDetectorDoesNotFlagLongNote(t *testing.T) {
+	cfg, db := buildStubVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	for _, f := range findingsByType(report.Findings, "stub") {
+		if f.Path == "2-Areas/LongNote.md" {
+			t.Errorf("2-Areas/LongNote.md is long enough and must NOT be flagged as a stub: %+v", f)
+		}
+	}
+}
+
+// TestOversizedThresholdRecalibrated proves the default 4000-token threshold
+// means a ~1500-token note with sections is NOT flagged, but a ~5000-token
+// note with sections IS flagged.
+func TestOversizedThresholdRecalibrated(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// ~1500-token note with 3 substantial H2 sections.
+	// 1500 tokens * 4 chars/token = 6000 chars of body content.
+	// We use 1400 tokens worth of body so it is clearly below 4000.
+	smallSections := strings.Builder{}
+	smallSections.WriteString("# Moderate Note\n\n")
+	for section := 0; section < 3; section++ {
+		smallSections.WriteString("## Section\n\n")
+		for line := 0; line < 22; line++ {
+			// ~75 chars per line; 22 lines per section * 3 sections = ~1500 tokens
+			smallSections.WriteString("This is a line of body text in the section to pad the token count here.\n")
+		}
+		smallSections.WriteString("\n")
+	}
+	write("Notes/Moderate.md", smallSections.String())
+
+	// ~5000-token note with 4 substantial H2 sections (above the 4000 threshold).
+	hugeSections := strings.Builder{}
+	hugeSections.WriteString("# Huge Note\n\n")
+	for section := 0; section < 4; section++ {
+		hugeSections.WriteString("## Section\n\n")
+		for line := 0; line < 130; line++ {
+			hugeSections.WriteString("This is a line of body text in the section to pad the token count here.\n")
+		}
+		hugeSections.WriteString("\n")
+	}
+	write("Notes/Huge.md", hugeSections.String())
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+
+	oversized := findingsByType(report.Findings, "oversized")
+
+	// The ~1500-token note must NOT be flagged.
+	for _, f := range oversized {
+		if f.Path == "Notes/Moderate.md" {
+			t.Errorf("Notes/Moderate.md (~1500 tokens) must NOT be flagged with default threshold 4000; got: %+v", f)
+		}
+	}
+
+	// The ~5000-token note MUST be flagged.
+	var hugeFound bool
+	for _, f := range oversized {
+		if f.Path == "Notes/Huge.md" {
+			hugeFound = true
+		}
+	}
+	if !hugeFound {
+		t.Errorf("Notes/Huge.md (~5000 tokens, 4 sections) MUST be flagged with default threshold 4000; oversized: %+v", oversized)
 	}
 }

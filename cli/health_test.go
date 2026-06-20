@@ -52,12 +52,12 @@ func buildHealthVaultCLI(t *testing.T) string {
 	// PARA drift: done project.
 	write("1-Projects/Done.md", "---\ntitle: Done\nstatus: done\n---\n\nFinished.\n")
 
-	// Oversized: token-heavy body with 4 H2 sections.
+	// Oversized: token-heavy body with 4 H2 sections, above the 4000-token default threshold.
 	bigBody := strings.Builder{}
 	bigBody.WriteString("# Big Note\n\n")
 	for section := 0; section < 4; section++ {
 		bigBody.WriteString("## Section\n\n")
-		for line := 0; line < 40; line++ {
+		for line := 0; line < 160; line++ {
 			bigBody.WriteString("This is a line of body text in the section to pad out the token count.\n")
 		}
 		bigBody.WriteString("\n")

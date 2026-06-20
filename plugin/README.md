@@ -7,7 +7,8 @@ whatever vault you open:
   project via `HEBB_VAULT=${CLAUDE_PROJECT_DIR}`. Gives Claude the tools
   `search_vault`, `expand_context`, `get_context_for_topic`, `vault_stats`,
   `reindex_vault`.
-- **Skills** (`skills/`): `vault-ingest`, loaded namespaced as `hebb:vault-ingest`.
+- **Skills** (`skills/`): `vault-ingest`, `vault-gardener`, `ingest-inbox`,
+  `ingest-meetings`, each loaded namespaced (e.g. `hebb:vault-gardener`).
 
 The plugin is the agent-facing layer only. The `hebb` binary (the engine, CLI,
 and per-vault data: `install`/`new`/`doctor`, config, index, memory) is separate

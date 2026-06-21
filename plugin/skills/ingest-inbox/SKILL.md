@@ -63,8 +63,9 @@ Keep as **signal** anything that is substantive content from a person or team:
 - Meeting recaps and summaries (AI-generated or human)
 - Decisions, scope changes, ownership changes, planning outputs
 - Substantive threads that change the user's picture of a team, person, or programme
+- Threads where the user is **referenced in prose or added late** ("I'll pull [name] in", "added [name] to the conversation"). Being drawn into a thread, especially a manager escalation or a conduct discussion, is itself signal, even when the user is only cc'd.
 
-When unsure, lean towards reading it. A two-line skim of the body resolves most calls.
+When unsure, lean towards reading it. A two-line skim of the body resolves most calls. If you run any targeted keyword search rather than reading every body, include the **user's own name** (per the vault `CLAUDE.md`) as a term: colleagues refer to them in prose, not just by recipient field.
 
 ### 3. Read and classify the signal
 
@@ -94,6 +95,8 @@ In Stage 1, write nothing until the user approves. They can edit the plan. Honou
 ### 5. Write on approval
 
 Apply vault-ingest conventions for everything: destinations, splitting entities, recurring-stream folders, wiki-links, frontmatter, tags, language, tone. Apply the sensitive-content rules: anything touching compensation, HR, health, or personal life gets the vault's private-visibility framing, or is skipped and reported rather than blended into work notes. Never propagate sensitive specifics into work-facing notes.
+
+**Conduct / interpersonal threads.** Escalations, complaints, and characterisations of a colleague arrive by email as often as anywhere. Follow vault-ingest's conduct rule: read the full thread directly (don't file from a thread summary), capture it balanced with the load-bearing lines near-verbatim, mark it decision-support / human-owned, never harden a characterisation into a dossier fact, and file to the person's rolling log rather than the dossier body.
 
 **Actions discipline.** Capture actions in the canonical note. Do not write them to a central action register without asking once. If the user has said "leave actions for now" in the session, treat it as standing and do not re-ask.
 

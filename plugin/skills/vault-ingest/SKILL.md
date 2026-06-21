@@ -43,6 +43,27 @@ visibility framing rather than letting them blend with work material:
 Background context for understanding the user's framing lives in these folders.
 Citing the specifics in other notes does not.
 
+**Conduct, performance and interpersonal disputes** need a firmer hand than other
+sensitive content. When the incoming material is someone criticising, escalating
+about, or characterising a colleague (a manager raising concerns, a heated thread,
+review fallout):
+
+- **Read the source directly.** Don't file this from a sub-agent's summary or a
+  paraphrase — for a conduct matter the exact wording carries the weight. Preserve
+  the load-bearing lines near-verbatim.
+- **Capture it balanced.** Record what each side actually said, not just the
+  loudest or most senior voice. If the substance of a complaint looks well-founded
+  (or the characterisation looks second-hand or unevidenced), say so plainly with
+  the evidence — that is the synthesis the user needs, not a one-sided log.
+- **Decision-support, human-owned.** Mark it explicitly: any conduct or
+  performance action is a human decision for the manager / line manager / People to
+  make and document, not something inferred here.
+- **Never harden a characterisation into a fact.** A claim that someone is
+  "difficult" or "creates feelings in others" is recorded as *who said it and in
+  what context*, never promoted into the person's dossier as a durable trait.
+- File to the person's rolling 1:1 / interaction log (with a dated, sourced entry),
+  not the durable dossier body; a short pointer on the dossier's active items is fine.
+
 ## Workflow
 
 ### 0. Anchor the date
@@ -64,6 +85,13 @@ content sits in a broader topic and you want a wider sweep of related material.
 
 If the vault keeps an ingest log and there's any chance the same source has been
 ingested before, search the log too.
+
+**Dedup per item, not just per window.** The same content often arrives through
+more than one channel — a meeting or chat sweep can file something that also lands
+in email, and each source tracks its own cutoff, so a windowed run can re-surface
+content another sweep already filed. Always search the vault (and log) for the
+specific item before writing, not just the time window. If a note already covers
+it, enrich that note; never create a second one.
 
 ### 2. Decide the destination
 
@@ -112,6 +140,21 @@ meeting notes.
 
 When pulling content forward, fix typos and modernise formatting. Add a date
 marker or "(legacy)" annotation if the details might be stale.
+
+**Propagate programme-level changes to the connective surfaces.** A dated note is
+not enough when the incoming content changes the state of something the vault
+tracks elsewhere. If a decision, slip, reorganisation or status shift lands,
+update the surfaces that readers actually hit: the relevant project index, any
+risk register, and a front-and-centre / "what matters now" note if the vault keeps
+one. Two of those surfaces stay gated, never updated silently: marking a risk
+materialised or closed is a real state change, so propose it in the plan rather
+than applying it unasked; and a central action register stays behind the ask-once
+gate (see Action propagation below), never written as part of propagation without
+it. A change that lives only in one dated note is effectively lost; the value of
+the vault is that the connected surfaces stay true. Keep the dated note as the
+canonical record and point the surfaces at it. Hold a "would this still matter in
+a month?" bar: prefer enriching an existing note or register over spawning a thin
+new note.
 
 ### 5. Mark deprecations, don't delete
 

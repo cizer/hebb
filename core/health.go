@@ -89,10 +89,10 @@ func RunHealthFull(cfg Config, db *sql.DB, reportUnresolved bool) (HealthResult,
 	all = append(all, sb...)
 
 	// Phase 2a: build the graph once (with any exclude_from_graph patterns applied)
-	// and reuse it for all three graph metrics. Content detectors above this point
-	// (dangling_link, para_drift, oversized) are unaffected: they run over ALL
-	// notes regardless of exclusion, because exclusion is about graph centrality
-	// only, not about hiding note content.
+	// and reuse it for all three graph metrics. The content detectors above this
+	// point (dangling_link, ambiguous_link, para_drift, oversized, stub) are
+	// unaffected: they run over ALL notes regardless of exclusion, because
+	// exclusion is about graph centrality only, not about hiding note content.
 	g, err := buildGraphExcluding(db, cfg.Health.GetExcludeFromGraph())
 	if err != nil {
 		return HealthResult{}, fmt.Errorf("graph build: %w", err)
@@ -477,6 +477,28 @@ func detectStub(cfg Config, db *sql.DB) ([]Finding, error) {
 		return nil, scanErr
 	}
 
+	// The set of notes with at least one resolved outbound link, built in a single
+	// query rather than a COUNT per candidate, so the stub check does not degrade
+	// into an N+1 pattern that slows `hebb audit` on large vaults.
+	linked := map[string]bool{}
+	lrows, err := db.Query(`SELECT DISTINCT source_path FROM links WHERE target_path IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	if scanErr := func() error {
+		defer lrows.Close()
+		for lrows.Next() {
+			var p string
+			if err := lrows.Scan(&p); err != nil {
+				return err
+			}
+			linked[p] = true
+		}
+		return lrows.Err()
+	}(); scanErr != nil {
+		return nil, scanErr
+	}
+
 	var findings []Finding
 	for _, c := range candidates {
 		// Condition 3: skip notes under expected-orphan folders.
@@ -484,17 +506,9 @@ func detectStub(cfg Config, db *sql.DB) ([]Finding, error) {
 			continue
 		}
 
-		// Condition 2: skip notes that have at least one resolved outbound link.
-		var linkCount int
-		err := db.QueryRow(`
-			SELECT COUNT(*)
-			FROM links
-			WHERE source_path = ? AND target_path IS NOT NULL
-		`, c.path).Scan(&linkCount)
-		if err != nil {
-			return nil, err
-		}
-		if linkCount > 0 {
+		// Condition 2: skip notes that have at least one resolved outbound link
+		// (a thin note that links out is an intentional map or index stub).
+		if linked[c.path] {
 			continue
 		}
 

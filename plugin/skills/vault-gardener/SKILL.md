@@ -27,7 +27,7 @@ over directory listing or grep.
 - **Move, never delete.** "Remove" means move the note to the archive folder
   (default `4-Archives/`) with a frontmatter tombstone (`archived_on`,
   `archived_reason`, `prior_path`), preserving the body and backlinks so it can
-  be restored. The vault is git-backed, so every change is a revertable commit.
+  be restored. The vault is git-backed, so every change is a revertible commit.
   Hard `rm` is never used.
 - **Preserve history.** Mark deprecations ("Status: closed", "Superseded by
   [[...]]") rather than erasing them.

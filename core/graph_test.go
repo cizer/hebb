@@ -1107,8 +1107,8 @@ func TestExcludeFromGraph_ContentDetectorStillRuns(t *testing.T) {
 	bigBody.WriteString("# Digest\n\n")
 	for section := 0; section < 4; section++ {
 		bigBody.WriteString("## Section\n\n")
-		for line := 0; line < 40; line++ {
-			bigBody.WriteString("This is a line of body text to pad the token count beyond 1200.\n")
+		for line := 0; line < 160; line++ {
+			bigBody.WriteString("This is a line of body text to pad the token count beyond 4000.\n")
 		}
 		bigBody.WriteString("\n")
 	}

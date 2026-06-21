@@ -20,7 +20,7 @@ var timeNowForTest = time.Now
 // index.
 type Finding struct {
 	// Type identifies the finding: "dangling_link", "ambiguous_link",
-	// "para_drift", "oversized".
+	// "para_drift", "oversized", "stub".
 	Type string `json:"type"`
 	// Path is the vault-relative path of the affected note.
 	Path string `json:"path"`
@@ -82,11 +82,17 @@ func RunHealthFull(cfg Config, db *sql.DB, reportUnresolved bool) (HealthResult,
 	}
 	all = append(all, os_...)
 
+	sb, err := detectStub(cfg, db)
+	if err != nil {
+		return HealthResult{}, fmt.Errorf("stub detector: %w", err)
+	}
+	all = append(all, sb...)
+
 	// Phase 2a: build the graph once (with any exclude_from_graph patterns applied)
-	// and reuse it for all three graph metrics. Content detectors above this point
-	// (dangling_link, para_drift, oversized) are unaffected: they run over ALL
-	// notes regardless of exclusion, because exclusion is about graph centrality
-	// only, not about hiding note content.
+	// and reuse it for all three graph metrics. The content detectors above this
+	// point (dangling_link, ambiguous_link, para_drift, oversized, stub) are
+	// unaffected: they run over ALL notes regardless of exclusion, because
+	// exclusion is about graph centrality only, not about hiding note content.
 	g, err := buildGraphExcluding(db, cfg.Health.GetExcludeFromGraph())
 	if err != nil {
 		return HealthResult{}, fmt.Errorf("graph build: %w", err)
@@ -420,6 +426,114 @@ func detectOversized(cfg Config, db *sql.DB) ([]Finding, error) {
 		}
 	}
 	return findings, nil
+}
+
+// detectStub finds notes that are genuine dead stubs: near-empty notes with no
+// outbound resolved links that are not under the configured expected-orphan
+// folders. All three conditions must hold:
+//
+//  1. The note's estimated token count (len(body)/4) is below
+//     cfg.Health.GetStubThreshold() (default 20).
+//  2. The note has zero outbound resolved links: no row in links where
+//     source_path = this note AND target_path IS NOT NULL. A thin note that
+//     links out is likely an intentional map/index stub, not a dead one.
+//  3. The note is NOT under any of the expected-orphan folder prefixes
+//     (cfg.Health.GetExpectedOrphanFolders(), default ["Journal", "Notes",
+//     "4-Archives"]), where short sparse notes are entirely normal.
+//
+// The detector runs over all notes regardless of exclude_from_graph (it
+// concerns the note's own content and outbound links, not graph centrality).
+func detectStub(cfg Config, db *sql.DB) ([]Finding, error) {
+	threshold := cfg.Health.GetStubThreshold()
+	orphanFolders := cfg.Health.GetExpectedOrphanFolders()
+
+	// Select notes whose body token estimate is below the stub threshold.
+	rows, err := db.Query(`
+		SELECT path, body
+		FROM notes
+		WHERE (length(body) / 4) < ?
+		ORDER BY path
+	`, threshold)
+	if err != nil {
+		return nil, err
+	}
+	type candidate struct {
+		path   string
+		tokens int
+	}
+	var candidates []candidate
+	scanErr := func() error {
+		defer rows.Close()
+		for rows.Next() {
+			var path, body string
+			if err := rows.Scan(&path, &body); err != nil {
+				return err
+			}
+			candidates = append(candidates, candidate{path: path, tokens: len(body) / 4})
+		}
+		return rows.Err()
+	}()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+
+	// The set of notes with at least one resolved outbound link, built in a single
+	// query rather than a COUNT per candidate, so the stub check does not degrade
+	// into an N+1 pattern that slows `hebb audit` on large vaults.
+	linked := map[string]bool{}
+	lrows, err := db.Query(`SELECT DISTINCT source_path FROM links WHERE target_path IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	if scanErr := func() error {
+		defer lrows.Close()
+		for lrows.Next() {
+			var p string
+			if err := lrows.Scan(&p); err != nil {
+				return err
+			}
+			linked[p] = true
+		}
+		return lrows.Err()
+	}(); scanErr != nil {
+		return nil, scanErr
+	}
+
+	var findings []Finding
+	for _, c := range candidates {
+		// Condition 3: skip notes under expected-orphan folders.
+		if isUnderFolders(c.path, orphanFolders) {
+			continue
+		}
+
+		// Condition 2: skip notes that have at least one resolved outbound link
+		// (a thin note that links out is an intentional map or index stub).
+		if linked[c.path] {
+			continue
+		}
+
+		findings = append(findings, Finding{
+			Type:     "stub",
+			Path:     c.path,
+			Detail:   fmt.Sprintf("near-empty (~%d tokens), links nowhere - merge or archive?", c.tokens),
+			Severity: "warn",
+		})
+	}
+	return findings, nil
+}
+
+// isUnderFolders reports whether the vault-relative path sits under any of the
+// given folder prefixes. The comparison is prefix-based: a folder "Journal"
+// matches "Journal/foo.md" but not "JournalExtra/foo.md". The path separator
+// is always '/' in vault-relative paths.
+func isUnderFolders(path string, folders []string) bool {
+	for _, folder := range folders {
+		prefix := strings.TrimSuffix(folder, "/") + "/"
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // countSubstantialSections counts the number of H2/H3 headings in raw markdown

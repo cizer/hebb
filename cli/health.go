@@ -25,7 +25,8 @@ func healthCmd() *cobra.Command {
 			"  dangling_link   wiki-links with no matching note\n" +
 			"  ambiguous_link  wiki-links that match more than one note\n" +
 			"  para_drift      1-Projects/ notes that are done or stale\n" +
-			"  oversized       notes over the token threshold with multiple sections\n\n" +
+			"  oversized       notes over the token threshold with multiple sections\n" +
+			"  stub            near-empty notes with no outbound links (merge or archive candidate)\n\n" +
 			"Wiki-links are resolved case-insensitively (matching Obsidian), and\n" +
 			"attachment links (.png, .pdf, ...) and folder links are not treated as\n" +
 			"broken note links. Links to notes that do not exist yet (Obsidian\n" +
@@ -110,14 +111,14 @@ func healthCmd() *cobra.Command {
 		"comma-separated glob patterns to drop from the graph for this run (overrides exclude_from_graph in config.toml). "+
 			"Patterns are matched against a note's title, basename without .md, and vault-relative path. "+
 			"Excluded notes are removed from graph metrics (coreness, components, orphans, islands) but content "+
-			"detectors (dangling_link, oversized, ...) still run over them. "+
+			"detectors (dangling_link, oversized, stub, ...) still run over them. "+
 			"Example: --exclude-from-graph=\"Vault Daily Digest,Ingest Log,Open Actions*\"")
 	return c
 }
 
 // typeOrder is the fixed display order for finding types. Types not listed here
 // appear last in lexicographic order (forward-compatibility with future detectors).
-var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "oversized", "orphan", "leaf", "island"}
+var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "oversized", "stub", "orphan", "leaf", "island"}
 
 // printGraphSummary writes the one-line structural graph summary to cmd's
 // output writer. It is printed above the findings worklist in text mode.

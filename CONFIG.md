@@ -51,7 +51,8 @@ url = ""
 
 [health]
 project_stale_days = 180
-size_threshold = 1200
+size_threshold = 4000
+# stub_threshold defaults to 20 when omitted.
 report_unresolved_links = false
 # attachment_extensions defaults to a built-in list when omitted.
 # exclude_from_graph defaults to empty (exclude nothing).
@@ -136,10 +137,11 @@ Obsidian).
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `project_stale_days` | int | `180` | Days without modification before a `1-Projects/` note is flagged as PARA drift. |
-| `size_threshold` | int | `1200` | Estimated token count (`len(body)/4`) above which a note is checked for multiple sections (oversized candidate). |
+| `size_threshold` | int | `4000` | Estimated token count (`len(body)/4`) above which a multi-section note is flagged as an oversized split candidate. The default targets the genuinely bloated top few percent of notes in a typical vault; tune this per vault if your median note size differs significantly. |
+| `stub_threshold` | int | `20` | Estimated token count (`len(body)/4`) below which a note is considered near-empty for the stub detector. A note is a stub candidate only when ALL of: token count is below this threshold, it has zero outbound resolved links, and it is not under `expected_orphan_folders`. |
 | `report_unresolved_links` | bool | `false` | List each unresolved wiki-link (a link to a note that does not exist) as a `dangling_link` finding. Obsidian treats these as expected future notes, so they are counted but not listed by default. `hebb audit --unresolved` forces listing for one run. |
 | `attachment_extensions` | list of string | built-in list | File extensions (no leading dot) treated as attachment links and excluded from dangling checks, since hebb does not index non-note files. Empty uses the built-in default (`png`, `jpg`, `pdf`, `pptx`, `canvas`, `excalidraw`, ...). Setting it replaces the default rather than extending it. |
-| `exclude_from_graph` | list of string | empty | Glob patterns matched against a note's title, basename without `.md`, and vault-relative path (any match excludes the note). A matched note is removed from the link graph before computing connected components, k-core coreness, orphans, leaves, and islands, so machine-generated scaffolding that links to hundreds of notes does not dominate those metrics. Content detectors (`dangling_link`, `ambiguous_link`, `para_drift`, `oversized`) are unaffected and still run over all notes. Patterns use `path.Match` semantics (shell-style globs over the `/`-separated vault path; `*` does not cross `/`). A malformed pattern fails the run with a clear error rather than being silently ignored. Default: empty (exclude nothing). The `--exclude-from-graph` flag on `hebb health` overrides this list for a single run and is useful for ad-hoc experiments. Example: `exclude_from_graph = ["Vault Daily Digest", "Ingest Log", "Action Review", "My Open Actions", "Open Actions*"]` |
+| `exclude_from_graph` | list of string | empty | Glob patterns matched against a note's title, basename without `.md`, and vault-relative path (any match excludes the note). A matched note is removed from the link graph before computing connected components, k-core coreness, orphans, leaves, and islands, so machine-generated scaffolding that links to hundreds of notes does not dominate those metrics. Content detectors (`dangling_link`, `ambiguous_link`, `para_drift`, `oversized`, `stub`) are unaffected and still run over all notes. Patterns use `path.Match` semantics (shell-style globs over the `/`-separated vault path; `*` does not cross `/`). A malformed pattern fails the run with a clear error rather than being silently ignored. Default: empty (exclude nothing). The `--exclude-from-graph` flag on `hebb health` overrides this list for a single run and is useful for ad-hoc experiments. Example: `exclude_from_graph = ["Vault Daily Digest", "Ingest Log", "Action Review", "My Open Actions", "Open Actions*"]` |
 
 Folder links (a target ending in `/`, or one naming a real directory) are never
 treated as broken note links.

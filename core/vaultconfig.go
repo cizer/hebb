@@ -49,8 +49,13 @@ type HealthConfig struct {
 	// note under 1-Projects/ is flagged as a PARA-drift candidate. Default 180.
 	ProjectStaleDays int `toml:"project_stale_days"`
 	// SizeThreshold is the estimated token count (len(body)/4) above which a
-	// note is a candidate for the oversized detector. Default 1200.
+	// multi-section note is a split candidate. Default 4000, which targets
+	// the genuinely bloated top few percent of notes (p90 of typical vaults)
+	// rather than flagging the median. Tunable per vault.
 	SizeThreshold int `toml:"size_threshold"`
+	// StubThreshold is the estimated token count (len(body)/4) below which a
+	// note is considered near-empty for the stub detector. Default 20.
+	StubThreshold int `toml:"stub_threshold"`
 
 	// Phase 2a graph-health fields.
 
@@ -106,7 +111,7 @@ type HealthConfig struct {
 	// k-core coreness, orphans, leaves, and islands, so a machine-generated hub
 	// that would otherwise dominate those metrics is invisible to the graph
 	// detectors. Content detectors (dangling_link, ambiguous_link, para_drift,
-	// oversized) are unaffected: they still run over ALL notes, including excluded
+	// oversized, stub) are unaffected: they still run over ALL notes, including excluded
 	// ones. Default: empty (exclude nothing).
 	ExcludeFromGraph []string `toml:"exclude_from_graph"`
 }
@@ -140,13 +145,26 @@ func (h HealthConfig) GetProjectStaleDays() int {
 	return h.ProjectStaleDays
 }
 
-// GetSizeThreshold returns the configured token-count threshold, defaulting to
-// 1200 when the field is zero (section absent or not set).
+// GetSizeThreshold returns the configured token-count threshold above which a
+// multi-section note is flagged as an oversized split candidate. Defaults to
+// 4000 when the field is zero (section absent or not set). That default targets
+// the genuinely bloated top few percent of notes in a typical vault, rather
+// than near-median notes that would make the worklist untrustworthy.
 func (h HealthConfig) GetSizeThreshold() int {
 	if h.SizeThreshold <= 0 {
-		return 1200
+		return 4000
 	}
 	return h.SizeThreshold
+}
+
+// GetStubThreshold returns the configured token-count threshold below which a
+// note is considered near-empty for the stub detector. Defaults to 20 when the
+// field is zero (section absent or not set).
+func (h HealthConfig) GetStubThreshold() int {
+	if h.StubThreshold <= 0 {
+		return 20
+	}
+	return h.StubThreshold
 }
 
 // GetConnectiveFolders returns the configured connective-folder prefixes,
@@ -463,7 +481,14 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#     project_stale_days    - days without modification before a 1-Projects/ note\n")
 	buf.WriteString("#                             is flagged as PARA drift (default 180)\n")
 	buf.WriteString("#     size_threshold        - estimated token count (len(body)/4) above which a\n")
-	buf.WriteString("#                             note is checked for multiple sections (default 1200)\n")
+	buf.WriteString("#                             multi-section note is a split candidate (default 4000).\n")
+	buf.WriteString("#                             Targets the genuinely bloated top few percent of\n")
+	buf.WriteString("#                             notes; tunable per vault to match your median note size.\n")
+	buf.WriteString("#     stub_threshold        - estimated token count (len(body)/4) below which a\n")
+	buf.WriteString("#                             note is considered near-empty for the stub detector\n")
+	buf.WriteString("#                             (default 20). A note is a stub candidate only when\n")
+	buf.WriteString("#                             ALL of: token count < stub_threshold, zero outbound\n")
+	buf.WriteString("#                             resolved links, and not under expected_orphan_folders.\n")
 	buf.WriteString("#     connective_folders    - folder prefixes where sparse connectivity is flagged\n")
 	buf.WriteString("#                             (default [\"2-Areas\", \"3-Resources\"])\n")
 	buf.WriteString("#     expected_orphan_folders - folder prefixes where sparse connectivity is normal\n")
@@ -492,7 +517,7 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                             orphan, leaf, and island metrics) when ANY pattern\n")
 	buf.WriteString("#                             matches ANY of those three candidates via path.Match\n")
 	buf.WriteString("#                             (a malformed glob fails the run, not silently ignored).\n")
-	buf.WriteString("#                             Content detectors (dangling_link, oversized, ...) are\n")
+	buf.WriteString("#                             Content detectors (dangling_link, oversized, stub, ...) are\n")
 	buf.WriteString("#                             unaffected and still run over ALL notes. Default: empty\n")
 	buf.WriteString("#                             (exclude nothing). Use for machine-generated scaffolding\n")
 	buf.WriteString("#                             that would otherwise dominate graph-centrality metrics.\n")

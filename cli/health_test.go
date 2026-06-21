@@ -222,7 +222,7 @@ func TestHealthCommandRefreshFailureExitsNonZero(t *testing.T) {
 	// stages with distinct prefixes; assert the refresh prefix so a future
 	// regression that swallows the refresh error (and only surfaces a later
 	// detector error) is caught.
-	if !strings.Contains(runErr.Error(), "refresh before health check failed") {
+	if !strings.Contains(runErr.Error(), "refresh before audit failed") {
 		t.Fatalf("error %q must identify the refresh stage, proving RefreshChanged was not swallowed", runErr)
 	}
 }

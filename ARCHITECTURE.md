@@ -27,7 +27,7 @@ The engine and its MCP surface are identical across agents; only the adapter dif
 - **Engine** (`core/`): vault resolution, the SQLite FTS5 index, the markdown parser (frontmatter, H1 titles, `[[wiki-links]]`, tags), full-text search, the link/tag context graph, and a file watcher for incremental reindexing.
 - **Surfaces over the engine**: the `hebb` CLI, an MCP server (`hebb mcp`), and a local web UI (`hebb serve`).
 - **Per-agent adapters**, each pinning a vault via `HEBB_VAULT`:
-  - **Claude Code** — the plugin (`plugin/`): the MCP server plus the `vault-ingest` skill. Installed once, user-level (via the marketplace), and resolves the opened vault through `HEBB_VAULT=${CLAUDE_PROJECT_DIR}`, so it serves every vault without per-vault setup.
+  - **Claude Code** — the plugin (`plugin/`): the MCP server plus hebb's agent skills (capture: `vault-ingest`, `ingest-inbox`, `ingest-meetings`, `ingest-youtube`; maintenance: `vault-gardener`). Installed once, user-level (via the marketplace), and resolves the opened vault through `HEBB_VAULT=${CLAUDE_PROJECT_DIR}`, so it serves every vault without per-vault setup.
   - **Codex** — an `[mcp_servers.hebb]` entry pinned to a vault plus the same skills installed into Codex's skills dir (`~/.agents/skills`), written by `hebb codex` (or the `hebb install` picker). The Codex counterpart to the Claude Code plugin.
   - **Claude Desktop** — an `mcpServers` entry pinned to a vault, written by the `hebb install` picker. It does not load skills, so vault guidance lives in the vault's `AGENTS.md`.
   - **Any MCP client** — point it at `hebb mcp`.
@@ -83,7 +83,7 @@ cli/             the hebb command
 mcp/             MCP server surface
 web/             local web UI (embedded)
 cmd/hebb/        entrypoint
-plugin/          Claude Code plugin (manifest, .mcp.json, vault-ingest skill)
+plugin/          Claude Code plugin (manifest, .mcp.json, agent skills)
 automation/      optional background jobs (action review; the digest is built into `hebb digest`)
 launchd/         parameterised launchd plist templates
 vault-template/  the `hebb new` scaffold
@@ -95,4 +95,4 @@ Install hebb once, then per vault:
 
 - **Existing vault:** `cd <vault> && hebb install` initialises `.hebb/`, writes `config.toml`, symlinks the memory dir, builds the index, and offers to wire your agents (and optional launchd jobs).
 - **Fresh vault:** `hebb new <path>` scaffolds from the template, then installs against it.
-- **Tear down:** `hebb reset` removes the machine-side wiring (memory link, launchd jobs, agent configs, index) and never touches your notes.
+- **Tear down:** `hebb unwire` (alias `hebb reset`) removes the machine-side wiring (memory link, launchd jobs, agent configs, index) and never touches your notes.

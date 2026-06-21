@@ -12,7 +12,7 @@
     {
       "name": "hebb",
       "source": "./plugin",
-      "description": "Index, search and ingest a markdown knowledge vault: the hebb MCP server (search_vault, expand_context, get_context_for_topic, vault_stats, reindex_vault) plus the vault-ingest skill. Requires the hebb binary on PATH.",
+      "description": "Index, search and ingest a markdown knowledge vault: the hebb MCP server (search_vault, expand_context, get_context_for_topic, vault_stats, reindex_vault) plus hebb's agent skills for capturing content and tending vault health. Requires the hebb binary on PATH.",
       "homepage": "https://github.com/cizer/hebb"
     }
   ]

@@ -51,7 +51,7 @@ func healthCmd() *cobra.Command {
 			// index, which the command's contract reserves a non-zero exit for.
 			if cfg.AutoRefresh {
 				if _, err := core.RefreshChanged(cfg, db); err != nil {
-					return fmt.Errorf("refresh before health check failed: %w", err)
+					return fmt.Errorf("refresh before audit failed: %w", err)
 				}
 			}
 
@@ -76,7 +76,7 @@ func healthCmd() *cobra.Command {
 
 			result, err := core.RunHealthFull(cfg, db, reportUnresolved)
 			if err != nil {
-				return fmt.Errorf("health check failed: %w", err)
+				return fmt.Errorf("audit failed: %w", err)
 			}
 
 			out := cmd.OutOrStdout()
@@ -143,7 +143,7 @@ func printHealthText(cmd *cobra.Command, result core.HealthResult) {
 	findings := result.Findings
 
 	if len(findings) == 0 {
-		fmt.Fprintln(out, "hebb health: no findings")
+		fmt.Fprintln(out, "hebb audit: no findings")
 		printSuppressedUnresolved(out, result.SuppressedUnresolved)
 		return
 	}
@@ -173,7 +173,7 @@ func printHealthText(cmd *cobra.Command, result core.HealthResult) {
 	order = append(order, extra...)
 
 	total := len(findings)
-	fmt.Fprintf(out, "hebb health: %d finding(s)\n", total)
+	fmt.Fprintf(out, "hebb audit: %d finding(s)\n", total)
 
 	for _, t := range order {
 		group := byType[t]

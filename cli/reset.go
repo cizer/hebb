@@ -50,9 +50,9 @@ func resetCmd() *cobra.Command {
 
 			out := cmd.OutOrStdout()
 			if force {
-				fmt.Fprintf(out, "hebb reset: %s\n", cfg.VaultPath)
+				fmt.Fprintf(out, "hebb unwire: %s\n", cfg.VaultPath)
 			} else {
-				fmt.Fprintf(out, "hebb reset (dry run): %s\n", cfg.VaultPath)
+				fmt.Fprintf(out, "hebb unwire (dry run): %s\n", cfg.VaultPath)
 			}
 			for _, s := range rep.Steps {
 				fmt.Fprintf(out, "  %-14s %s\n", s.Status, s.Target)
@@ -64,7 +64,7 @@ func resetCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&force, "force", false, "actually remove (without this, reset only previews)")
+	c.Flags().BoolVar(&force, "force", false, "actually remove (without this, unwire only previews)")
 	c.Flags().BoolVar(&keepIndex, "keep-index", false, "keep .hebb/index.db (default: clear it; rebuild with `hebb index`)")
 	c.Flags().StringVar(&mcpName, "mcp-name", install.DefaultMCPServerName, "MCP server/block name to remove")
 	c.Flags().StringVar(&home, "home", "", "home dir holding .claude/.codex (default: user home)")

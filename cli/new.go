@@ -18,9 +18,10 @@ func newCmd(version string) *cobra.Command {
 		Use:   "new <path>",
 		Short: "Scaffold a fresh vault from the template and install it",
 		Long: "Create a new vault at <path> from the bundled template (PARA skeleton,\n" +
-			"baseline CLAUDE.md, a note template and a memory seed), then install it\n" +
-			"(.hebb/config.toml, memory, first index). Skills and the MCP server come\n" +
-			"from the hebb Claude Code plugin. Refuses to scaffold into a non-empty dir.",
+			"baseline CLAUDE.md and AGENTS.md, a note template and a memory seed), then\n" +
+			"install it (.hebb/config.toml, memory, first index, agent skills). The MCP\n" +
+			"server comes from the hebb Claude Code plugin, or pass --mcp-json for\n" +
+			"plugin-less wiring. Refuses to scaffold into a non-empty dir.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target, err := filepath.Abs(args[0])

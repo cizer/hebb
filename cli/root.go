@@ -36,6 +36,9 @@ func newRoot(version string) *cobra.Command {
 		Long:         "hebb indexes, searches, scaffolds and maintains markdown vaults.\nMulti-vault: run inside a vault directory, or pass --vault.",
 		Version:      version,
 		SilenceUsage: true,
+		// Execute() prints the error itself (as "error: ..."); without this cobra
+		// would also print its own "Error: ..." line, double-reporting every failure.
+		SilenceErrors: true,
 	}
 	root.PersistentFlags().StringVar(&flagVault, "vault", "", "vault path (default: nearest .hebb/ above cwd, or $HEBB_VAULT)")
 	root.PersistentFlags().StringVar(&flagDB, "db", "", "index db path (default: <vault>/.hebb/index.db)")

@@ -122,7 +122,7 @@ The install picker can do this for you, or wire each one explicitly:
   /plugin marketplace add cizer/hebb
   /plugin install hebb@hebb
   ```
-  `hebb install` also drops the `vault-ingest` skill into `~/.claude/skills`, so it works even without the plugin.
+  `hebb install` also drops hebb's agent skills into `~/.claude/skills` (capture skills plus `vault-gardener` for health upkeep), so they work even without the plugin.
 - **Codex.** `hebb codex` adds an `[mcp_servers.hebb]` entry to `~/.codex/config.toml` and installs the skills into `~/.agents/skills`.
 - **Claude Desktop.** `hebb install --claude-desktop` (restart Claude Desktop afterwards).
 - **Anything else that speaks MCP.** Point it at `hebb mcp`.
@@ -165,7 +165,7 @@ Vault selection everywhere: `--vault <path>`, `$HEBB_VAULT`, or the nearest `.he
 
 hebb is the engine; thin adapters connect it to each tool, all over the same MCP server:
 
-- **Claude Code**: `hebb install` materialises the `vault-ingest` skill into `~/.claude/skills` so it works in any context, and the [`plugin/`](plugin/) additionally offers it (plus the MCP server) via the marketplace for those who prefer that.
+- **Claude Code**: `hebb install` materialises hebb's agent skills into `~/.claude/skills` so they work in any context, and the [`plugin/`](plugin/) additionally offers them (plus the MCP server) via the marketplace for those who prefer that.
 - **Codex**: an MCP-server entry pinned to the vault plus the same skills materialised into `~/.agents/skills`, written by `hebb codex` (or the `hebb install` picker). The Codex counterpart to the plugin.
 - **Claude Desktop**: an MCP-server entry pinned to a vault, written by the `hebb install` picker.
 - **Anything else that speaks MCP**: point it at `hebb mcp`.
@@ -187,7 +187,7 @@ core/         engine: index, search, context graph, file watcher
 cli/          the hebb command
 mcp/          MCP server surface
 web/          local web UI (embedded)
-plugin/       Claude Code plugin (manifest, .mcp.json, vault-ingest skill)
+plugin/       Claude Code plugin (manifest, .mcp.json, agent skills)
 automation/   optional background jobs (action review; the digest is built into hebb digest)
 vault-template/  the `hebb new` scaffold
 ```

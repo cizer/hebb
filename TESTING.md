@@ -1,7 +1,6 @@
 # hebb test strategy
 
-How hebb is tested today, and the two-stage deployment pipeline it feeds. The
-roadmap for building the pipeline lives in [PLAN.md](PLAN.md) (Phase 4).
+How hebb is tested today, and the two-stage deployment pipeline it feeds.
 
 ## Principles
 

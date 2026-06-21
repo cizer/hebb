@@ -45,6 +45,10 @@ func promptAgents(in io.Reader, out io.Writer) agentSel {
 	fmt.Fprintln(out, "  3) Claude Code      (per-vault .mcp.json, plugin-less)")
 	fmt.Fprint(out, "Enter numbers (e.g. 1,2), or press Enter to skip: ")
 	line, _ := bufio.NewReader(in).ReadString('\n')
+	// Separate the prompt from the install report that follows. A piped/captured
+	// stdin echoes no newline of its own, so without this the report's first line
+	// runs onto the prompt line.
+	fmt.Fprintln(out)
 	return parseAgentSelection(line)
 }
 

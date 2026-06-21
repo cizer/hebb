@@ -1,7 +1,7 @@
 # Releasing hebb
 
 How a version of hebb is built and distributed. Test strategy is in
-[TESTING.md](TESTING.md); this is the deploy step (Phase 4 Stage 3).
+[TESTING.md](TESTING.md); this is the deploy step.
 
 ## Versioning
 

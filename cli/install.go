@@ -42,11 +42,13 @@ func installCmd(version string) *cobra.Command {
 		Short: "Wire this vault into the machine",
 		Long: "Initialise the per-vault config (.hebb/config.toml), symlink memory\n" +
 			"into the Claude project dir, and build the first index. Idempotent.\n" +
-			"Skills and the MCP server are delivered by the hebb Claude Code plugin;\n" +
-			"pass --mcp-json to write a per-vault .mcp.json + settings for plugin-less\n" +
-			"use instead. Pass --launchd to render the vault's launchd jobs (and --load\n" +
-			"to bootstrap them); the binary is standalone, with automation scripts\n" +
-			"embedded, or pass --asset-root to use a repo checkout's automation/.",
+			"Installs hebb's agent skills into ~/.claude/skills (pass --no-skills to\n" +
+			"skip); the Claude Code plugin can also publish them. The MCP server comes\n" +
+			"from the plugin, or pass --mcp-json to write a per-vault .mcp.json +\n" +
+			"settings for plugin-less use. Pass --launchd to render the vault's launchd\n" +
+			"jobs (and --load to bootstrap them); the binary is standalone, with\n" +
+			"automation scripts embedded, or pass --asset-root to use a repo checkout's\n" +
+			"automation/.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, db, err := openVault()
 			if err != nil {

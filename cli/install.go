@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	hebbassets "github.com/cizer/hebb"
@@ -93,6 +94,20 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 	home := p.home
 	if home == "" {
 		home, _ = os.UserHomeDir()
+	}
+	// Steer vaults out of TCC-protected folders. On macOS a vault under
+	// ~/Documents, ~/Desktop, ~/Downloads or iCloud Drive forces the scheduled
+	// launchd jobs to hold Full Disk Access, a grant macOS silently drops on
+	// every update of the ad-hoc-signed binary. A vault elsewhere needs none.
+	if runtime.GOOS == "darwin" {
+		if root, ok := core.ProtectedVaultRoot(cfg.VaultPath, home); ok {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"warning: vault is inside %s, a macOS TCC-protected folder.\n"+
+					"  Scheduled jobs read the vault unattended and will need Full Disk Access there, and\n"+
+					"  macOS silently revokes that grant on every hebb update. Prefer a location outside\n"+
+					"  Documents/Desktop/Downloads/iCloud (e.g. ~/vaults) to avoid the problem entirely.\n",
+				root)
+		}
 	}
 	assetRoot := p.assetRoot
 	if assetRoot == "" {

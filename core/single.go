@@ -36,6 +36,11 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 		return RemoveFile(db, rel)
 	}
 	n := ParseNote(string(content), rel)
+	// The note's previous title (empty when new): a retitle changes which raw
+	// targets can match this note, so inbound re-resolution below must also
+	// revisit links written against the old title.
+	var prevTitle string
+	_ = db.QueryRow("SELECT title FROM notes WHERE path = ?", rel).Scan(&prevTitle)
 	fmJSON, _ := json.Marshal(n.Frontmatter)
 	mtime := float64(info.ModTime().UnixNano()) / 1e6
 	tags := strings.Join(n.Tags, " ")
@@ -80,6 +85,16 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	// RefreshChanged only calls IndexFile for files that actually changed.
 	if err := reResolveInbound(db, ix, rel, n.Title); err != nil {
 		return err
+	}
+	// A retitled note (same path, new frontmatter title) leaves inbound links
+	// that referenced the OLD title outside the new title's key set; without
+	// this pass they keep their stale target_path forever on the incremental
+	// path while a full reindex would mark them dangling. Only the title key
+	// can differ — the path-derived keys are unchanged.
+	if prevTitle != "" && !strings.EqualFold(prevTitle, n.Title) {
+		if err := reResolveForKeys(db, ix, []string{prevTitle}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

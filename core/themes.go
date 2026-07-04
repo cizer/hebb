@@ -146,6 +146,7 @@ func Themes(db *sql.DB, cfg Config, days int, now time.Time) (ThemesReport, erro
 	windowStart := now.AddDate(0, 0, -days)
 	cutoffMs := float64(windowStart.UnixNano()) / 1e6
 	prevCutoffMs := float64(now.AddDate(0, 0, -2*days).UnixNano()) / 1e6
+	nowMs := float64(now.UnixNano()) / 1e6
 
 	report := ThemesReport{
 		Days:         days,
@@ -190,7 +191,12 @@ func Themes(db *sql.DB, cfg Config, days int, now time.Time) (ThemesReport, erro
 		}
 		return n, true
 	}
-	inWindow := func(n themeNote) bool { return n.hasStamp && n.changedAt > cutoffMs }
+	// The upper bound matters when a caller passes a historical now (backfill,
+	// tests) or under clock skew between synced machines: content stamped after
+	// now must not count as current-window activity.
+	inWindow := func(n themeNote) bool {
+		return n.hasStamp && n.changedAt > cutoffMs && n.changedAt <= nowMs
+	}
 	inPrevWindow := func(n themeNote) bool {
 		return n.hasStamp && n.changedAt > prevCutoffMs && n.changedAt <= cutoffMs
 	}

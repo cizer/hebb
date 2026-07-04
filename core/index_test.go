@@ -204,6 +204,61 @@ func TestFullReindexOversizeFileDoesNotDeleteExistingEntry(t *testing.T) {
 	}
 }
 
+// TestFullReindexOversizeShrinkWithRestoredMtimeReindexes guards the interaction
+// between the mtime fast path and the size cap: while a file is oversize its
+// stored row keeps the pre-oversize mtime, so a later shrink that restores the
+// original mtime (backup/restore tools preserve mtimes) would be fast-path
+// skipped forever. The oversize skip poisons the stored mtime to force a re-read.
+func TestFullReindexOversizeShrinkWithRestoredMtimeReindexes(t *testing.T) {
+	vault := t.TempDir()
+	p := filepath.Join(vault, "note.md")
+	if err := os.WriteFile(p, []byte("# Note\n\noriginalwallaby"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origTime := info.ModTime()
+
+	big := make([]byte, maxIndexFileBytes+1)
+	for i := range big {
+		big[i] = 'x'
+	}
+	if err := os.WriteFile(p, big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(p, []byte("# Note\n\nrestorednumbat"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, origTime, origTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	if hits, _ := Search(db, "restorednumbat", 10, "", ""); len(hits) != 1 {
+		t.Fatalf("shrunk-back file with restored mtime was not re-indexed: hits = %d, want 1", len(hits))
+	}
+}
+
 // TestIndexSkipsSymlinkedNotes ensures a symlinked .md is never followed and
 // indexed: a note symlinked to a file outside the vault could otherwise pull
 // host content (e.g. a secret) into the searchable index. Both the full walk

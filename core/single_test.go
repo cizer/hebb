@@ -1,6 +1,7 @@
 package core
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,5 +109,57 @@ func TestIndexFileOversizeGrowthDoesNotDeleteExistingEntry(t *testing.T) {
 	}
 	if hits, _ := Search(db, "findableotter", 10, "", ""); len(hits) != 1 {
 		t.Fatalf("after growth, previously indexed content vanished: hits = %d, want 1", len(hits))
+	}
+}
+
+// TestIndexFileRetitleReResolvesInboundLinks guards convergence with a full
+// reindex when a note's frontmatter title changes without the file moving: a
+// link written against the OLD title must not keep its stale target_path on
+// the incremental path.
+func TestIndexFileRetitleReResolvesInboundLinks(t *testing.T) {
+	vault := t.TempDir()
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	write := func(rel, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(vault, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Foo.md", "---\ntitle: OldTitle\n---\n\nbody\n")
+	write("Other.md", "# Other\n\nSee [[OldTitle]].\n")
+	if err := IndexFile(cfg, db, "Foo.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := IndexFile(cfg, db, "Other.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	var tp sql.NullString
+	if err := db.QueryRow("SELECT target_path FROM links WHERE source_path = 'Other.md' AND target = 'OldTitle'").Scan(&tp); err != nil {
+		t.Fatal(err)
+	}
+	if !tp.Valid || tp.String != "Foo.md" {
+		t.Fatalf("before retitle, target_path = %+v, want Foo.md", tp)
+	}
+
+	write("Foo.md", "---\ntitle: NewTitle\n---\n\nbody\n")
+	if err := IndexFile(cfg, db, "Foo.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.QueryRow("SELECT target_path FROM links WHERE source_path = 'Other.md' AND target = 'OldTitle'").Scan(&tp); err != nil {
+		t.Fatal(err)
+	}
+	if tp.Valid {
+		t.Fatalf("after retitle, [[OldTitle]] still resolves to %q; want NULL (dangling), matching a full reindex", tp.String)
 	}
 }

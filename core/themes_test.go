@@ -214,3 +214,25 @@ func TestThemesMalformedExcludePatternFails(t *testing.T) {
 		t.Fatal("Themes with a malformed exclude pattern must return an error")
 	}
 }
+
+// TestThemesIgnoresContentStampedAfterNow guards the window's upper bound: a
+// note whose content_changed_at is after the caller-supplied now (historical
+// backfill, clock skew between synced machines) must not count as
+// current-window activity.
+func TestThemesIgnoresContentStampedAfterNow(t *testing.T) {
+	cfg, db, now := buildThemesVault(t)
+	// Recent1/Recent2 are stamped 2 days before the real now, which is AFTER
+	// this historical now; Old1 (40 days ago) sits exactly on the shifted
+	// window's lower cutoff, which is exclusive.
+	historical := now.AddDate(0, 0, -10)
+	report, err := Themes(db, cfg, 30, historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.NotesChanged != 0 {
+		t.Errorf("NotesChanged = %d, want 0 (recent notes are stamped after the historical now)", report.NotesChanged)
+	}
+	if len(report.LinkTargets) != 0 {
+		t.Errorf("LinkTargets = %+v, want none", report.LinkTargets)
+	}
+}

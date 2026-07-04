@@ -103,6 +103,15 @@ func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
 		// any prior entry from the removal pass below.
 		if info.Size() > maxIndexFileBytes {
 			delete(existing, rel)
+			// Poison the stored mtime so the fast path above can never skip this
+			// file on a later run: if it shrinks back under the cap with its
+			// original mtime restored (backup/restore tools preserve mtimes), the
+			// stale pre-oversize entry must be re-read, not mtime-skipped forever.
+			if _, known := stored[rel]; known {
+				if _, err := tx.Exec(`UPDATE notes SET mtime = -1 WHERE path = ?`, rel); err != nil {
+					return IndexResult{}, err
+				}
+			}
 			continue
 		}
 		content, rerr := readFile(full)

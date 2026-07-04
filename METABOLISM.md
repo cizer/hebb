@@ -1,5 +1,10 @@
 # hebb vault metabolism — build and validation guide
 
+> **Status (2026-07-04).** Phases 0-2 are live today as `hebb audit` and the web health
+> dashboard; the coreness gate failed as documented below. Phase 3 onward is sequenced
+> in [ROADMAP.md](ROADMAP.md) (workstream 3). This doc remains the design spec and
+> experiment protocol; sequencing decisions live in the roadmap.
+
 A staged plan for turning hebb from a capture-and-search engine into a vault with a
 metabolism: capture (exists) plus consolidation and decay (the missing middle). The
 plan deliberately ships the certain, zero-risk wins first and gates the seductive,
@@ -373,8 +378,9 @@ spent ~20 lines, not a scorer plus a dashboard plus two jobs, finding out.
 - [ ] Phase 1: dedup precision test (throwaway script, top-30 eyeball) before building dedup
 - [x] Phase 2: orphans / components / k-core in `core/health.go`; worklist-first panel on `hebb serve`
 - [x] Phase 2: validate coreness puts known-durable notes at high coreness — FAILED (2026-06-16): coreness tracks operational centrality, not durability, on a work vault (see "Validation result" in Phase 2). `exclude_from_graph` helps only with aggressive curation; durability deferred to Phase 3.
-- [ ] Phase 3: `access_log` table + writes in the three MCP handlers (post-result), behind a config flag
-- [ ] Phase 3: capture `return_count` and `followup_count` separately
+- [x] Phase 3: `access_log` table + writes in the three MCP handlers (post-result), behind a config flag — shipped 2026-07-04 as `[memory] access_log` (default off; enable it to start the experiment clock)
+- [x] Phase 3: capture `return_count` and `followup_count` separately — shipped 2026-07-04 (expand_context seeds count as followup; result-set paths count as return)
+- [x] Eval harness (the "single biggest gap" landmine): shipped 2026-07-04 as `hebb eval` over a golden set at `.hebb/golden.toml` (recall + MRR, non-zero exit on a miss)
 - [ ] EXP: run the vault for two weeks; hand-label 30 durable + 30 transitory
 - [ ] EXP: answer Q1 (discrimination), Q2 (confusion matrix), Q3 (use-vs-return); apply the decision rule
 - [ ] Gate: only proceed to Phase 4/5 if the experiment passes; keep everything proposal-only and reversible

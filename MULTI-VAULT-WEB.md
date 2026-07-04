@@ -1,5 +1,8 @@
 # Design: one web server, many vaults
 
+> **Shipped.** All three build slices landed (registry, multi-vault server, global
+> launchd service). Kept as a design record; current plan: [ROADMAP.md](ROADMAP.md).
+
 ## Problem
 
 `hebb serve` is single-vault: it opens one vault's index, watches it, and binds a

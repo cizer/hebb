@@ -1,5 +1,21 @@
 # hebb product-review backlog
 
+> **Folded into [ROADMAP.md](ROADMAP.md) (2026-07-04).** Open items here are sequenced
+> as roadmap workstreams WS1 and WS5; this file is kept for the file:line detail.
+> Frozen: do not add new items here.
+>
+> **Status after the 2026-07-04 build session:** most items below shipped. Still
+> open: `hebb install` in a plain notes folder dead-ends (Batch 2); doctor's launchd
+> warning on never-installed setups (parked — doctor.go carries unrelated in-flight
+> work); Obsidian-link silent-failure fallback (Web UI); vault-switcher tab
+> discoverability below 2 vaults; skill-discovery `hebb ingest stage` CLI; the
+> house output style item; and the dual-delivery install-skip (documented instead,
+> in plugin/README.md). Everything else in this file is done — naming, all Batch 2
+> P1s, `hebb version`, digest flags, help examples, `audit_vault`, fragmented-verdict
+> gate, web error surfacing + accessibility, dark-mode hues, noscript, MCP
+> description alignment, stale comments, scaffold/template drift, and the alias
+> deprecation notes.
+
 Follow-ups from the full product review (quality, consistency, cohesion,
 usability) on 21-06-2026. Batch 1 (the P0 consistency sweep) is done and not
 listed here. Each item notes where it lives and why it matters. File:line

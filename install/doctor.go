@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -84,6 +87,7 @@ func Doctor(opts Options) []Check {
 		checkNotify(add, vc)
 		checkLaunchd(add, opts, vc, bin)
 		checkLaunchdTCC(add, opts, vc, bin)
+		checkFullDiskAccess(add, opts, vc, bin)
 	}
 	return checks
 }
@@ -615,6 +619,69 @@ func checkLaunchdTCC(add func(string, string, string), opts Options, vc core.Vau
 			"Re-run hebb install (the daily-digest job now runs the hebb binary), then grant the binary access in "+
 			"System Settings > Privacy & Security > Full Disk Access.",
 		strings.Join(offenders, ", ")))
+}
+
+// checkFullDiskAccess probes whether the running process can read a
+// TCC-protected location, as a proxy for whether this vault's scheduled launchd
+// jobs can read the vault (which lives under a protected folder such as
+// ~/Documents). macOS-only, and only when this vault has scheduled jobs at all:
+// with nothing scheduled there is no unattended read to protect.
+//
+// This is a best-effort signal, not a definitive read of the binary's grant.
+// macOS TCC attributes file access to the *responsible* process, so when doctor
+// is run from a terminal that itself holds Full Disk Access the probe can pass
+// even if the hebb binary launchd runs has no grant of its own. A failed probe
+// is therefore reliable (no access here means none for the unattended job
+// either) and is the case worth surfacing; a pass means "available in this
+// context" and is reported as ok without further claim.
+func checkFullDiskAccess(add func(string, string, string), opts Options, vc core.VaultConfig, bin string) {
+	if runtime.GOOS != "darwin" || opts.Home == "" {
+		return
+	}
+	if bin == "" {
+		bin = "hebb"
+	}
+	jobs := VaultJobs(opts.VaultPath, Slugify(vc.Name), bin, resolvedAssetDir(opts), opts.Home, vc.WebPort, vc.Jobs, vc.Update.Auto, vc.JobArgs, vc.JobEnv)
+	if len(jobs) == 0 {
+		return
+	}
+	tccDB := filepath.Join(opts.Home, "Library", "Application Support", "com.apple.TCC", "TCC.db")
+	switch probeFullDiskAccess(tccDB) {
+	case tccGranted:
+		add("full-disk-access", "ok", "available (current process)")
+	case tccDenied:
+		add("full-disk-access", "warn", fmt.Sprintf(
+			"this process cannot read TCC-protected locations, so scheduled jobs that read the vault will hang. "+
+				"Grant %s Full Disk Access in System Settings > Privacy & Security > Full Disk Access. "+
+				"Note: hebb is ad-hoc signed, so the grant must be refreshed after each update (see NOTE-codesigning-fda-persistence.md).",
+			bin))
+	default:
+		// tccUnknown: probe path absent or unreadable for another reason
+		// (e.g. an OS without this TCC store). Cannot determine; stay silent.
+	}
+}
+
+// tccProbeResult classifies a Full Disk Access probe.
+type tccProbeResult int
+
+const (
+	tccUnknown tccProbeResult = iota // could not determine (path absent / other error)
+	tccGranted                       // protected path readable
+	tccDenied                        // permission denied
+)
+
+// probeFullDiskAccess opens a TCC-protected path read-only and classifies the
+// outcome. Read-only and fast: it opens and immediately closes, reading nothing.
+func probeFullDiskAccess(tccDBPath string) tccProbeResult {
+	f, err := os.Open(tccDBPath)
+	if err == nil {
+		f.Close()
+		return tccGranted
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return tccDenied
+	}
+	return tccUnknown
 }
 
 // isShellWrapperProgram reports whether prog is a shell script or interpreter

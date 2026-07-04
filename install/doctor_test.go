@@ -773,3 +773,34 @@ func TestAnyFailed(t *testing.T) {
 		t.Error("a fail should be detected")
 	}
 }
+
+// TestProbeFullDiskAccess proves the FDA probe classifies the three outcomes:
+// a readable protected-path stand-in is granted, an absent path is unknown
+// (never a false denial), and an unreadable file is denied. Root bypasses
+// permission bits, so the denied case is skipped there.
+func TestProbeFullDiskAccess(t *testing.T) {
+	dir := t.TempDir()
+
+	readable := filepath.Join(dir, "readable.db")
+	if err := os.WriteFile(readable, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := probeFullDiskAccess(readable); got != tccGranted {
+		t.Errorf("readable probe = %v, want tccGranted", got)
+	}
+
+	if got := probeFullDiskAccess(filepath.Join(dir, "missing.db")); got != tccUnknown {
+		t.Errorf("missing probe = %v, want tccUnknown", got)
+	}
+
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses permission bits; cannot exercise the denied path")
+	}
+	denied := filepath.Join(dir, "denied.db")
+	if err := os.WriteFile(denied, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if got := probeFullDiskAccess(denied); got != tccDenied {
+		t.Errorf("unreadable probe = %v, want tccDenied", got)
+	}
+}

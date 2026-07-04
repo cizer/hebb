@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -20,7 +21,7 @@ var timeNowForTest = time.Now
 // index.
 type Finding struct {
 	// Type identifies the finding: "dangling_link", "ambiguous_link",
-	// "para_drift", "oversized", "stub".
+	// "para_drift", "cooling_project", "stale_pin", "oversized", "stub".
 	Type string `json:"type"`
 	// Path is the vault-relative path of the affected note.
 	Path string `json:"path"`
@@ -75,6 +76,18 @@ func RunHealthFull(cfg Config, db *sql.DB, reportUnresolved bool) (HealthResult,
 		return HealthResult{}, fmt.Errorf("para-drift detector: %w", err)
 	}
 	all = append(all, pd...)
+
+	cp, err := detectCoolingProjects(cfg, db)
+	if err != nil {
+		return HealthResult{}, fmt.Errorf("cooling-project detector: %w", err)
+	}
+	all = append(all, cp...)
+
+	sp, err := detectStalePins(cfg)
+	if err != nil {
+		return HealthResult{}, fmt.Errorf("stale-pin detector: %w", err)
+	}
+	all = append(all, sp...)
 
 	os_, err := detectOversized(cfg, db)
 	if err != nil {
@@ -214,7 +227,10 @@ func detectDanglingLinks(cfg Config, db *sql.DB, reportUnresolved bool) ([]Findi
 		}
 
 		// (3)/(4) Re-run the resolver to tell ambiguous from genuinely unresolved.
-		_, status := ix.resolve(l.target)
+		// Pass the finding's own source path so the same-directory preference
+		// applies here exactly as it did when the link was indexed, keeping this
+		// read-only classification consistent with the stored target_path.
+		_, status := ix.resolve(l.target, l.source)
 		if status == Ambiguous {
 			findings = append(findings, Finding{
 				Type:     "ambiguous_link",
@@ -358,6 +374,176 @@ func detectPARADrift(cfg Config, db *sql.DB) ([]Finding, error) {
 		}
 	}
 	return findings, rows.Err()
+}
+
+// detectCoolingProjects finds direct subfolders of 1-Projects/ (project
+// folders) whose most recent content change, taken as MAX(content_changed_at)
+// over every note anywhere under the folder, is older than
+// cfg.Health.GetCoolingProjectDays(). This is folder-level PARA drift: the
+// per-note para_drift detector flags individual stale notes (including notes
+// sitting directly in the 1-Projects/ root, which have no project folder and
+// are therefore skipped here), while cooling_project asks whether the project
+// as a whole has stopped moving. It is driven by content_changed_at, not
+// mtime, so a bulk operation that rewrites bytes without changing content
+// cannot make a cooling project look active.
+func detectCoolingProjects(cfg Config, db *sql.DB) ([]Finding, error) {
+	days := cfg.Health.GetCoolingProjectDays()
+	now := timeNowForTest()
+	cutoffMs := float64(now.AddDate(0, 0, -days).UnixNano()) / 1e6
+
+	// path LIKE '1-Projects/%/%' requires at least one path segment between
+	// 1-Projects/ and the basename, so notes directly in the 1-Projects/ root
+	// (already covered by para_drift) never contribute to a folder aggregate.
+	rows, err := db.Query(`
+		SELECT path, content_changed_at
+		FROM notes
+		WHERE path LIKE '1-Projects/%/%'
+		ORDER BY path
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type folderAgg struct {
+		lastChangedMs float64 // max content_changed_at over notes with a stamp
+		hasStamp      bool
+		noteCount     int
+	}
+	agg := map[string]*folderAgg{}
+	for rows.Next() {
+		var path string
+		var changedAt sql.NullFloat64
+		if err := rows.Scan(&path, &changedAt); err != nil {
+			return nil, err
+		}
+		// The project folder is the first segment after "1-Projects/".
+		rest := strings.TrimPrefix(path, "1-Projects/")
+		folder := rest[:strings.IndexByte(rest, '/')]
+		a := agg[folder]
+		if a == nil {
+			a = &folderAgg{}
+			agg[folder] = a
+		}
+		a.noteCount++
+		if changedAt.Valid {
+			if !a.hasStamp || changedAt.Float64 > a.lastChangedMs {
+				a.lastChangedMs = changedAt.Float64
+				a.hasStamp = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Deterministic output order: sort folders by name.
+	folders := make([]string, 0, len(agg))
+	for f := range agg {
+		folders = append(folders, f)
+	}
+	sort.Strings(folders)
+
+	var findings []Finding
+	for _, folder := range folders {
+		a := agg[folder]
+		// A folder with no content_changed_at stamp at all (possible on an index
+		// that predates the column's backfill) cannot be judged; skip it rather
+		// than guess.
+		if !a.hasStamp || a.lastChangedMs >= cutoffMs {
+			continue
+		}
+		ageDays := int(now.Sub(time.UnixMilli(int64(a.lastChangedMs))).Hours() / 24)
+		findings = append(findings, Finding{
+			Type:     "cooling_project",
+			Path:     "1-Projects/" + folder + "/",
+			Detail:   fmt.Sprintf("no note changed in ~%d days (%d notes)", ageDays, a.noteCount),
+			Severity: "warn",
+		})
+	}
+	return findings, nil
+}
+
+// nowPinBoard is the front-and-centre pin board at the vault root. Its
+// contract (documented in the vault-template's _NOW.md) is: each pin is an H2
+// heading, and the first non-blank line under it is "review-by: YYYY-MM-DD".
+const nowPinBoard = "_NOW.md"
+
+// reReviewBy matches the review-by line under a pin heading and captures the
+// date. The prefix is matched case-insensitively so "Review-by:" also counts.
+var reReviewBy = regexp.MustCompile(`(?i)^review-by:\s*(\d{4}-\d{2}-\d{2})\s*$`)
+
+// detectStalePins parses _NOW.md at the vault root (raw file read; the pin
+// board is often excluded from graph metrics and its structure, not its
+// indexed body, is what matters here) and enforces the pin-decay contract:
+// every H2 pin carries a "review-by: YYYY-MM-DD" first line, and a pin past
+// that date is stale. A pin with no review-by line (or an unparseable date) is
+// also flagged: a pin that can never decay violates the contract. No _NOW.md
+// file means no findings; the pin board is optional.
+func detectStalePins(cfg Config) ([]Finding, error) {
+	raw, err := os.ReadFile(filepath.Join(cfg.VaultPath, nowPinBoard))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	today := timeNowForTest()
+	// Compare at day granularity in local time: a pin is past its review-by
+	// only once that whole day is over.
+	todayDate := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+
+	var findings []Finding
+	lines := strings.Split(string(raw), "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		heading := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+
+		// Find the first non-blank line under the heading.
+		var first string
+		for j := i + 1; j < len(lines); j++ {
+			if t := strings.TrimSpace(lines[j]); t != "" {
+				first = t
+				break
+			}
+		}
+
+		m := reReviewBy.FindStringSubmatch(first)
+		if m == nil {
+			findings = append(findings, Finding{
+				Type:     "stale_pin",
+				Path:     nowPinBoard,
+				Detail:   fmt.Sprintf("pin %q has no review-by date", heading),
+				Severity: "warn",
+			})
+			continue
+		}
+		reviewBy, perr := time.ParseInLocation("2006-01-02", m[1], today.Location())
+		if perr != nil {
+			// Matched the shape but not a real date (e.g. 2026-13-99): the pin
+			// still cannot decay, so it violates the contract the same way.
+			findings = append(findings, Finding{
+				Type:     "stale_pin",
+				Path:     nowPinBoard,
+				Detail:   fmt.Sprintf("pin %q has no review-by date", heading),
+				Severity: "warn",
+			})
+			continue
+		}
+		if reviewBy.Before(todayDate) {
+			findings = append(findings, Finding{
+				Type:     "stale_pin",
+				Path:     nowPinBoard,
+				Detail:   fmt.Sprintf("pin %q past review-by %s", heading, m[1]),
+				Severity: "warn",
+			})
+		}
+	}
+	return findings, nil
 }
 
 // reH2H3 matches H2 and H3 headings (##  or ###) at the start of a line.

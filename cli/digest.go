@@ -100,6 +100,10 @@ func digestCmd() *cobra.Command {
 	c.Flags().StringVar(&vaultRoot, "vault-root", "", "vault path to digest (default: --vault / $HEBB_VAULT / nearest .hebb)")
 	c.Flags().StringVar(&output, "output", "", "digest note path relative to vault root (default 2-Areas/_DAILY-DIGEST.md)")
 	c.Flags().StringVar(&date, "date", "", "override run date as YYYY-MM-DD (for testing)")
+	// --vault-root exists for the launchd job's explicit wiring; --vault /
+	// $HEBB_VAULT / cwd walk-up cover interactive use, so keep this out of
+	// --help without removing it.
+	_ = c.Flags().MarkHidden("vault-root")
 	return c
 }
 

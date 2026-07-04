@@ -31,10 +31,19 @@
     --t-dangling: #ef4444;
     --t-ambiguous: #f97316;
     --t-para: #f59e0b;
+    --t-cooling: #eab308;
+    --t-stalepin: #f43f5e;
+    --t-stub: #94a3b8;
     --t-oversized: #a78bfa;
     --t-orphan: #38bdf8;
     --t-leaf: #22d3ee;
     --t-island: #818cf8;
+    /* connection-depth chart stops, fringe (sky) to core (indigo) */
+    --depth-0: #38bdf8;
+    --depth-1: #22d3ee;
+    --depth-2: #818cf8;
+    --depth-3: #a78bfa;
+    --depth-4: #6366f1;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -57,6 +66,23 @@
       --good: #4ade80;
       --warn: #fbbf24;
       --bad: #f87171;
+      /* finding-type hues, lightened slightly to keep contrast on a dark surface */
+      --t-dangling: #f87171;
+      --t-ambiguous: #fb923c;
+      --t-para: #fbbf24;
+      --t-cooling: #facc15;
+      --t-stalepin: #fb7185;
+      --t-stub: #cbd5e1;
+      --t-oversized: #c4b5fd;
+      --t-orphan: #7dd3fc;
+      --t-leaf: #67e8f9;
+      --t-island: #a5b4fc;
+      /* connection-depth chart stops, fringe (sky) to core (indigo) */
+      --depth-0: #7dd3fc;
+      --depth-1: #67e8f9;
+      --depth-2: #a5b4fc;
+      --depth-3: #c4b5fd;
+      --depth-4: #818cf8;
     }
   }
 
@@ -89,7 +115,9 @@
     font-family: "Product Sans", arial, sans-serif;
     font-weight: 700; letter-spacing: -1px; font-size: 26px; line-height: 1;
     user-select: none; cursor: pointer; flex: none;
+    border: none; background: none; padding: 0; margin: 0;
   }
+  .wordmark:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
   .wordmark .b { color: #818cf8; }
   .wordmark .r { color: #a78bfa; }
   .wordmark .y { color: #38bdf8; }
@@ -301,6 +329,14 @@
   .state b { color: var(--fg); }
   .state.err { color: var(--bad); }
 
+  /* inline error banner -- same voice as .state.err, for errors surfaced
+     outside the health view (search, reindex) */
+  .inline-err {
+    color: var(--bad); font-size: 13px; margin-top: 8px;
+    display: none; align-items: center; gap: 6px;
+  }
+  .inline-err.show { display: flex; }
+
   /* ----------------------------------------------------------------- footer */
 
   footer {
@@ -308,26 +344,35 @@
     color: var(--muted); font-size: 12px;
     display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
   }
-  footer .link { color: var(--muted); cursor: pointer; text-decoration: none; }
+  footer .link {
+    color: var(--muted); cursor: pointer; text-decoration: none;
+    border: none; background: none; padding: 0; font: inherit;
+  }
   footer .link:hover { color: var(--accent); text-decoration: underline; }
+  footer .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
   .foot-note { margin-left: auto; color: var(--faint); }
   .spinner {
     width: 14px; height: 14px; border: 2px solid var(--border-strong);
     border-top-color: var(--accent); border-radius: 50%;
     display: inline-block; animation: spin .7s linear infinite; vertical-align: -2px;
   }
+  noscript {
+    display: block; background: var(--warn); color: #1a1a1a;
+    text-align: center; font-size: 13px; padding: 8px 16px;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
+<noscript>This dashboard needs JavaScript enabled to search the vault and show vault health.</noscript>
 <div class="app">
 
   <!-- ------------------------------------------------------------- top bar -->
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="wordmark" id="wordmark" title="hebb -- clear search">
+      <button type="button" class="wordmark" id="wordmark" title="hebb -- clear search">
         <span class="b">h</span><span class="r">e</span><span class="y">b</span><span class="g">b</span>
-      </div>
+      </button>
       <nav class="vault-tabs" id="vault-tabs" aria-label="Vault"></nav>
       <div class="search">
         <div class="box" id="box">
@@ -336,6 +381,7 @@
                  placeholder="Search the vault  (press /)" aria-label="Search the vault" />
           <button class="clear" id="clear" title="Clear" aria-label="Clear">&times;</button>
         </div>
+        <div class="inline-err" id="search-err" role="alert"></div>
       </div>
     </div>
   </header>
@@ -359,13 +405,14 @@
         <button class="chip" data-prefix="4-Archives/">Archives</button>
         <input class="tagfilter" id="tagfilter" type="text" placeholder="tag filter&#8230;" aria-label="Tag filter" />
       </div>
-      <div class="results" id="results"></div>
+      <div class="results" id="results" role="listbox" aria-label="Search results" aria-live="polite"></div>
     </section>
   </main>
 
   <footer>
-    <a class="link" id="reindex" title="Rebuild the search index from disk">&#8635; refresh index</a>
-    <a class="link" id="refresh-health" title="Re-run vault health checks">&#8635; refresh health</a>
+    <button type="button" class="link" id="reindex" title="Rebuild the search index from disk">&#8635; refresh index</button>
+    <button type="button" class="link" id="refresh-health" title="Re-run vault health checks">&#8635; refresh health</button>
+    <div class="inline-err" id="reindex-err" role="alert"></div>
     <span class="foot-note">Local &middot; FTS5 &middot; 127.0.0.1 only</span>
   </footer>
 </div>
@@ -376,6 +423,7 @@
   const healthView = $("#health-view"), healthContent = $("#health-content");
   const searchView = $("#search-view"), resultsEl = $("#results"), tagInput = $("#tagfilter");
   const vaultTabs = $("#vault-tabs");
+  const searchErrEl = $("#search-err"), reindexErrEl = $("#reindex-err");
   let prefix = "", tag = "", vaultName = "vault", sel = -1, lastResults = [];
   let healthLoaded = false, multiVault = false;
 
@@ -406,6 +454,20 @@
   }
   const num = (n) => (n || 0).toLocaleString("en-GB");
 
+  // Inline error banner shared by search and reindex -- same tone as the
+  // health view's own error state, but surfaced next to the control that
+  // failed instead of replacing a whole section.
+  function showInlineError(el, message) {
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add("show");
+  }
+  function clearInlineError(el) {
+    if (!el) return;
+    el.textContent = "";
+    el.classList.remove("show");
+  }
+
   /* ------------------------------------------------------------ view switch */
 
   function showSearch() { healthView.classList.add("hidden"); searchView.classList.remove("hidden"); }
@@ -431,7 +493,7 @@
     for (const r of data.results) {
       const tags = r.tags.slice(0, 6).map((t) => '<span class="tag">#' + escapeHtml(t) + "</span>").join("");
       html +=
-        '<a class="result" href="' + escapeHtml(r.obsidian) + '">' +
+        '<a class="result" href="' + escapeHtml(r.obsidian) + '" role="option" aria-selected="false">' +
           '<div class="crumb">' + escapeHtml(breadcrumb(r.path)) + "</div>" +
           '<div class="title">' + escapeHtml(r.title) + "</div>" +
           '<div class="snippet">' + highlight(r.snippet) + "</div>" +
@@ -445,15 +507,19 @@
   function search() {
     const q = qInput.value.trim();
     clearBtn.classList.toggle("show", q.length > 0);
+    clearInlineError(searchErrEl);
     if (q.length < 2) { render({ query: "", results: [] }); syncHash(); return; }
     const my = ++seq;
     const params = new URLSearchParams({ q, limit: "25" });
     if (prefix) params.set("path_prefix", prefix);
     if (tag) params.set("tag", tag);
     fetch("/api/search?" + params.toString())
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => { throw new Error(e.error || r.statusText); });
+        return r.json();
+      })
       .then((data) => { if (my === seq) { render(data); syncHash(); } })
-      .catch(() => {});
+      .catch((err) => { if (my === seq) showInlineError(searchErrEl, "Search failed: " + err.message); });
   }
   function debouncedSearch() { clearTimeout(timer); timer = setTimeout(search, 140); }
 
@@ -492,7 +558,11 @@
     else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(sel - 1, 0); }
     else if (e.key === "Enter" && sel >= 0) { items[sel].click(); return; }
     else return;
-    items.forEach((it, i) => it.classList.toggle("sel", i === sel));
+    items.forEach((it, i) => {
+      const isSel = i === sel;
+      it.classList.toggle("sel", isSel);
+      it.setAttribute("aria-selected", String(isSel));
+    });
     if (items[sel]) items[sel].scrollIntoView({ block: "nearest" });
   });
 
@@ -519,6 +589,32 @@
       short: "Finished or stale projects still in 1-Projects",
       how: "A note under 1-Projects/ that looks done or has gone untouched for a long time. Move it to 4-Archives/ or pick it back up.",
       sort: (a, b) => a.path.localeCompare(b.path),
+    },
+    cooling_project: {
+      label: "Cooling projects", color: "var(--t-cooling)",
+      short: "Project folders where nothing changed recently",
+      how: "A 1-Projects/ folder where no note's content has changed for the cooling window. Pick the project back up or move the folder to 4-Archives/.",
+      // The detail string contains "~N days"; rank by that number descending.
+      sort: (a, b) => {
+        const age = (d) => { const m = d.detail.match(/~(\d+)\s+days/); return m ? parseInt(m[1], 10) : 0; };
+        return age(b) - age(a);
+      },
+    },
+    stale_pin: {
+      label: "Stale pins", color: "var(--t-stalepin)",
+      short: "_NOW.md pins past their review-by date",
+      how: "A pin on the _NOW.md board past its review-by date, or missing one. Bump the date if it still matters, or delete the section.",
+      sort: (a, b) => a.detail.localeCompare(b.detail),
+    },
+    stub: {
+      label: "Stubs", color: "var(--t-stub)",
+      short: "Near-empty notes that link nowhere",
+      how: "A note with almost no content and no outgoing links. Flesh it out, merge it into a related note, or archive it.",
+      // The detail string contains "~N tokens"; rank by that number ascending (emptiest first).
+      sort: (a, b) => {
+        const tok = (d) => { const m = d.detail.match(/~(\d+)\s+tokens/); return m ? parseInt(m[1], 10) : 0; };
+        return tok(a) - tok(b);
+      },
     },
     oversized: {
       label: "Oversized notes", color: "var(--t-oversized)",
@@ -563,7 +659,7 @@
 
   // typeOrder drives the display order of finding groups. Types not listed fall
   // through to the end, sorted by type string.
-  const typeOrder = ["dangling_link", "ambiguous_link", "para_drift", "oversized", "orphan", "leaf", "island"];
+  const typeOrder = ["dangling_link", "ambiguous_link", "para_drift", "cooling_project", "stale_pin", "stub", "oversized", "orphan", "leaf", "island"];
   // How many files to list inside an expanded group before truncating, so a big
   // vault's drill-down stays in a sane DOM.
   const FILES_PER_GROUP = 50;
@@ -581,6 +677,13 @@
     });
   }
 
+  // Minimum graph size before connectedness verdicts are meaningful. Below
+  // this, a small/sparse vault (e.g. a fresh `hebb new`) can show a low
+  // giant_ratio purely because there are too few notes/links to form a big
+  // cluster yet -- that is not the same as a genuinely fragmented vault.
+  const MIN_NODES_FOR_VERDICT = 10; // fewer notes than this: too small to judge
+  const MIN_EDGES_FOR_VERDICT = 5;  // fewer resolved links than this: too sparse to judge
+
   // ringColor keeps the connectivity ring honest: brand accent when most notes
   // hang together, amber/red only when the vault is genuinely fragmented. It is
   // a single named indicator, never a composite "health score".
@@ -589,10 +692,12 @@
     if (ratio >= 0.3) return "var(--warn)";
     return "var(--bad)";
   }
-  // depthColor shades the connection-depth bars from sky (fringe) to indigo (core).
+  // depthColor shades the connection-depth bars from sky (fringe) to indigo
+  // (core), via the --depth-* theme tokens so dark mode gets its own stops
+  // instead of hard-coded light-palette hex.
   function depthColor(k, maxCore) {
     if (maxCore <= 0) return "var(--t-orphan)";
-    const stops = ["#38bdf8", "#22d3ee", "#818cf8", "#a78bfa", "#6366f1"];
+    const stops = ["var(--depth-0)", "var(--depth-1)", "var(--depth-2)", "var(--depth-3)", "var(--depth-4)"];
     const i = Math.min(stops.length - 1, Math.round((k / maxCore) * (stops.length - 1)));
     return stops[i];
   }
@@ -607,32 +712,45 @@
 
   function connectivityCard(stats) {
     const nodes = stats.node_count || 0;
+    const edges = stats.edge_count || 0;
     const ratio = stats.giant_ratio || 0;
-    const pct = Math.round(ratio * 100);
     const connected = Math.round(ratio * nodes);
     const C = 2 * Math.PI * 52;
-    const off = C * (1 - ratio);
-    const col = ringColor(ratio);
-    let verdict;
-    if (nodes === 0) verdict = "No notes indexed yet.";
-    else if (ratio >= 0.85) verdict = "Most of your notes hang together as one connected body.";
-    else if (ratio >= 0.5) verdict = "A solid core is connected, with some notes drifting off to the side.";
-    else verdict = "Your notes are fragmented into many disconnected pieces.";
+
+    // Too small/sparse a graph to say anything meaningful about connectedness:
+    // show a neutral ring and verdict rather than an alarming red/amber one.
+    const tooSmall = nodes < MIN_NODES_FOR_VERDICT || edges < MIN_EDGES_FOR_VERDICT;
+
+    let pctLabel, off, col, verdict;
+    if (tooSmall) {
+      pctLabel = "–"; // en dash: deliberately not a percentage yet
+      off = 0;
+      col = "var(--muted)";
+      verdict = "Too few links yet to assess — connectedness becomes meaningful as notes link to each other.";
+    } else {
+      pctLabel = Math.round(ratio * 100) + "%";
+      off = C * (1 - ratio);
+      col = ringColor(ratio);
+      if (nodes === 0) verdict = "No notes indexed yet.";
+      else if (ratio >= 0.85) verdict = "Most of your notes hang together as one connected body.";
+      else if (ratio >= 0.5) verdict = "A solid core is connected, with some notes drifting off to the side.";
+      else verdict = "Your notes are fragmented into many disconnected pieces.";
+    }
 
     return '<div class="card conn">'
       + '<div class="ring-wrap">'
       +   '<svg width="116" height="116" viewBox="0 0 116 116">'
       +     '<circle class="ring-track" cx="58" cy="58" r="52" fill="none" stroke-width="11"></circle>'
-      +     '<circle cx="58" cy="58" r="52" fill="none" stroke-width="11" stroke-linecap="round" '
-      +       'stroke="' + col + '" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"></circle>'
+      +     (tooSmall ? '' : '<circle cx="58" cy="58" r="52" fill="none" stroke-width="11" stroke-linecap="round" '
+      +       'stroke="' + col + '" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"></circle>')
       +   '</svg>'
-      +   '<div class="ring-center"><div class="ring-pct">' + pct + '%</div><div class="ring-cap">connected</div></div>'
+      +   '<div class="ring-center"><div class="ring-pct"' + (tooSmall ? ' style="color:var(--muted)"' : '') + '>' + pctLabel + '</div><div class="ring-cap">connected</div></div>'
       + '</div>'
       + '<div class="conn-text">'
       +   '<div class="conn-head">Connectedness</div>'
       +   '<div class="conn-desc">' + escapeHtml(verdict) + ' '
-      +     '<b>' + num(connected) + '</b> of ' + num(nodes) + ' notes sit in the largest cluster, across '
-      +     num(stats.component_count) + ' cluster' + (stats.component_count === 1 ? '' : 's') + '.'
+      +     (tooSmall ? '' : '<b>' + num(connected) + '</b> of ' + num(nodes) + ' notes sit in the largest cluster, across '
+      +     num(stats.component_count) + ' cluster' + (stats.component_count === 1 ? '' : 's') + '.')
       +   '</div>'
       + '</div>'
       + '</div>';
@@ -793,11 +911,15 @@
   /* ------------------------------------------------------- index refresh */
 
   $("#reindex").addEventListener("click", (e) => {
-    const el = e.target;
+    const el = e.target.closest("#reindex") || e.target;
     const old = el.textContent;
+    clearInlineError(reindexErrEl);
     el.innerHTML = '<span class="spinner"></span> reindexing&hellip;';
     fetch("/api/reindex", { method: "POST" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => { throw new Error(e.error || r.statusText); });
+        return r.json();
+      })
       .then((d) => {
         el.textContent = "✓ " + d.indexed + " notes";
         // The index changed: re-run search and health so both reflect disk.
@@ -805,7 +927,10 @@
         if (!searchView.classList.contains("hidden")) search();
         setTimeout(() => (el.textContent = old), 2500);
       })
-      .catch(() => (el.textContent = old));
+      .catch((err) => {
+        el.textContent = old;
+        showInlineError(reindexErrEl, "Reindex failed: " + err.message);
+      });
   });
 
   /* -------------------------------------------------------------- stats */
@@ -835,9 +960,11 @@
         vaultTabs.innerHTML = "";
         for (const v of d.vaults) {
           const b = document.createElement("button");
-          b.className = "vault-tab" + (v.slug === d.active ? " active" : "");
+          const isActive = v.slug === d.active;
+          b.className = "vault-tab" + (isActive ? " active" : "");
           b.textContent = v.name;
           b.title = v.name;
+          if (isActive) b.setAttribute("aria-current", "true");
           b.addEventListener("click", () => {
             if (v.slug !== d.active) location.href = "/?vault=" + encodeURIComponent(v.slug);
           });

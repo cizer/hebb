@@ -48,6 +48,26 @@ hermetic.
 
 Counts as of writing: core 15, install 32, launchd 6, cli 8, web 2, mcp 5, root (plugin + assets) 5.
 
+## Retrieval eval
+
+`hebb eval` scores retrieval quality against a per-vault golden file of
+`(query -> notes that must come back)` pairs, run through the live FTS5 index.
+The golden file lives at `<vault>/.hebb/golden.toml` (override with `--golden`):
+
+```toml
+# Each case: a query you actually run, and the notes that must come back.
+[[case]]
+query = "quarterly board pack"
+expect = ["2-Areas/Board/Board pack process.md"]  # vault-relative paths
+limit = 10  # optional, default 10
+```
+
+Run it before and after any gardening or consolidation action (merge, split,
+archive sweep) and diff the two runs (`--json` makes that mechanical). Like
+`hebb doctor` it is read-only and exits non-zero on breach (any expected note
+missing), so scripts and CI can gate on it. A missing golden file is a normal
+state: the command prints guidance and exits 0.
+
 ## Remaining gaps
 
 The original gap (a manual acceptance layer, no race or cross-platform coverage)

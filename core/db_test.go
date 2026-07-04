@@ -137,3 +137,122 @@ func TestMigrationBackfillClampsFutureMtime(t *testing.T) {
 		t.Errorf("first_indexed_at = %v, want the same clamped seed as content_changed_at %v", fia, cca)
 	}
 }
+
+// TestMigrationAddsAccessLogTable proves that opening a pre-Phase-3 index.db
+// (no access_log table at all) gains it via the plain CREATE TABLE IF NOT
+// EXISTS in schemaSQL, with no forced rebuild and no data loss for the
+// pre-existing notes table (METABOLISM.md Phase 3).
+func TestMigrationAddsAccessLogTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	legacy := newLegacyNotesDB(t, dbPath)
+	if _, err := legacy.Exec(
+		`INSERT INTO notes (path, title, body, tags, frontmatter, mtime) VALUES (?, ?, ?, ?, ?, ?)`,
+		"Note.md", "Note", "the body", "tag1 tag2", "{}", 1700000000000.0); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB on legacy db: %v", err)
+	}
+	defer db.Close()
+
+	var name string
+	if err := db.QueryRow(
+		"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'access_log'",
+	).Scan(&name); err != nil {
+		t.Fatalf("access_log table missing after migration: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM notes").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("pre-existing notes row lost across migration: count = %d, want 1", n)
+	}
+
+	var logged int
+	if err := db.QueryRow("SELECT COUNT(*) FROM access_log").Scan(&logged); err != nil {
+		t.Fatal(err)
+	}
+	if logged != 0 {
+		t.Errorf("access_log should start empty on migration, got %d rows", logged)
+	}
+}
+
+// TestLogReturnsAndFollowup exercises the write path directly: LogReturns
+// bumps return_count/access_count/last_accessed for every path, a second call
+// increments rather than overwrites, and LogFollowup bumps followup_count
+// (not return_count) for the resolved seed of an expand_context call.
+func TestLogReturnsAndFollowup(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	before := float64(time.Now().UnixNano()) / 1e6
+	LogReturns(db, []string{"A.md", "B.md"})
+	after := float64(time.Now().UnixNano()) / 1e6
+
+	var accessCount, returnCount, followupCount int
+	var lastAccessed float64
+	if err := db.QueryRow(
+		"SELECT access_count, return_count, followup_count, last_accessed FROM access_log WHERE path = 'A.md'",
+	).Scan(&accessCount, &returnCount, &followupCount, &lastAccessed); err != nil {
+		t.Fatal(err)
+	}
+	if accessCount != 1 || returnCount != 1 || followupCount != 0 {
+		t.Errorf("after first LogReturns: access=%d return=%d followup=%d, want 1/1/0", accessCount, returnCount, followupCount)
+	}
+	if lastAccessed < before || lastAccessed > after {
+		t.Errorf("last_accessed = %v, want within [%v, %v]", lastAccessed, before, after)
+	}
+
+	// A second call increments rather than overwrites.
+	LogReturns(db, []string{"A.md"})
+	if err := db.QueryRow(
+		"SELECT access_count, return_count FROM access_log WHERE path = 'A.md'",
+	).Scan(&accessCount, &returnCount); err != nil {
+		t.Fatal(err)
+	}
+	if accessCount != 2 || returnCount != 2 {
+		t.Errorf("after second LogReturns: access=%d return=%d, want 2/2", accessCount, returnCount)
+	}
+
+	// LogFollowup bumps followup_count, not return_count, and shares the same
+	// access_count/last_accessed bookkeeping.
+	LogFollowup(db, "A.md")
+	if err := db.QueryRow(
+		"SELECT access_count, return_count, followup_count FROM access_log WHERE path = 'A.md'",
+	).Scan(&accessCount, &returnCount, &followupCount); err != nil {
+		t.Fatal(err)
+	}
+	if accessCount != 3 || returnCount != 2 || followupCount != 1 {
+		t.Errorf("after LogFollowup: access=%d return=%d followup=%d, want 3/2/1", accessCount, returnCount, followupCount)
+	}
+
+	// B.md only ever got one LogReturns bump.
+	if err := db.QueryRow(
+		"SELECT access_count, return_count, followup_count FROM access_log WHERE path = 'B.md'",
+	).Scan(&accessCount, &returnCount, &followupCount); err != nil {
+		t.Fatal(err)
+	}
+	if accessCount != 1 || returnCount != 1 || followupCount != 0 {
+		t.Errorf("B.md: access=%d return=%d followup=%d, want 1/1/0", accessCount, returnCount, followupCount)
+	}
+
+	// Empty/blank input is a no-op: no row, no error.
+	LogReturns(db, nil)
+	LogFollowup(db, "")
+	var total int
+	if err := db.QueryRow("SELECT COUNT(*) FROM access_log").Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Errorf("access_log row count = %d, want 2 (A.md, B.md only)", total)
+	}
+}

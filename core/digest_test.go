@@ -276,6 +276,7 @@ func TestDigestExcluded(t *testing.T) {
 		"2-Areas/_DAILY-DIGEST.md":  true,
 		"2-Areas/_ACTION-REVIEW.md": true,
 		"1-Projects/_INGEST-LOG.md": true,
+		"2-Areas/_CONSOLIDATION.md": true,
 		"assets/diagram.md":         true,
 		".obsidian/workspace.md":    true,
 		"1-Projects/real-note.md":   false,
@@ -285,5 +286,59 @@ func TestDigestExcluded(t *testing.T) {
 		if got := digestExcluded(rel); got != want {
 			t.Errorf("digestExcluded(%q) = %v, want %v", rel, got, want)
 		}
+	}
+}
+
+// TestDigestLinksConsolidationWhenPresent proves the digest entry gets a
+// trailing [[_CONSOLIDATION]] link once the weekly consolidation review
+// exists, and that a fresh vault (no consolidation note yet) gets no such
+// link, so the digest never points at a note that does not exist.
+func TestDigestLinksConsolidationWhenPresent(t *testing.T) {
+	cfg, db, write := digestFixture(t)
+	write("2-Areas/note.md", "# Note\n\nbody")
+	reindex(t, cfg, db)
+
+	dr, err := GenerateDigest(cfg, db, DigestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(cfg.VaultPath, filepath.FromSlash(dr.OutputPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "[[_CONSOLIDATION]]") {
+		t.Error("digest must not link _CONSOLIDATION before it exists")
+	}
+
+	// Write the consolidation review, then regenerate the digest for the same
+	// day (idempotent rerun path) and confirm the link now appears.
+	write(DefaultConsolidationOutput, "# Consolidation review\n\nNothing needs attention this week.\n")
+
+	dr, err = GenerateDigest(cfg, db, DigestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(filepath.Join(cfg.VaultPath, filepath.FromSlash(dr.OutputPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "Weekly consolidation review: [[_CONSOLIDATION]]") {
+		t.Errorf("digest must link the consolidation review once it exists; got:\n%s", raw)
+	}
+}
+
+// TestDigestIgnoresConsolidationAsChange proves _CONSOLIDATION.md itself never
+// shows up as digest activity, mirroring the other machine notes.
+func TestDigestIgnoresConsolidationAsChange(t *testing.T) {
+	cfg, db, write := digestFixture(t)
+	write(DefaultConsolidationOutput, "# Consolidation review\n\nNothing needs attention this week.\n")
+	reindex(t, cfg, db)
+
+	dr, err := GenerateDigest(cfg, db, DigestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dr.Count != 0 {
+		t.Errorf("digest count = %d, want 0: _CONSOLIDATION.md must not count as activity", dr.Count)
 	}
 }

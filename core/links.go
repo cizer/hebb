@@ -2,6 +2,7 @@ package core
 
 import (
 	"database/sql"
+	"path"
 	"strings"
 )
 
@@ -94,7 +95,13 @@ func newNoteIndex(paths []string, titles map[string]string) *noteIndex {
 // candidate is Resolved (with its path), zero falls through to the next
 // precedence, and more than one is Ambiguous. If no precedence matches, the
 // target is Dangling.
-func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
+//
+// sourcePath is the vault-relative path of the note containing the link, used
+// to prefer a same-directory match at the basename and title stages before
+// declaring multiple hits Ambiguous (see decideWithDir). Pass "" when there
+// is no source note (e.g. a seed lookup with no link context); the resolver
+// then behaves exactly as it did before this preference existed.
+func (ix *noteIndex) resolve(rawTarget, sourcePath string) (string, Resolution) {
 	target := canonicalTarget(rawTarget)
 	if target == "" {
 		return "", Dangling
@@ -138,7 +145,7 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 		}
 		baseHits = append(baseHits, p)
 	}
-	if r, ok := decide(baseHits); ok {
+	if r, ok := decideWithDir(baseHits, sourcePath); ok {
 		return r, Resolved
 	}
 	if len(baseHits) > 1 {
@@ -147,7 +154,7 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 
 	// (c) exact title match.
 	titleHits := ix.byTitle[lower]
-	if r, ok := decide(titleHits); ok {
+	if r, ok := decideWithDir(titleHits, sourcePath); ok {
 		return r, Resolved
 	}
 	if len(titleHits) > 1 {
@@ -165,6 +172,36 @@ func (ix *noteIndex) resolve(rawTarget string) (string, Resolution) {
 func decide(hits []string) (string, bool) {
 	if len(hits) == 1 {
 		return hits[0], true
+	}
+	return "", false
+}
+
+// decideWithDir is decide plus the same-directory preference: vaults often
+// repeat a structural basename (e.g. "_SERIES-INFO", "OPEN-ACTIONS") across
+// sibling folders, so a link written inside one of those folders should
+// resolve to that folder's copy instead of being reported ambiguous. When more
+// than one candidate matches, exactly one sitting in sourcePath's directory
+// wins; two or more in that directory cannot happen for a basename (one file
+// per name per dir) or a title within one dir, but is handled defensively by
+// falling through to the ordinary "more than one -> ambiguous" outcome.
+// sourcePath == "" (no source note in context) disables the preference
+// entirely, preserving the exact pre-existing behaviour for such callers.
+func decideWithDir(hits []string, sourcePath string) (string, bool) {
+	if r, ok := decide(hits); ok {
+		return r, true
+	}
+	if len(hits) < 2 || sourcePath == "" {
+		return "", false
+	}
+	dir := strings.ToLower(path.Dir(sourcePath))
+	var sameDir []string
+	for _, h := range hits {
+		if strings.ToLower(path.Dir(h)) == dir {
+			sameDir = append(sameDir, h)
+		}
+	}
+	if len(sameDir) == 1 {
+		return sameDir[0], true
 	}
 	return "", false
 }
@@ -221,7 +258,13 @@ func loadNoteIndex(q queryer) (*noteIndex, error) {
 // instead build a noteIndex once and call its resolve method, so they do not pay
 // this query's per-call basename full scan for every link. It returns the
 // resolved note path (empty for dangling or ambiguous) and the Resolution.
-func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
+//
+// sourcePath is the vault-relative path of the note containing the link; see
+// decideWithDir for the same-directory preference it enables at the basename
+// and title stages. Pass "" when there is no source note in context (e.g. the
+// context walk's seed lookup), which disables the preference and matches prior
+// behaviour exactly.
+func ResolveTargetDB(q queryer, rawTarget, sourcePath string) (string, Resolution) {
 	target := canonicalTarget(rawTarget)
 	if target == "" {
 		return "", Dangling
@@ -265,8 +308,8 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 		}
 		baseHits = append(baseHits, p)
 	}
-	if len(baseHits) == 1 {
-		return baseHits[0], Resolved
+	if r, ok := decideWithDir(baseHits, sourcePath); ok {
+		return r, Resolved
 	}
 	if len(baseHits) > 1 {
 		return "", Ambiguous
@@ -274,8 +317,8 @@ func ResolveTargetDB(q queryer, rawTarget string) (string, Resolution) {
 
 	// (c) exact title (case-insensitive via COLLATE NOCASE).
 	if hits := queryPaths(q, "SELECT path FROM notes WHERE title = ? COLLATE NOCASE", target); len(hits) > 0 {
-		if len(hits) == 1 {
-			return hits[0], Resolved
+		if r, ok := decideWithDir(hits, sourcePath); ok {
+			return r, Resolved
 		}
 		return "", Ambiguous
 	}
@@ -338,6 +381,13 @@ func noteKeys(rel, title string) []string {
 // target. Resolving against ix (built once per IndexFile invocation from one
 // notes scan) avoids the previous per-link "SELECT path FROM notes" full scan.
 //
+// Resolution now depends on the source note's directory (see decideWithDir), so
+// a raw target can no longer be resolved once and applied to every row sharing
+// it: two links carrying the same raw target from different source directories
+// can legitimately resolve differently. For each candidate target this walks
+// the individual links rows carrying it and re-resolves per (source_path,
+// target), updating only that row.
+//
 // All matching rows are reconsidered, not only the NULL ones, so a target that
 // has become ambiguous (a second same-named note appeared) flips from a stale
 // non-NULL pointer back to NULL, and a target whose note was removed falls back
@@ -349,16 +399,44 @@ func reResolveForKeys(db execer, ix *noteIndex, keys []string) error {
 		return err
 	}
 	for _, raw := range candidates {
-		resolved, status := ix.resolve(raw)
-		var tp any
-		if status == Resolved {
-			tp = resolved
-		}
-		if _, err := db.Exec("UPDATE links SET target_path = ? WHERE target = ?", tp, raw); err != nil {
+		sources, err := sourcesForTarget(db, raw)
+		if err != nil {
 			return err
+		}
+		for _, source := range sources {
+			resolved, status := ix.resolve(raw, source)
+			var tp any
+			if status == Resolved {
+				tp = resolved
+			}
+			if _, err := db.Exec("UPDATE links SET target_path = ? WHERE source_path = ? AND target = ?", tp, source, raw); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// sourcesForTarget returns the distinct source_path values of links rows
+// carrying the given raw target, so reResolveForKeys and
+// reResolveForRemovedNote can re-resolve each link row against its own
+// source's directory rather than applying one verdict to every row sharing the
+// target.
+func sourcesForTarget(q queryer, target string) ([]string, error) {
+	rows, err := q.Query("SELECT source_path FROM links WHERE target = ?", target)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 // candidateTargets returns the distinct raw targets in the links table that
@@ -463,13 +541,19 @@ func reResolveForRemovedNote(db execer, ix *noteIndex, rel, title string) error 
 		}
 	}
 	for _, raw := range candidates {
-		resolved, status := ix.resolve(raw)
-		var tp any
-		if status == Resolved {
-			tp = resolved
-		}
-		if _, err := db.Exec("UPDATE links SET target_path = ? WHERE target = ?", tp, raw); err != nil {
+		sources, err := sourcesForTarget(db, raw)
+		if err != nil {
 			return err
+		}
+		for _, source := range sources {
+			resolved, status := ix.resolve(raw, source)
+			var tp any
+			if status == Resolved {
+				tp = resolved
+			}
+			if _, err := db.Exec("UPDATE links SET target_path = ? WHERE source_path = ? AND target = ?", tp, source, raw); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -495,12 +579,15 @@ func distinctTargetsForPath(q queryer, path string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// resolveLinkTargets resolves every distinct raw target to a canonical note
-// path and writes it back to links.target_path. It builds one in-memory note
-// index from the complete notes table, so it must be called only after all
-// notes for the reindex are present. Each distinct target is resolved once and
-// applied to every links row sharing it. A target that does not resolve to
-// exactly one note (dangling or ambiguous) is set to NULL.
+// resolveLinkTargets resolves every links row to a canonical note path and
+// writes it back to links.target_path. It builds one in-memory note index from
+// the complete notes table, so it must be called only after all notes for the
+// reindex are present. Resolution depends on the source note's directory (see
+// decideWithDir), so each row is resolved individually against its own
+// source_path rather than once per distinct raw target and applied to every
+// row sharing it: two links carrying the same raw target from different source
+// directories can legitimately resolve differently. A target that does not
+// resolve to exactly one note (dangling or ambiguous) is set to NULL.
 func resolveLinkTargets(tx execer) error {
 	ix, err := loadNoteIndex(tx)
 	if err != nil {
@@ -511,18 +598,24 @@ func resolveLinkTargets(tx execer) error {
 		return err
 	}
 	for _, raw := range targets {
-		resolved, status := ix.resolve(raw)
-		if status == Resolved {
-			if _, err := tx.Exec("UPDATE links SET target_path = ? WHERE target = ?", resolved, raw); err != nil {
+		sources, err := sourcesForTarget(tx, raw)
+		if err != nil {
+			return err
+		}
+		for _, source := range sources {
+			resolved, status := ix.resolve(raw, source)
+			if status == Resolved {
+				if _, err := tx.Exec("UPDATE links SET target_path = ? WHERE source_path = ? AND target = ?", resolved, source, raw); err != nil {
+					return err
+				}
+				continue
+			}
+			// Dangling or ambiguous: NULL the column. Setting it explicitly (rather
+			// than leaving a stale value) keeps a re-resolution after content
+			// changes correct, e.g. when a previously matching note is removed.
+			if _, err := tx.Exec("UPDATE links SET target_path = NULL WHERE source_path = ? AND target = ?", source, raw); err != nil {
 				return err
 			}
-			continue
-		}
-		// Dangling or ambiguous: NULL the column. Setting it explicitly (rather
-		// than leaving a stale value) keeps a re-resolution after content
-		// changes correct, e.g. when a previously matching note is removed.
-		if _, err := tx.Exec("UPDATE links SET target_path = NULL WHERE target = ?", raw); err != nil {
-			return err
 		}
 	}
 	return nil

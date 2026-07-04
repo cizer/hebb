@@ -50,6 +50,10 @@ func installCmd(version string) *cobra.Command {
 			"jobs (and --load to bootstrap them); the binary is standalone, with\n" +
 			"automation scripts embedded, or pass --asset-root to use a repo checkout's\n" +
 			"automation/.",
+		Example: "  hebb install\n" +
+			"  hebb install --launchd --load\n" +
+			"  hebb install --codex\n" +
+			"  hebb install --mcp-json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, db, err := openVault()
 			if err != nil {
@@ -166,7 +170,7 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 	for _, s := range rep.Steps {
 		fmt.Fprintf(out, "  %-16s %s\n", s.Name, s.Status)
 	}
-	fmt.Fprintf(out, "  %-16s %d notes indexed\n", "index", res.Indexed)
+	fmt.Fprintf(out, "  %s\n", "index            "+indexSummary(db, res))
 
 	// Per-agent wiring chosen by flag or picker (.mcp.json was handled by Run).
 	if p.codex {
@@ -204,7 +208,28 @@ func installVault(cmd *cobra.Command, cfg core.Config, db *sql.DB, p installPara
 		fmt.Fprintf(out, "  %-16s %s (%s)\n", "claude-desktop", status, desktopPath)
 		fmt.Fprintf(out, "  %-16s restart Claude Desktop to load it\n", "")
 	}
+
+	fmt.Fprint(out, "\nNext steps:\n"+
+		"  try `hebb search <term>` to find something in the vault\n"+
+		"  open the dashboard with `hebb serve`\n"+
+		"  in Claude Code: install the plugin (/plugin marketplace add cizer/hebb) or just start chatting in the vault folder\n")
 	return nil
+}
+
+// indexSummary renders the install/new report's index line. A clean re-install
+// over an unchanged vault reports res.Indexed == 0, which reads like a failure
+// ("0 notes indexed") even though the vault is fully indexed; phrase that case
+// as "up to date" against the total note count instead, when that count is
+// cheaply available (a single COUNT(*) via core.Stats). Any other run (first
+// install, or one that actually indexed something) reports the honest count.
+func indexSummary(db *sql.DB, res core.IndexResult) string {
+	if res.Indexed == 0 {
+		if notes, _, _, err := core.Stats(db); err == nil {
+			return fmt.Sprintf("up to date (%d notes)", notes)
+		}
+		return "up to date (0 changed)"
+	}
+	return fmt.Sprintf("%d notes indexed", res.Indexed)
 }
 
 // defaultDataDir is the hebb data dir: $XDG_DATA_HOME/hebb if set, else

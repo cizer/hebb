@@ -18,13 +18,16 @@ func resetCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "unwire",
 		Aliases: []string{"reset"},
-		Short:   "Un-wire this vault from the machine (keeps all vault content)",
+		Short:   "Un-wire this vault from the machine (alias: reset — deprecated, will be removed in a future major)",
 		Long: "Remove the machine-side wiring `hebb install` created: the Claude\n" +
 			"memory symlink, this vault's launchd jobs, the Codex [mcp_servers.hebb]\n" +
 			"block, the opt-in per-vault .mcp.json/settings, and the (regenerable)\n" +
 			"index. It NEVER touches vault content - notes, .hebb/memory and\n" +
 			".hebb/config.toml are always kept. Dry run by default; pass --force to\n" +
-			"apply. Rebuild the index any time with `hebb index`.",
+			"apply. Rebuild the index any time with `hebb index`.\n\n" +
+			"'unwire' is the command name; 'hebb reset' remains as a deprecated alias\n" +
+			"and will be removed in a future major version. Scripts and muscle memory\n" +
+			"should move to 'hebb unwire'.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := core.ResolveVault(flagVault, flagDB)
 			if err != nil {

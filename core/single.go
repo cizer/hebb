@@ -19,11 +19,19 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	if fi, err := os.Lstat(full); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return RemoveFile(db, rel)
 	}
-	content, err := readFile(full)
+	info, err := os.Stat(full)
 	if err != nil {
 		return RemoveFile(db, rel)
 	}
-	info, err := os.Stat(full)
+	// DoS guard: a file over maxIndexFileBytes is skipped without being read,
+	// checked via os.Stat before any read is attempted. Unlike a genuinely
+	// unreadable/missing file, this must not delete an existing (smaller)
+	// indexed version of the note, so it returns nil rather than calling
+	// RemoveFile: the file is simply left as it was in the index.
+	if info.Size() > maxIndexFileBytes {
+		return nil
+	}
+	content, err := readFile(full)
 	if err != nil {
 		return RemoveFile(db, rel)
 	}
@@ -52,8 +60,9 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	}
 	for _, l := range n.Links {
 		// target_path is the canonical note path, or NULL when the target is
-		// dangling or ambiguous.
-		resolved, status := ix.resolve(l)
+		// dangling or ambiguous. rel is this note's own path, giving the resolver
+		// the source directory needed for the same-directory preference.
+		resolved, status := ix.resolve(l, rel)
 		var tp any
 		if status == Resolved {
 			tp = resolved

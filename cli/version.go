@@ -1,6 +1,25 @@
 package cli
 
-import "runtime/debug"
+import (
+	"fmt"
+	"runtime/debug"
+
+	"github.com/spf13/cobra"
+)
+
+// versionCmd prints exactly what `hebb --version` prints (cobra's default
+// version template: "hebb version <version>\n"), as a discoverable
+// subcommand for anyone who doesn't think to reach for the --version flag.
+func versionCmd(version string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the hebb version",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			fmt.Fprintf(cmd.OutOrStdout(), "hebb version %s\n", version)
+			return nil
+		},
+	}
+}
 
 // devVersion is the build-time default in cmd/hebb (overridden by
 // -ldflags -X main.version=... for releases). When it is still in place we are

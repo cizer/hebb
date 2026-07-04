@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -160,6 +161,104 @@ func TestNotifyEnvURLOverridesConfig(t *testing.T) {
 	nc := core.NotifyConfig{Enabled: true, URL: "https://committed.example.com/hook"}
 	if nc.ResolveURL() != "https://env-override.example.com/hook" {
 		t.Error("env URL should override committed url")
+	}
+}
+
+// TestResolveVaultPathViaEnv proves notify's vault resolution follows the same
+// flag -> $HEBB_VAULT -> cwd walk-up chain as every other command, by
+// resolving via $HEBB_VAULT with no --vault flag set.
+func TestResolveVaultPathViaEnv(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "EnvVault"
+
+[notify]
+enabled = true
+url = "https://env-vault.example.com/hook"
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origVault := flagVault
+	flagVault = ""
+	defer func() { flagVault = origVault }()
+	t.Setenv("HEBB_VAULT", vault)
+
+	got := resolveVaultPath()
+	want, err := filepath.EvalSymlinks(vault)
+	if err != nil {
+		want = vault
+	}
+	gotResolved, err := filepath.EvalSymlinks(got)
+	if err == nil {
+		got = gotResolved
+	}
+	if got != want {
+		t.Errorf("resolveVaultPath() via $HEBB_VAULT = %q, want %q", got, want)
+	}
+
+	vc, existed, err := core.LoadVaultConfig(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !existed || vc.Notify.URL != "https://env-vault.example.com/hook" {
+		t.Errorf("expected the env-resolved vault's config to load, got existed=%v vc=%+v", existed, vc)
+	}
+}
+
+// TestResolveVaultPathViaCwdWalkUp proves notify resolves the vault by walking
+// up from the current working directory to find a .hebb/ dir, exactly like
+// core.ResolveVault does for every other command, when neither --vault nor
+// $HEBB_VAULT is set.
+func TestResolveVaultPathViaCwdWalkUp(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "CwdVault"
+
+[notify]
+enabled = true
+url = "https://cwd-vault.example.com/hook"
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A subdirectory below the vault root, to prove the walk-up climbs past it.
+	sub := filepath.Join(vault, "1-Projects", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origVault := flagVault
+	flagVault = ""
+	defer func() { flagVault = origVault }()
+	t.Setenv("HEBB_VAULT", "") // ensure the env var does not shadow the walk-up
+	t.Chdir(sub)
+
+	got := resolveVaultPath()
+	want, err := filepath.EvalSymlinks(vault)
+	if err != nil {
+		want = vault
+	}
+	gotResolved, err := filepath.EvalSymlinks(got)
+	if err == nil {
+		got = gotResolved
+	}
+	if got != want {
+		t.Errorf("resolveVaultPath() via cwd walk-up = %q, want %q", got, want)
+	}
+
+	vc, existed, err := core.LoadVaultConfig(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !existed || vc.Notify.URL != "https://cwd-vault.example.com/hook" {
+		t.Errorf("expected the walk-up-resolved vault's config to load, got existed=%v vc=%+v", existed, vc)
 	}
 }
 

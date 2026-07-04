@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cizer/hebb/core"
 )
@@ -386,6 +387,60 @@ func TestHealthCommandExcludeFromGraphFlag(t *testing.T) {
 	}
 	if !strings.Contains(outExcl, "3 notes") {
 		t.Errorf("excluded graph summary should report 3 notes:\n%s", outExcl)
+	}
+}
+
+// TestHealthCommandTemporalDetectors proves the WS2.1 temporal detectors flow
+// through `hebb audit` end to end: a stale _NOW.md pin and a cooled
+// 1-Projects/ folder both render, grouped under their own type headers.
+func TestHealthCommandTemporalDetectors(t *testing.T) {
+	vault := buildHealthVaultCLI(t)
+
+	// A pin board with one expired pin. The fresh files elsewhere in the
+	// fixture are untouched.
+	nowMD := "# Now\n\n## Expired pin\n\nreview-by: 2020-01-01\n\nLong past.\n"
+	if err := os.WriteFile(filepath.Join(vault, "_NOW.md"), []byte(nowMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A project folder whose only note's content last changed 40 days ago
+	// (past the 30-day cooling default). The command's pre-query refresh is
+	// mtime-driven and content-hash-checked, so the backdated
+	// content_changed_at survives it.
+	p := filepath.Join(vault, "1-Projects/Cooled/Kickoff.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# Kickoff\n\nLong ago.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := core.ResolveVault(vault, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	old := float64(time.Now().AddDate(0, 0, -40).UnixNano()) / 1e6
+	if _, err := db.Exec("UPDATE notes SET content_changed_at = ? WHERE path = ?", old, "1-Projects/Cooled/Kickoff.md"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	out, runErr := runHealth(t, vault)
+	if runErr != nil {
+		t.Fatalf("hebb audit: %v\n%s", runErr, out)
+	}
+	if !strings.Contains(out, "stale_pin") || !strings.Contains(out, `pin "Expired pin" past review-by 2020-01-01`) {
+		t.Errorf("audit output missing the stale_pin finding:\n%s", out)
+	}
+	if !strings.Contains(out, "cooling_project") || !strings.Contains(out, "1-Projects/Cooled/") {
+		t.Errorf("audit output missing the cooling_project finding:\n%s", out)
 	}
 }
 

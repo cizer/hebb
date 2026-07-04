@@ -791,3 +791,239 @@ func TestOversizedThresholdRecalibrated(t *testing.T) {
 		t.Errorf("Notes/Huge.md (~5000 tokens, 4 sections) MUST be flagged with default threshold 4000; oversized: %+v", oversized)
 	}
 }
+
+// backdateContentChangedAt sets a note's content_changed_at directly in the
+// index, simulating a note whose content last changed at the given time. This
+// is the content-change watermark the temporal detectors read; mtime is
+// deliberately left alone so the tests prove the detectors do not fall back
+// to it.
+func backdateContentChangedAt(t *testing.T, db *sql.DB, rel string, when float64) {
+	t.Helper()
+	res, err := db.Exec("UPDATE notes SET content_changed_at = ? WHERE path = ?", when, rel)
+	if err != nil {
+		t.Fatalf("backdate content_changed_at for %s: %v", rel, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("backdate content_changed_at for %s: %d rows affected, want 1 (path not indexed?)", rel, n)
+	}
+}
+
+// buildCoolingVault writes a vault exercising the cooling_project detector:
+// an active project folder, a cooled one (including a nested subfolder note),
+// and a stale note directly in the 1-Projects/ root (para_drift territory, not
+// cooling_project's). Returns cfg + an open DB with the cooled notes' and the
+// root note's content_changed_at backdated 40 days. Caller must defer
+// db.Close().
+func buildCoolingVault(t *testing.T) (Config, *sql.DB) {
+	t.Helper()
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Active project: one recent note keeps the whole folder warm.
+	write("1-Projects/Active/Status.md", "# Status\n\nMoving along.\n")
+	write("1-Projects/Active/Old plan.md", "# Old plan\n\nSuperseded but kept.\n")
+	// Cooled project: every note (including one in a nested subfolder) is old.
+	write("1-Projects/Cooled/Kickoff.md", "# Kickoff\n\nLong ago.\n")
+	write("1-Projects/Cooled/Notes.md", "# Notes\n\nAlso long ago.\n")
+	write("1-Projects/Cooled/meetings/Retro.md", "# Retro\n\nNested and old.\n")
+	// A stale note directly in the 1-Projects/ root: para_drift covers it; the
+	// cooling detector must skip it (it belongs to no project folder).
+	write("1-Projects/Loose note.md", "# Loose note\n\nOld and folderless.\n")
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+
+	// Backdate content_changed_at past the 30-day default for everything except
+	// the Active project's fresh note. "Active/Old plan.md" is also old: one
+	// recent note must be enough to keep a folder warm (MAX, not MIN).
+	old := float64(timeNowForTest().AddDate(0, 0, -40).UnixNano()) / 1e6
+	for _, rel := range []string{
+		"1-Projects/Active/Old plan.md",
+		"1-Projects/Cooled/Kickoff.md",
+		"1-Projects/Cooled/Notes.md",
+		"1-Projects/Cooled/meetings/Retro.md",
+		"1-Projects/Loose note.md",
+	} {
+		backdateContentChangedAt(t, db, rel, old)
+	}
+	return cfg, db
+}
+
+func TestCoolingProjectDetector(t *testing.T) {
+	cfg, db := buildCoolingVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+	cooling := findingsByType(report.Findings, "cooling_project")
+
+	if len(cooling) != 1 {
+		t.Fatalf("cooling_project findings = %d, want 1 (only the Cooled folder); got: %+v", len(cooling), cooling)
+	}
+	got := cooling[0]
+	if got.Path != "1-Projects/Cooled/" {
+		t.Errorf("cooling_project path = %q, want 1-Projects/Cooled/", got.Path)
+	}
+	// The folder aggregate must count the nested subfolder note too.
+	if !strings.Contains(got.Detail, "(3 notes)") {
+		t.Errorf("cooling_project detail %q should report the folder's 3 notes (incl. nested)", got.Detail)
+	}
+	if !strings.Contains(got.Detail, "no note changed in ~") || !strings.Contains(got.Detail, "days") {
+		t.Errorf("cooling_project detail %q should state the quiet window in days", got.Detail)
+	}
+	if got.Severity != "warn" {
+		t.Errorf("cooling_project severity = %q, want warn", got.Severity)
+	}
+}
+
+// TestCoolingProjectActiveFolderNotFlagged pins the MAX semantics: a folder
+// with one recent note stays warm no matter how many old notes sit beside it.
+func TestCoolingProjectActiveFolderNotFlagged(t *testing.T) {
+	cfg, db := buildCoolingVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+	for _, f := range findingsByType(report.Findings, "cooling_project") {
+		if strings.Contains(f.Path, "Active") {
+			t.Errorf("Active project folder (one recent note) must not be flagged: %+v", f)
+		}
+	}
+}
+
+// TestCoolingProjectSkipsRootNotes proves a note directly in the 1-Projects/
+// root never yields a cooling_project finding: it belongs to no project
+// folder, and para_drift already owns per-note staleness there.
+func TestCoolingProjectSkipsRootNotes(t *testing.T) {
+	cfg, db := buildCoolingVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+	for _, f := range findingsByType(report.Findings, "cooling_project") {
+		if strings.Contains(f.Path, "Loose note") || strings.Contains(f.Detail, "Loose note") {
+			t.Errorf("root-level note must not produce a cooling_project finding: %+v", f)
+		}
+	}
+}
+
+// buildStalePinVault writes a vault whose _NOW.md exercises every stale_pin
+// case: a fresh pin, a pin whose review-by is today (not yet stale), a pin
+// past its date, and a pin missing the review-by line entirely.
+func buildStalePinVault(t *testing.T) (Config, *sql.DB) {
+	t.Helper()
+	vault := t.TempDir()
+	now := timeNowForTest()
+	future := now.AddDate(0, 0, 14).Format("2006-01-02")
+	today := now.Format("2006-01-02")
+
+	nowMD := "---\ntitle: Now\n---\n\n# Now\n\n" +
+		"## Fresh pin\n\nreview-by: " + future + "\n\nStill relevant.\n\n" +
+		"## Due today pin\n\nreview-by: " + today + "\n\nReview day is not over yet.\n\n" +
+		"## Expired pin\n\nreview-by: 2020-01-01\n\nLong past.\n\n" +
+		"## Contractless pin\n\nNo review-by line at all.\n"
+	if err := os.WriteFile(filepath.Join(vault, "_NOW.md"), []byte(nowMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: defaultExcludeDirs,
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FullReindex(cfg, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	return cfg, db
+}
+
+func TestStalePinDetector(t *testing.T) {
+	cfg, db := buildStalePinVault(t)
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+	pins := findingsByType(report.Findings, "stale_pin")
+
+	if len(pins) != 2 {
+		t.Fatalf("stale_pin findings = %d, want 2 (expired + contractless); got: %+v", len(pins), pins)
+	}
+	if !detailContaining(pins, `pin "Expired pin" past review-by 2020-01-01`) {
+		t.Errorf("missing past-review-by finding for the expired pin; got: %+v", pins)
+	}
+	if !detailContaining(pins, `pin "Contractless pin" has no review-by date`) {
+		t.Errorf("missing no-review-by finding for the contractless pin; got: %+v", pins)
+	}
+	for _, f := range pins {
+		if strings.Contains(f.Detail, "Fresh pin") {
+			t.Errorf("fresh pin must not be flagged: %+v", f)
+		}
+		if strings.Contains(f.Detail, "Due today pin") {
+			t.Errorf("a pin whose review-by is today is not yet stale: %+v", f)
+		}
+		if f.Path != "_NOW.md" {
+			t.Errorf("stale_pin path = %q, want _NOW.md", f.Path)
+		}
+		if f.Severity != "warn" {
+			t.Errorf("stale_pin severity = %q, want warn", f.Severity)
+		}
+	}
+}
+
+// TestStalePinAbsentNowFile proves a vault with no _NOW.md yields no stale_pin
+// findings (the pin board is optional).
+func TestStalePinAbsentNowFile(t *testing.T) {
+	cfg, db := buildHealthVault(t) // fixture has no _NOW.md
+	defer db.Close()
+
+	report, err := RunHealthFull(cfg, db, false)
+	if err != nil {
+		t.Fatalf("RunHealthFull: %v", err)
+	}
+	if pins := findingsByType(report.Findings, "stale_pin"); len(pins) != 0 {
+		t.Errorf("vault without _NOW.md must yield no stale_pin findings; got: %+v", pins)
+	}
+}

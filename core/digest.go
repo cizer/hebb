@@ -40,6 +40,7 @@ var digestExcludeBasenames = map[string]bool{
 	"_DAILY-DIGEST.md":  true,
 	"_ACTION-REVIEW.md": true,
 	"_INGEST-LOG.md":    true,
+	"_CONSOLIDATION.md": true,
 }
 
 // digestParaOrder lists the top-level folders shown first and in this order;
@@ -103,7 +104,7 @@ func GenerateDigest(cfg Config, db *sql.DB, opts DigestOptions) (DigestResult, e
 		return DigestResult{}, err
 	}
 
-	entry := renderDigestEntry(today, label, touched)
+	entry := renderDigestEntry(today, label, touched, cfg.VaultPath)
 	outPath := output
 	if !filepath.IsAbs(outPath) {
 		outPath = filepath.Join(cfg.VaultPath, filepath.FromSlash(output))
@@ -224,10 +225,11 @@ func digestExcluded(rel string) bool {
 	return digestExcludeBasenames[parts[len(parts)-1]]
 }
 
-func renderDigestEntry(today time.Time, label string, touched []touchedNote) string {
+func renderDigestEntry(today time.Time, label string, touched []touchedNote, vaultPath string) string {
 	heading := fmt.Sprintf("## %s — activity for %s", today.Format("2006-01-02"), label)
+	footer := consolidationFooter(vaultPath)
 	if len(touched) == 0 {
-		return heading + "\n\n_No vault activity in this window._\n"
+		return heading + "\n\n_No vault activity in this window._\n" + footer
 	}
 
 	groups := map[string][]touchedNote{}
@@ -256,7 +258,22 @@ func renderDigestEntry(today time.Time, label string, touched []touchedNote) str
 		}
 		lines = append(lines, "")
 	}
-	return strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n"
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n" + footer
+}
+
+// consolidationFooter returns a trailing line linking the weekly consolidation
+// review when it exists for this vault, so a reader of the daily digest always
+// has one hop to the standing proposal list. Empty when the file is absent
+// (e.g. the consolidate job has not run yet, or is disabled), so it never
+// links to a note that does not exist.
+func consolidationFooter(vaultPath string) string {
+	if vaultPath == "" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(vaultPath, filepath.FromSlash(DefaultConsolidationOutput))); err != nil {
+		return ""
+	}
+	return "\nWeekly consolidation review: [[_CONSOLIDATION]]\n"
 }
 
 // digestGroupLess orders groups: PARA folders first in digestParaOrder order,

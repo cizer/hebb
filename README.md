@@ -35,7 +35,7 @@ The result is a vault that compounds in value. Every note you add makes search s
 - **Effortlessly current.** New and changed notes are picked up automatically on the next search, and a live file watcher reindexes edits as they land. Your agent never has to stop and reindex after writing.
 - **Local, fast, and private.** Pure-Go SQLite FTS5 search in a single static binary. No service, no cloud, no cgo. Your vault never leaves your machine.
 - **Multi-vault, like git is multi-repo.** Install the binary once, then create or attach as many independent vaults as you like. Each is self-contained and self-describing.
-- **A vault with a metabolism.** Built-in health checks surface dangling links, PARA drift, and oversized notes, so the collection stays healthy as it grows instead of silently decaying.
+- **Built-in vault health.** `hebb audit` surfaces dangling links, PARA drift, and oversized notes, so the collection stays healthy as it grows instead of silently decaying.
 
 ## Key features
 
@@ -148,7 +148,7 @@ Then ask your agent something only your vault knows. It will search, expand the 
 - `hebb search <query>`: full-text search (`--tag`, `--path-prefix`, `--limit`).
 - `hebb mcp`: MCP server over stdio for Claude, Codex, and any MCP client (the five tools above).
 - `hebb serve`: local web search and health UI on 127.0.0.1 (`--port`, `$HEBB_WEB_PORT`). Serves every vault hebb knows about (the current vault plus the machine registry) on one port, switchable via a picker, so multiple vaults never collide on a port. Under launchd this is a single machine-global service (`local.hebb.web`), not one job per vault.
-- `hebb audit` (alias: `hebb health`): advisory worklist of vault-content issues (dangling links, ambiguous links, PARA drift, oversized notes) over the index. Read-only, repairs nothing; exits 0 even with findings (`--json` for tooling). Thresholds in `[health]`. Distinct from `hebb doctor`, which checks the install wiring.
+- `hebb audit` (alias: `hebb health`, deprecated, will be removed in a future major): advisory worklist of vault-content issues (dangling links, ambiguous links, PARA drift, oversized notes) over the index. Read-only, repairs nothing; exits 0 even with findings (`--json` for tooling). Thresholds in `[audit]` (`[health]` still accepted as a deprecated alias). Distinct from `hebb doctor`, which checks the install wiring.
 - `hebb codex`: register the vault as a Codex MCP server (`~/.codex/config.toml`) and install hebb's agent skills into Codex's skills dir (`~/.agents/skills`), non-destructively. `--no-skills` to skip the skills.
 - `hebb doctor`: read-only health check (config, `.mcp.json`, index, settings, memory, Codex and Claude Desktop wiring, launchd); content-compares each against what install would write today and reports drift, warning on a binary path that still resolves to a working hebb and failing on one that points at nothing. Never runs a configured command; non-zero exit if anything is broken.
 - `hebb unwire` (alias: `hebb reset`): un-wire a vault from the machine (memory link, launchd jobs, agent configs, index, and the registry entry; the global web service is retired only when the last vault is removed). Dry run by default; `--force` to apply. Never touches your notes.
@@ -170,11 +170,15 @@ hebb is the engine; thin adapters connect it to each tool, all over the same MCP
 - **Claude Desktop**: an MCP-server entry pinned to a vault, written by the `hebb install` picker.
 - **Anything else that speaks MCP**: point it at `hebb mcp`.
 
+The bundled skills, their slash commands, and the phrases that trigger them are
+listed in [plugin/README.md](plugin/README.md#bundled-skills), along with how the
+two skill delivery paths (plugin vs `~/.claude/skills`) interact.
+
 ## What to commit
 
 Commit `.hebb/config.toml` and your notes, so a cloned or synced vault self-identifies. The index (`.hebb/index.db`) is derived and rebuilt on demand, so gitignore it. Memory under `.hebb/memory/` travels with the vault. `hebb` also commits a `bootstrap.sh` at the vault root, so a fresh clone or an ephemeral machine self-installs: run `./bootstrap.sh` to install the binary (pinned to the version that wrote it) and wire the vault. A scaffolded vault also commits a Claude Code `SessionStart` hook (`.claude/hooks/session-start.sh`) that runs `bootstrap.sh` automatically in an ephemeral Claude Code on the web session, so the vault self-provisions there with no manual step; the hook is a no-op on a local machine. If the vault is a git repo, `hebb install` enables `[git]` auto-sync by default when it first writes `config.toml` (set `enabled = false` to opt out; an existing config is never changed). See `hebb sync` above.
 
-`config.toml` holds `name`, `exclude_dirs`, `web_port`, `jobs`, per-job `[job_args]` / `[job_env]`, and the `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), `[ingest]` (ingest policy), `[notify]` (headless webhook), `[health]` (health thresholds), and `[bootstrap]` (clone self-install) sections. Every key is optional and falls back to a sensible default. See **[CONFIG.md](CONFIG.md)** for the full reference, with an annotated example and per-field defaults.
+`config.toml` holds `name`, `exclude_dirs`, `web_port`, `jobs`, per-job `[job_args]` / `[job_env]`, and the `[git]` (auto-sync), `[update]` (auto-update), `[index]` (auto-refresh), `[ingest]` (ingest policy), `[notify]` (headless webhook), `[audit]` (vault-health thresholds; `[health]` still accepted as a deprecated alias), and `[bootstrap]` (clone self-install) sections. Every key is optional and falls back to a sensible default. See **[CONFIG.md](CONFIG.md)** for the full reference, with an annotated example and per-field defaults.
 
 ## Multiple vaults
 

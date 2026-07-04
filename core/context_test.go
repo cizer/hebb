@@ -130,6 +130,59 @@ func TestContextExcludesDanglingLinks(t *testing.T) {
 	}
 }
 
+// TestExpandContextEscapesLikeMetacharactersInTitle guards the security-review
+// follow-up: the incoming-links query embeds the seed note's title in a LIKE
+// pattern ("%/"+noteTitle) to catch directory-anchored inbound links. A title
+// containing a LIKE metacharacter ('%') must be escaped, or it would silently
+// widen the match to notes it should not match. Progress% and ProgressX are
+// both linked via "[[Something/<title>]]"-shaped targets that would collide
+// under an unescaped "%/Progress%" pattern (which would also match a
+// "Something/ProgressX" target); with escaping only the exact-title link is an
+// incoming match.
+func TestExpandContextEscapesLikeMetacharactersInTitle(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The seed note's title contains a literal '%'.
+	write("Target.md", "---\ntitle: Progress%\n---\n\nThe seed note.")
+	// Linker links to the exact directory-anchored title (must match).
+	write("Linker.md", "# Linker\n\nSee [[Sub/Progress%]].")
+	// Decoy links to a different note whose directory-anchored target would only
+	// match an unescaped "%/Progress%" LIKE pattern (the '%' acting as a
+	// wildcard). It must NOT be treated as an incoming link to Target.md.
+	write("Decoy.md", "# Decoy\n\nSee [[Sub/ProgressX]].")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	res := ExpandContext(db, "Target.md", 1, 10)
+	if !hasRel(res, "Linker.md", "incoming_link") {
+		t.Fatalf("expected incoming_link Linker.md for exact-title match; got %+v", res)
+	}
+	for _, r := range res {
+		if r.Path == "Decoy.md" {
+			t.Fatalf("Decoy.md must not match via an unescaped LIKE wildcard; got %+v", res)
+		}
+	}
+}
+
 func hasRel(rs []ContextResult, path, rel string) bool {
 	for _, r := range rs {
 		if r.Path == path && r.Relationship == rel {

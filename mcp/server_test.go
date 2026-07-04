@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cizer/hebb/core"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -103,13 +104,13 @@ func TestToolSurface(t *testing.T) {
 		got[st.Tool.Name] = true
 	}
 	// The tool names are a stable client contract; guard them.
-	for _, want := range []string{"search_vault", "expand_context", "get_context_for_topic", "vault_stats", "reindex_vault"} {
+	for _, want := range []string{"search_vault", "expand_context", "get_context_for_topic", "vault_stats", "reindex_vault", "audit_vault"} {
 		if !got[want] {
 			t.Errorf("missing tool %q", want)
 		}
 	}
-	if len(got) != 5 {
-		t.Errorf("expected exactly 5 tools, got %d: %v", len(got), got)
+	if len(got) != 6 {
+		t.Errorf("expected exactly 6 tools, got %d: %v", len(got), got)
 	}
 }
 
@@ -249,4 +250,279 @@ func TestGetContextForTopicTagConsistency(t *testing.T) {
 	if !strings.Contains(out, "aurora") {
 		t.Errorf("expected aurora tag surfaced in assembled context, got:\n%s", out)
 	}
+}
+
+// dirtyFixtureVault builds a small vault with a known dangling link (under
+// 1-Projects/) and a note under 2-Areas/ with no such issue, so path_prefix and
+// type filters have something distinct to narrow down to.
+func dirtyFixtureVault(t *testing.T) (*sql.DB, core.Config) {
+	t.Helper()
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A dangling link: [[Nonexistent Note]] resolves to no note in the vault.
+	// Bodies are padded well past the stub-detector token threshold (~20 tokens,
+	// i.e. ~80 chars) so the only finding in 1-Projects/ is the dangling link,
+	// and Steady.md links out to Anchor.md so it is not itself flagged as a stub.
+	write("1-Projects/Broken.md", "# Broken\n\nSee [[Nonexistent Note]] for details on this piece of ongoing project work that is still being tracked.\n\n#project")
+	write("2-Areas/Steady.md", "# Steady\n\nNo issues here, this area note is stable and links onward to [[Anchor]] for more detail.\n\n#area")
+	write("2-Areas/Anchor.md", "# Anchor\n\nReference material that Steady links to, with enough body text to clear the stub threshold easily.\n\n#area")
+
+	cfg := core.Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: []string{".obsidian", ".trash", ".hebb", ".git"},
+		AutoRefresh: true,
+		Health:      core.HealthConfig{ReportUnresolvedLinks: true},
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	return db, cfg
+}
+
+// cleanFixtureVault builds a tiny, fully-connected, freshly-written vault with
+// nothing for any detector to flag: no dangling/ambiguous links, no PARA drift
+// (fresh mtime, no done status), no oversized notes, no stubs (both notes link
+// out), and no orphans/islands (both notes fresh and in a single component).
+func cleanFixtureVault(t *testing.T) (*sql.DB, core.Config) {
+	t.Helper()
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("3-Resources/Tidy One.md", "# Tidy One\n\nLinks to [[Tidy Two]].\n\n#tidy")
+	write("3-Resources/Tidy Two.md", "# Tidy Two\n\nLinks back to [[Tidy One]].\n\n#tidy")
+
+	cfg := core.Config{
+		VaultPath:   vault,
+		DBPath:      filepath.Join(vault, ".hebb", "index.db"),
+		ExcludeDirs: []string{".obsidian", ".trash", ".hebb", ".git"},
+		AutoRefresh: true,
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	return db, cfg
+}
+
+func TestAuditVaultTool(t *testing.T) {
+	db, cfg := dirtyFixtureVault(t)
+	out := call(t, db, cfg, "audit_vault", nil)
+	if !strings.Contains(out, "Broken.md") {
+		t.Errorf("audit_vault should report the dangling link in Broken.md, got:\n%s", out)
+	}
+	if !strings.Contains(out, "dangling_link") {
+		t.Errorf("audit_vault should group the finding under dangling_link, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Graph:") {
+		t.Errorf("audit_vault should print a one-line graph summary, got:\n%s", out)
+	}
+}
+
+func TestAuditVaultPathPrefixFilter(t *testing.T) {
+	db, cfg := dirtyFixtureVault(t)
+	out := call(t, db, cfg, "audit_vault", map[string]any{"path_prefix": "2-Areas/"})
+	if strings.Contains(out, "Broken.md") {
+		t.Errorf("path_prefix 2-Areas/ should exclude the 1-Projects/ dangling link, got:\n%s", out)
+	}
+	if !strings.Contains(out, "No findings") {
+		t.Errorf("2-Areas/ has no issues of its own, expected no-findings message, got:\n%s", out)
+	}
+}
+
+func TestAuditVaultTypeFilter(t *testing.T) {
+	db, cfg := dirtyFixtureVault(t)
+
+	matching := call(t, db, cfg, "audit_vault", map[string]any{"type": "dangling_link"})
+	if !strings.Contains(matching, "Broken.md") {
+		t.Errorf("type=dangling_link should still include Broken.md, got:\n%s", matching)
+	}
+
+	nonMatching := call(t, db, cfg, "audit_vault", map[string]any{"type": "stub"})
+	if strings.Contains(nonMatching, "Broken.md") {
+		t.Errorf("type=stub should filter out the dangling_link finding, got:\n%s", nonMatching)
+	}
+	if !strings.Contains(nonMatching, "No findings") {
+		t.Errorf("no stub findings exist, expected no-findings message, got:\n%s", nonMatching)
+	}
+}
+
+func TestAuditVaultCleanVaultReportsNoFindings(t *testing.T) {
+	db, cfg := cleanFixtureVault(t)
+	out := call(t, db, cfg, "audit_vault", nil)
+	if !strings.Contains(out, "No findings") {
+		t.Errorf("clean vault should report no findings, got:\n%s", out)
+	}
+	if strings.Contains(out, "dangling_link") || strings.Contains(out, "stub") || strings.Contains(out, "para_drift") {
+		t.Errorf("clean vault should not mention any finding type, got:\n%s", out)
+	}
+}
+
+// accessLogRow reads back one access_log row for assertions in the Phase 3
+// tests below. ok is false when no row exists for path.
+func accessLogRow(t *testing.T, db *sql.DB, path string) (accessCount, returnCount, followupCount int, lastAccessed float64, ok bool) {
+	t.Helper()
+	err := db.QueryRow(
+		"SELECT access_count, return_count, followup_count, last_accessed FROM access_log WHERE path = ?", path,
+	).Scan(&accessCount, &returnCount, &followupCount, &lastAccessed)
+	if err == sql.ErrNoRows {
+		return 0, 0, 0, 0, false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return accessCount, returnCount, followupCount, lastAccessed, true
+}
+
+func accessLogRowCount(t *testing.T, db *sql.DB) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM access_log").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestAccessLogDisabledByDefaultMakesNoWrites is the default-off guard: with
+// [memory] access_log left unset (false), search_vault, expand_context and
+// get_context_for_topic must make zero writes to access_log, even though all
+// three return non-empty result sets against the fixture vault.
+func TestAccessLogDisabledByDefaultMakesNoWrites(t *testing.T) {
+	db, cfg := fixtureVault(t)
+	if cfg.Memory.AccessLog {
+		t.Fatal("fixture must have access_log off by default")
+	}
+
+	call(t, db, cfg, "search_vault", map[string]any{"query": "synthwave"})
+	call(t, db, cfg, "expand_context", map[string]any{"note_path": "Aurora Overview"})
+	call(t, db, cfg, "get_context_for_topic", map[string]any{"topic": "synthwave"})
+
+	if n := accessLogRowCount(t, db); n != 0 {
+		t.Errorf("access_log should stay empty with the flag off, got %d rows", n)
+	}
+}
+
+// TestSearchVaultLogsReturns proves that with [memory] access_log on,
+// search_vault bumps return_count/access_count/last_accessed for every
+// returned path, and a second call increments rather than resets the counts.
+func TestSearchVaultLogsReturns(t *testing.T) {
+	db, cfg := fixtureVault(t)
+	cfg.Memory.AccessLog = true
+
+	before := float64(timeNowMsForTest())
+	call(t, db, cfg, "search_vault", map[string]any{"query": "synthwave"})
+	after := float64(timeNowMsForTest())
+
+	access, ret, followup, lastAccessed, ok := accessLogRow(t, db, "1-Projects/Aurora Overview.md")
+	if !ok {
+		t.Fatalf("expected an access_log row for the returned path")
+	}
+	if access != 1 || ret != 1 || followup != 0 {
+		t.Errorf("Aurora Overview: access=%d return=%d followup=%d, want 1/1/0", access, ret, followup)
+	}
+	if lastAccessed < before || lastAccessed > after {
+		t.Errorf("last_accessed = %v, want within [%v, %v]", lastAccessed, before, after)
+	}
+
+	// A second identical call increments rather than overwrites.
+	call(t, db, cfg, "search_vault", map[string]any{"query": "synthwave"})
+	access, ret, _, _, ok = accessLogRow(t, db, "1-Projects/Aurora Overview.md")
+	if !ok || access != 2 || ret != 2 {
+		t.Errorf("after second search: access=%d return=%d, want 2/2 (ok=%v)", access, ret, ok)
+	}
+}
+
+// TestExpandContextLogsSeedFollowupAndNeighbourReturns proves the use-vs-return
+// distinction from METABOLISM.md Phase 3: expand_context bumps followup_count
+// (not return_count) on the resolved seed note, and return_count on every
+// returned neighbour.
+func TestExpandContextLogsSeedFollowupAndNeighbourReturns(t *testing.T) {
+	db, cfg := fixtureVault(t)
+	cfg.Memory.AccessLog = true
+
+	// note_path is given by title; the seed must be logged under its resolved
+	// canonical path, not the raw title string.
+	call(t, db, cfg, "expand_context", map[string]any{"note_path": "Aurora Overview"})
+
+	access, ret, followup, _, ok := accessLogRow(t, db, "1-Projects/Aurora Overview.md")
+	if !ok {
+		t.Fatalf("expected an access_log row for the resolved seed path")
+	}
+	if followup != 1 || ret != 0 || access != 1 {
+		t.Errorf("seed Aurora Overview: access=%d return=%d followup=%d, want 1/0/1", access, ret, followup)
+	}
+
+	for _, neighbour := range []string{"1-Projects/Aurora Decisions.md", "1-Projects/Aurora Standup.md"} {
+		access, ret, followup, _, ok := accessLogRow(t, db, neighbour)
+		if !ok {
+			t.Fatalf("expected an access_log row for neighbour %q", neighbour)
+		}
+		if ret != 1 || followup != 0 || access != 1 {
+			t.Errorf("neighbour %s: access=%d return=%d followup=%d, want 1/1/0", neighbour, access, ret, followup)
+		}
+	}
+
+	// A second call increments the seed's followup_count and access_count, and
+	// the neighbours' return_count, rather than resetting them.
+	call(t, db, cfg, "expand_context", map[string]any{"note_path": "Aurora Overview"})
+	access, ret, followup, _, ok = accessLogRow(t, db, "1-Projects/Aurora Overview.md")
+	if !ok || access != 2 || ret != 0 || followup != 2 {
+		t.Errorf("seed after 2nd call: access=%d return=%d followup=%d, want 2/0/2 (ok=%v)", access, ret, followup, ok)
+	}
+}
+
+// TestGetContextForTopicLogsReturns proves get_context_for_topic bumps
+// return_count/access_count for every assembled path when the flag is on.
+func TestGetContextForTopicLogsReturns(t *testing.T) {
+	db, cfg := fixtureVault(t)
+	cfg.Memory.AccessLog = true
+
+	call(t, db, cfg, "get_context_for_topic", map[string]any{"topic": "synthwave"})
+
+	for _, path := range []string{"1-Projects/Aurora Overview.md", "1-Projects/Aurora Decisions.md", "1-Projects/Aurora Standup.md"} {
+		access, ret, followup, _, ok := accessLogRow(t, db, path)
+		if !ok {
+			t.Fatalf("expected an access_log row for %q", path)
+		}
+		if ret != 1 || followup != 0 || access != 1 {
+			t.Errorf("%s: access=%d return=%d followup=%d, want 1/1/0", path, access, ret, followup)
+		}
+	}
+}
+
+// timeNowMsForTest mirrors the ms-epoch-float convention used across the
+// index (time.Now().UnixNano()/1e6), giving the access-log tests a comparable
+// timestamp without importing core internals.
+func timeNowMsForTest() float64 {
+	return float64(time.Now().UnixNano()) / 1e6
 }

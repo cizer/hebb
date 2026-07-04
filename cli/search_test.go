@@ -54,6 +54,52 @@ func TestSearchSelfRefreshesBeforeQuerying(t *testing.T) {
 	}
 }
 
+// TestSearchNoResultsShowsGuidance asserts that a zero-hit search prints a
+// distinct empty state (not just the bare "(0 results)" line) suggesting how
+// to recover, and still exits 0.
+func TestSearchNoResultsShowsGuidance(t *testing.T) {
+	vault := t.TempDir()
+	if err := core.DefaultVaultConfig("T").Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "seed.md"), []byte("# Seed\n\nunrelated content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := core.ResolveVault(vault, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := core.OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.FullReindex(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	var out string
+	root := newRoot("test")
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs([]string{"search", "zzz-no-such-term-zzz", "--vault", vault})
+	out = captureStdout(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("search: %v\n%s", err, buf.String())
+		}
+	})
+	if contains(out, "(0 results)") {
+		t.Errorf("expected the bare '(0 results)' line to be replaced by guidance, got:\n%s", out)
+	}
+	if !contains(out, "No matches") {
+		t.Errorf("expected a 'No matches' empty state, got:\n%s", out)
+	}
+	if !contains(out, "hebb index") {
+		t.Errorf("expected empty-state guidance to mention `hebb index`, got:\n%s", out)
+	}
+}
+
 // captureStdout swaps os.Stdout for the duration of fn and returns what was
 // written. searchCmd prints results to os.Stdout directly (via tabwriter), not
 // through cobra's writer, so this is how the surface is observed.

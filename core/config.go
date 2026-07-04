@@ -18,6 +18,9 @@ type Config struct {
 	// Health holds the thresholds used by the Phase 1 vault-health detectors.
 	// Resolved from the [health] block in config.toml; zero values use defaults.
 	Health HealthConfig
+	// Memory holds the Phase 3 access-log observer setting. Resolved from the
+	// [memory] block in config.toml; AccessLog is off by default.
+	Memory MemoryConfig
 }
 
 // defaultExcludeDirs are directory names skipped when walking a vault. These
@@ -73,6 +76,7 @@ func ResolveVault(flagVault, flagDB string) (Config, error) {
 		cfg.Git = vc.Git
 		cfg.AutoRefresh = vc.Index.AutoRefreshEnabled()
 		cfg.Health = vc.Health
+		cfg.Memory = vc.Memory
 	}
 	return cfg, nil
 }

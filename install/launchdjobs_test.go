@@ -387,3 +387,60 @@ func TestVaultJobsUpdateCheck(t *testing.T) {
 		t.Errorf("auto update-check should run 'update' without --check, got %q", got)
 	}
 }
+
+// TestVaultJobsConsolidate proves the weekly consolidate job renders with no
+// script gate (it is built into the hebb binary, same as daily-digest),
+// scheduled Sunday 18:00, running `hebb consolidate --vault-root <vault>`.
+func TestVaultJobsConsolidate(t *testing.T) {
+	jobs := VaultJobs("/vaults/work", "work", "hebb", t.TempDir(), t.TempDir(), 4321,
+		[]string{"consolidate"}, false, nil, nil)
+	if len(jobs) != 1 {
+		t.Fatalf("expected consolidate to render with no scripts, got %d jobs", len(jobs))
+	}
+	j, ok := jobByLabel(jobs, "local.hebb.work.consolidate")
+	if !ok {
+		t.Fatal("consolidate job not built")
+	}
+	if j.Program[0] != "hebb" {
+		t.Errorf("consolidate Program[0] should be the hebb binary, got %q", j.Program[0])
+	}
+	if got := strings.Join(j.Program, " "); !strings.Contains(got, "consolidate --vault-root /vaults/work") {
+		t.Errorf("consolidate program should run `consolidate --vault-root <vault>`: %v", j.Program)
+	}
+	if len(j.Schedule) != 1 {
+		t.Fatalf("consolidate should have one schedule entry, got %d", len(j.Schedule))
+	}
+	sched := j.Schedule[0]
+	if sched.Weekday != 0 || sched.Hour != 18 || sched.Minute != 0 {
+		t.Errorf("consolidate should be Sundays 18:00 (Weekday 0), got %+v", sched)
+	}
+	if len(j.EnvVars) != 0 {
+		t.Errorf("consolidate job should pin no env vars (pure Go, no interpreter), got %v", j.EnvVars)
+	}
+	if filepath.Base(j.LogPath) != "hebb-work-consolidate.log" {
+		t.Errorf("consolidate log path = %q, want hebb-work-consolidate.log basename", j.LogPath)
+	}
+}
+
+// TestVaultJobsConsolidateAppendsPerJobArgsAndEnv proves consolidate honours
+// [job_args] and [job_env] like every other job.
+func TestVaultJobsConsolidateAppendsPerJobArgsAndEnv(t *testing.T) {
+	jobArgs := map[string][]string{"consolidate": {"--output", "2-Areas/_CUSTOM.md"}}
+	jobEnv := map[string]map[string]string{"consolidate": {"HEBB_NOTIFY_URL": "https://hooks.example.com/x"}}
+	jobs := VaultJobs("/v", "v", "hebb", t.TempDir(), t.TempDir(), 4321,
+		[]string{"consolidate"}, false, jobArgs, jobEnv)
+	j, ok := jobByLabel(jobs, "local.hebb.v.consolidate")
+	if !ok {
+		t.Fatal("consolidate job not built")
+	}
+	if got := strings.Join(j.Program, " "); !strings.Contains(got, "--output 2-Areas/_CUSTOM.md") {
+		t.Errorf("consolidate program should append job_args, got %v", j.Program)
+	}
+	env := map[string]string{}
+	for _, e := range j.EnvVars {
+		env[e.Key] = e.Value
+	}
+	if env["HEBB_NOTIFY_URL"] != "https://hooks.example.com/x" {
+		t.Errorf("consolidate should carry job_env HEBB_NOTIFY_URL, got %v", env)
+	}
+}

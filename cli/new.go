@@ -22,6 +22,9 @@ func newCmd(version string) *cobra.Command {
 			"install it (.hebb/config.toml, memory, first index, agent skills). The MCP\n" +
 			"server comes from the hebb Claude Code plugin, or pass --mcp-json for\n" +
 			"plugin-less wiring. Refuses to scaffold into a non-empty dir.",
+		Example: "  hebb new ~/vaults/personal\n" +
+			"  hebb new ~/vaults/team --mcp-json\n" +
+			"  hebb new ~/vaults/team --codex",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target, err := filepath.Abs(args[0])

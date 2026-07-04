@@ -30,6 +30,19 @@ type VaultConfig struct {
 	Notify      NotifyConfig    `toml:"notify"`
 	Health      HealthConfig    `toml:"health"`
 	Bootstrap   BootstrapConfig `toml:"bootstrap"`
+	Memory      MemoryConfig    `toml:"memory"`
+}
+
+// MemoryConfig is the committed [memory] block. It governs the Phase 3
+// access-log observer (METABOLISM.md): a silent, log-only record of which
+// notes the MCP handlers surface and follow up on, kept purely as future
+// input to the (not-yet-built) memory/decay layer. AccessLog defaults to
+// false: with the flag off, the three instrumented handlers (search_vault,
+// get_context_for_topic, expand_context) make zero writes to access_log.
+// State lives only in the gitignored index.db; it never touches vault
+// markdown and never enters git.
+type MemoryConfig struct {
+	AccessLog bool `toml:"access_log"`
 }
 
 // BootstrapConfig is the committed [bootstrap] block, governing the generated
@@ -48,6 +61,12 @@ type HealthConfig struct {
 	// ProjectStaleDays is the number of days without modification after which a
 	// note under 1-Projects/ is flagged as a PARA-drift candidate. Default 180.
 	ProjectStaleDays int `toml:"project_stale_days"`
+	// CoolingProjectDays is the number of days without a content change inside a
+	// direct subfolder of 1-Projects/ after which that folder is flagged as a
+	// cooling_project candidate (folder-level PARA drift, driven by
+	// content_changed_at rather than mtime, so a bulk mtime bump cannot mask a
+	// genuinely cooling project). Default 30.
+	CoolingProjectDays int `toml:"cooling_project_days"`
 	// SizeThreshold is the estimated token count (len(body)/4) above which a
 	// multi-section note is a split candidate. Default 4000, which targets
 	// the genuinely bloated top few percent of notes (p90 of typical vaults)
@@ -143,6 +162,16 @@ func (h HealthConfig) GetProjectStaleDays() int {
 		return 180
 	}
 	return h.ProjectStaleDays
+}
+
+// GetCoolingProjectDays returns the configured cooling-window threshold for the
+// cooling_project detector, defaulting to 30 when the field is zero (section
+// absent or not set).
+func (h HealthConfig) GetCoolingProjectDays() int {
+	if h.CoolingProjectDays <= 0 {
+		return 30
+	}
+	return h.CoolingProjectDays
 }
 
 // GetSizeThreshold returns the configured token-count threshold above which a
@@ -390,7 +419,7 @@ func DefaultVaultConfig(name string) VaultConfig {
 		Name:        name,
 		ExcludeDirs: append([]string(nil), defaultExcludeDirs...),
 		WebPort:     defaultWebPort,
-		Jobs:        []string{"daily-digest", "action-review", "web", "update-check"},
+		Jobs:        []string{"daily-digest", "action-review", "web", "update-check", "consolidate"},
 	}
 }
 
@@ -405,6 +434,14 @@ func vaultConfigPath(vaultPath string) string {
 // the file existed: when it does not, defaults named after the vault directory
 // are returned so callers always receive a usable config. A malformed file is
 // an error.
+//
+// Section alias: [audit] is the preferred name for the block that has always
+// lived on the Go side as VaultConfig.Health / HealthConfig (the [health]
+// section on disk). Both parse. When a vault's config.toml defines [audit],
+// it wins outright over [health] for this load (whole-section replacement,
+// not a per-key merge), so a vault mid-migration cannot end up with values
+// spliced from both blocks. [health] remains a fully supported alias; it is
+// not deprecated in behaviour, only superseded in the docs.
 func LoadVaultConfig(vaultPath string) (VaultConfig, bool, error) {
 	path := vaultConfigPath(vaultPath)
 	data, err := os.ReadFile(path)
@@ -415,8 +452,25 @@ func LoadVaultConfig(vaultPath string) (VaultConfig, bool, error) {
 		return VaultConfig{}, false, err
 	}
 	var vc VaultConfig
-	if err := toml.Unmarshal(data, &vc); err != nil {
+	md, err := toml.Decode(string(data), &vc)
+	if err != nil {
 		return VaultConfig{}, false, fmt.Errorf("parse %s: %w", path, err)
+	}
+	// [audit] is decoded separately (VaultConfig's Go-side field name stays
+	// Health/HealthConfig to avoid churn) and, when present, replaces whatever
+	// [health] decoded into vc.Health above. HealthConfig contains slices, so
+	// a zero-value struct comparison can't distinguish "absent" from "present
+	// but empty"; MetaData.IsDefined gives an exact answer regardless of
+	// content, and a second decode targeting only the [audit] key keeps the
+	// two sections from merging key-by-key.
+	if md.IsDefined("audit") {
+		var auditShim struct {
+			Audit HealthConfig `toml:"audit"`
+		}
+		if _, err := toml.Decode(string(data), &auditShim); err != nil {
+			return VaultConfig{}, false, fmt.Errorf("parse %s: [audit]: %w", path, err)
+		}
+		vc.Health = auditShim.Audit
 	}
 	return vc, true, nil
 }
@@ -437,7 +491,7 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#   exclude_dirs  - directory names skipped entirely during the index walk:\n")
 	buf.WriteString("#                   notes become invisible to search. Matched at any depth.\n")
 	buf.WriteString("#   web_port      - port for 'hebb serve' (default 4321)\n")
-	buf.WriteString("#   jobs          - launchd jobs to render (daily-digest, action-review, web, update-check)\n")
+	buf.WriteString("#   jobs          - launchd jobs to render (daily-digest, action-review, web, update-check, consolidate)\n")
 	buf.WriteString("#\n")
 	buf.WriteString("#   [ingest]      - ingest policy; travels with the vault so all machines share it\n")
 	buf.WriteString("#     stage       - automation trust level 1-3 (default 1: approve every write).\n")
@@ -480,6 +534,10 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#   [health]      - vault-health detector thresholds (hebb health)\n")
 	buf.WriteString("#     project_stale_days    - days without modification before a 1-Projects/ note\n")
 	buf.WriteString("#                             is flagged as PARA drift (default 180)\n")
+	buf.WriteString("#     cooling_project_days  - days without a content change inside a direct\n")
+	buf.WriteString("#                             subfolder of 1-Projects/ before that folder is\n")
+	buf.WriteString("#                             flagged as cooling_project (default 30). Folder-level\n")
+	buf.WriteString("#                             PARA drift, driven by content change, not mtime.\n")
 	buf.WriteString("#     size_threshold        - estimated token count (len(body)/4) above which a\n")
 	buf.WriteString("#                             multi-section note is a split candidate (default 4000).\n")
 	buf.WriteString("#                             Targets the genuinely bloated top few percent of\n")
@@ -525,6 +583,11 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#                             exclude_from_graph = [\"Vault Daily Digest\", \"Ingest Log\",\n")
 	buf.WriteString("#                                                   \"Action Review\", \"My Open Actions\",\n")
 	buf.WriteString("#                                                   \"Open Actions*\"]\n")
+	buf.WriteString("#\n")
+	buf.WriteString("#   [memory]      - Phase 3 access-log observer (see METABOLISM.md); log-only,\n")
+	buf.WriteString("#                   no scoring or decay yet\n")
+	buf.WriteString("#     access_log  - record which notes the MCP tools surface/follow up on in the\n")
+	buf.WriteString("#                   gitignored index.db, for a future memory layer (default false)\n")
 	buf.WriteString("\n")
 	if err := toml.NewEncoder(&buf).Encode(vc); err != nil {
 		return err

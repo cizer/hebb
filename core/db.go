@@ -247,6 +247,13 @@ CREATE TABLE IF NOT EXISTS index_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS access_log (
+  path TEXT PRIMARY KEY,
+  last_accessed REAL NOT NULL,
+  access_count INTEGER NOT NULL DEFAULT 0,
+  return_count INTEGER NOT NULL DEFAULT 0,
+  followup_count INTEGER NOT NULL DEFAULT 0
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   title, body, tags,
   content='notes', content_rowid='rowid',
@@ -265,3 +272,93 @@ END;
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_path);
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
 `
+
+// accessBumpKind distinguishes the two access-log signals captured from day
+// one (METABOLISM.md Phase 3): a path merely surfaced in a result set
+// (return) versus a path that is the resolved seed of an expand_context call,
+// the stronger "agent chose to follow up on this note" signal (followup).
+type accessBumpKind int
+
+const (
+	accessReturn accessBumpKind = iota
+	accessFollowup
+)
+
+// LogAccess records a batch of access-log bumps in one transaction, one
+// INSERT ... ON CONFLICT per surfaced path (METABOLISM.md Phase 3: "keep the
+// write cheap"). It is the silent observer behind search_vault,
+// expand_context and get_context_for_topic: no scoring, no decay, log only.
+//
+// This is a pure observer and must never affect a tool call's result or
+// error: failures are swallowed (best-effort) by the caller via LogReturns /
+// LogFollowup, not here, so callers that want the raw error for tests can
+// still get it.
+func logAccess(db *sql.DB, bumps map[string]accessBumpKind) error {
+	if len(bumps) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	nowMs := float64(time.Now().UnixNano()) / 1e6
+	stmt, err := tx.Prepare(`
+		INSERT INTO access_log (path, last_accessed, access_count, return_count, followup_count)
+		VALUES (?, ?, 1, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			last_accessed = excluded.last_accessed,
+			access_count = access_count + 1,
+			return_count = return_count + excluded.return_count,
+			followup_count = followup_count + excluded.followup_count`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for path, kind := range bumps {
+		if path == "" {
+			continue
+		}
+		var ret, followup int
+		if kind == accessFollowup {
+			followup = 1
+		} else {
+			ret = 1
+		}
+		if _, err := stmt.Exec(path, nowMs, ret, followup); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// LogReturns bumps return_count/access_count/last_accessed for every path in
+// paths, best-effort: a logging failure is swallowed so it never fails the
+// tool call or alters its output (METABOLISM.md Phase 3). No-op when paths is
+// empty, so a caller need not gate on the config flag itself.
+func LogReturns(db *sql.DB, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	bumps := make(map[string]accessBumpKind, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if _, ok := bumps[p]; !ok {
+			bumps[p] = accessReturn
+		}
+	}
+	_ = logAccess(db, bumps)
+}
+
+// LogFollowup bumps followup_count/access_count/last_accessed for the single
+// resolved seed path of an expand_context call — the stronger "agent chose to
+// follow up on this note" signal (METABOLISM.md Phase 3). Best-effort: errors
+// are swallowed. No-op when path is empty (e.g. the seed did not resolve).
+func LogFollowup(db *sql.DB, path string) {
+	if path == "" {
+		return
+	}
+	_ = logAccess(db, map[string]accessBumpKind{path: accessFollowup})
+}

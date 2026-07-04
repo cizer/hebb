@@ -21,7 +21,10 @@ type ContextResult struct {
 // is gone, since it could surface an unrelated note whose path merely contained
 // the seed string.
 func resolvePath(db *sql.DB, pathOrTitle string) string {
-	p, status := ResolveTargetDB(db, pathOrTitle)
+	// No source note is in context for this seed lookup, so pass "" to disable
+	// the same-directory preference: there is no link, hence no source
+	// directory, that the resolver could prefer.
+	p, status := ResolveTargetDB(db, pathOrTitle, "")
 	if status == Resolved {
 		return p
 	}
@@ -95,9 +98,13 @@ func ExpandContext(db *sql.DB, notePath string, depth, limit int) []ContextResul
 	var noteTitle string
 	db.QueryRow("SELECT title FROM notes WHERE path = ?", resolved).Scan(&noteTitle)
 	if noteTitle != "" {
+		// The directory-suffix pattern embeds noteTitle inside a LIKE pattern, so
+		// any '%', '_' or '\' the title itself contains must be escaped (via
+		// escapeLike, links.go) or it would silently widen the match to unrelated
+		// notes.
 		rows, err := db.Query(`SELECT n.path, n.title, substr(n.body,1,200)
 			FROM links l JOIN notes n ON n.path = l.source_path
-			WHERE l.target = ? OR l.target LIKE ?`, noteTitle, "%/"+noteTitle)
+			WHERE l.target = ? OR l.target LIKE ? ESCAPE '\'`, noteTitle, "%/"+escapeLike(noteTitle))
 		if err == nil {
 			for rows.Next() {
 				var p, t, s string

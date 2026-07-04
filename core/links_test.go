@@ -19,7 +19,7 @@ func newTestIndex(notes map[string]string) *noteIndex {
 
 func TestResolveExactPath(t *testing.T) {
 	ix := newTestIndex(map[string]string{"Alpha.md": "Alpha"})
-	got, status := ix.resolve("Alpha")
+	got, status := ix.resolve("Alpha", "")
 	if status != Resolved || got != "Alpha.md" {
 		t.Fatalf("resolve(Alpha) = (%q, %v), want (Alpha.md, Resolved)", got, status)
 	}
@@ -27,7 +27,7 @@ func TestResolveExactPath(t *testing.T) {
 
 func TestResolveExactPathWithMDSuffix(t *testing.T) {
 	ix := newTestIndex(map[string]string{"Alpha.md": "Alpha"})
-	got, status := ix.resolve("Alpha.md")
+	got, status := ix.resolve("Alpha.md", "")
 	if status != Resolved || got != "Alpha.md" {
 		t.Fatalf("resolve(Alpha.md) = (%q, %v), want (Alpha.md, Resolved)", got, status)
 	}
@@ -37,7 +37,7 @@ func TestResolveBasename(t *testing.T) {
 	// Target has no slash and the only matching note lives in a subdirectory:
 	// the final-segment match should still resolve it.
 	ix := newTestIndex(map[string]string{"sub/Note.md": "Note"})
-	got, status := ix.resolve("Note")
+	got, status := ix.resolve("Note", "")
 	if status != Resolved || got != "sub/Note.md" {
 		t.Fatalf("resolve(Note) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
 	}
@@ -50,7 +50,7 @@ func TestResolveSubpathAnchorsToDirectory(t *testing.T) {
 		"sub/Note.md":   "Note",
 		"other/Note.md": "Note",
 	})
-	got, status := ix.resolve("sub/Note")
+	got, status := ix.resolve("sub/Note", "")
 	if status != Resolved || got != "sub/Note.md" {
 		t.Fatalf("resolve(sub/Note) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
 	}
@@ -59,7 +59,7 @@ func TestResolveSubpathAnchorsToDirectory(t *testing.T) {
 func TestResolveTitle(t *testing.T) {
 	// The target matches no path or basename but does match a note's title.
 	ix := newTestIndex(map[string]string{"2024-01-01.md": "Quarterly Plan"})
-	got, status := ix.resolve("Quarterly Plan")
+	got, status := ix.resolve("Quarterly Plan", "")
 	if status != Resolved || got != "2024-01-01.md" {
 		t.Fatalf("resolve(Quarterly Plan) = (%q, %v), want (2024-01-01.md, Resolved)", got, status)
 	}
@@ -68,7 +68,7 @@ func TestResolveTitle(t *testing.T) {
 func TestResolveStripsFragment(t *testing.T) {
 	// A "#section" fragment is dropped before matching, so the note still resolves.
 	ix := newTestIndex(map[string]string{"Alpha.md": "Alpha"})
-	got, status := ix.resolve("Alpha#Overview")
+	got, status := ix.resolve("Alpha#Overview", "")
 	if status != Resolved || got != "Alpha.md" {
 		t.Fatalf("resolve(Alpha#Overview) = (%q, %v), want (Alpha.md, Resolved)", got, status)
 	}
@@ -78,7 +78,7 @@ func TestResolveAliasAlreadyDropped(t *testing.T) {
 	// The parser strips the alias (text after '|'), so the resolver only ever
 	// sees the pre-pipe text; "Alpha" must resolve cleanly.
 	ix := newTestIndex(map[string]string{"Alpha.md": "Alpha"})
-	got, status := ix.resolve("Alpha")
+	got, status := ix.resolve("Alpha", "")
 	if status != Resolved || got != "Alpha.md" {
 		t.Fatalf("resolve(Alpha) = (%q, %v), want (Alpha.md, Resolved)", got, status)
 	}
@@ -86,7 +86,7 @@ func TestResolveAliasAlreadyDropped(t *testing.T) {
 
 func TestResolveDangling(t *testing.T) {
 	ix := newTestIndex(map[string]string{"Alpha.md": "Alpha"})
-	got, status := ix.resolve("Ghost")
+	got, status := ix.resolve("Ghost", "")
 	if status != Dangling || got != "" {
 		t.Fatalf("resolve(Ghost) = (%q, %v), want (\"\", Dangling)", got, status)
 	}
@@ -99,7 +99,7 @@ func TestResolveAmbiguousBasename(t *testing.T) {
 		"sub/Note.md":   "Note A",
 		"other/Note.md": "Note B",
 	})
-	got, status := ix.resolve("Note")
+	got, status := ix.resolve("Note", "")
 	if status != Ambiguous || got != "" {
 		t.Fatalf("resolve(Note) = (%q, %v), want (\"\", Ambiguous)", got, status)
 	}
@@ -112,7 +112,7 @@ func TestResolveAmbiguousTitle(t *testing.T) {
 		"a.md": "Shared Title",
 		"b.md": "Shared Title",
 	})
-	got, status := ix.resolve("Shared Title")
+	got, status := ix.resolve("Shared Title", "")
 	if status != Ambiguous || got != "" {
 		t.Fatalf("resolve(Shared Title) = (%q, %v), want (\"\", Ambiguous)", got, status)
 	}
@@ -125,7 +125,7 @@ func TestResolvePathBeatsTitle(t *testing.T) {
 		"Alpha.md": "Something Else",
 		"Other.md": "Alpha",
 	})
-	got, status := ix.resolve("Alpha")
+	got, status := ix.resolve("Alpha", "")
 	if status != Resolved || got != "Alpha.md" {
 		t.Fatalf("resolve(Alpha) = (%q, %v), want (Alpha.md, Resolved)", got, status)
 	}
@@ -136,7 +136,7 @@ func TestResolvePathBeatsTitle(t *testing.T) {
 // must keep the note's real on-disk case, not the link's.
 func TestResolveCaseInsensitiveBasename(t *testing.T) {
 	ix := newTestIndex(map[string]string{"Foo.md": "Foo"})
-	got, status := ix.resolve("foo")
+	got, status := ix.resolve("foo", "")
 	if status != Resolved || got != "Foo.md" {
 		t.Fatalf("resolve(foo) = (%q, %v), want (Foo.md, Resolved)", got, status)
 	}
@@ -146,7 +146,7 @@ func TestResolveCaseInsensitiveBasename(t *testing.T) {
 // case-insensitive: an uppercase target resolves to a lowercase-pathed note.
 func TestResolveCaseInsensitiveExactPath(t *testing.T) {
 	ix := newTestIndex(map[string]string{"sub/note.md": "Note"})
-	got, status := ix.resolve("SUB/NOTE")
+	got, status := ix.resolve("SUB/NOTE", "")
 	if status != Resolved || got != "sub/note.md" {
 		t.Fatalf("resolve(SUB/NOTE) = (%q, %v), want (sub/note.md, Resolved)", got, status)
 	}
@@ -156,7 +156,7 @@ func TestResolveCaseInsensitiveExactPath(t *testing.T) {
 // whose title is "note" (differing only in case), via the title precedence.
 func TestResolveCaseInsensitiveTitle(t *testing.T) {
 	ix := newTestIndex(map[string]string{"2024-01-01.md": "note"})
-	got, status := ix.resolve("NOTE")
+	got, status := ix.resolve("NOTE", "")
 	if status != Resolved || got != "2024-01-01.md" {
 		t.Fatalf("resolve(NOTE) = (%q, %v), want (2024-01-01.md, Resolved)", got, status)
 	}
@@ -170,7 +170,7 @@ func TestResolveCaseInsensitiveAmbiguity(t *testing.T) {
 		"one/Note.md": "Note One",
 		"two/note.md": "Note Two",
 	})
-	got, status := ix.resolve("note")
+	got, status := ix.resolve("note", "")
 	if status != Ambiguous || got != "" {
 		t.Fatalf("resolve(note) = (%q, %v), want (\"\", Ambiguous)", got, status)
 	}
@@ -184,7 +184,7 @@ func TestResolveCaseInsensitiveSubpathAnchor(t *testing.T) {
 		"sub/Note.md":   "Note",
 		"other/Note.md": "Note",
 	})
-	got, status := ix.resolve("SUB/note")
+	got, status := ix.resolve("SUB/note", "")
 	if status != Resolved || got != "sub/Note.md" {
 		t.Fatalf("resolve(SUB/note) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
 	}
@@ -203,7 +203,7 @@ func TestResolveCaseOnlyPathCollisionIsAmbiguous(t *testing.T) {
 		map[string]string{"Foo.md": "Foo", "foo.md": "Foo Lower"},
 	)
 	for _, target := range []string{"foo", "FOO.md"} {
-		got, status := ix.resolve(target)
+		got, status := ix.resolve(target, "")
 		if status != Ambiguous || got != "" {
 			t.Errorf("resolve(%q) = (%q, %v), want (\"\", Ambiguous)", target, got, status)
 		}
@@ -248,7 +248,7 @@ func TestResolveTargetDBCaseInsensitive(t *testing.T) {
 	db := reindexedDB(t, vault)
 	defer db.Close()
 
-	got, status := ResolveTargetDB(db, "foo")
+	got, status := ResolveTargetDB(db, "foo", "")
 	if status != Resolved || got != "Foo.md" {
 		t.Fatalf("ResolveTargetDB(foo) = (%q, %v), want (Foo.md, Resolved)", got, status)
 	}
@@ -278,11 +278,11 @@ func TestResolveTargetDBCaseInsensitiveFullPath(t *testing.T) {
 
 	// Full-path, case-mismatched, with the explicit ".md" suffix: must resolve to
 	// the real on-disk path and must not suffer a "sub/note.md.md" miss.
-	if got, status := ResolveTargetDB(db, "SUB/NOTE.md"); status != Resolved || got != "sub/Note.md" {
+	if got, status := ResolveTargetDB(db, "SUB/NOTE.md", ""); status != Resolved || got != "sub/Note.md" {
 		t.Fatalf("ResolveTargetDB(SUB/NOTE.md) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
 	}
 	// A bare basename in a different case still resolves via the basename stage.
-	if got, status := ResolveTargetDB(db, "NOTE"); status != Resolved || got != "sub/Note.md" {
+	if got, status := ResolveTargetDB(db, "NOTE", ""); status != Resolved || got != "sub/Note.md" {
 		t.Fatalf("ResolveTargetDB(NOTE) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
 	}
 }
@@ -308,7 +308,7 @@ func TestResolveTargetDBSubpathAnchors(t *testing.T) {
 	db := reindexedDB(t, vault)
 	defer db.Close()
 
-	if got, status := ResolveTargetDB(db, "dir/Note"); status != Resolved || got != "dir/Note.md" {
+	if got, status := ResolveTargetDB(db, "dir/Note", ""); status != Resolved || got != "dir/Note.md" {
 		t.Fatalf("ResolveTargetDB(dir/Note) = (%q, %v), want (dir/Note.md, Resolved)", got, status)
 	}
 }
@@ -915,6 +915,204 @@ func TestMigrationBackfillDoesNotRunOnFreshDB(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	db2.Close()
+}
+
+// TestResolveSameDirPreferenceOverBasenameAmbiguity is the headline WS1.2 case:
+// a structural basename ("_SERIES-INFO") repeated in two sibling folders would
+// be ambiguous under the plain basename stage, but a link from inside one of
+// those folders must prefer that folder's copy instead.
+func TestResolveSameDirPreferenceOverBasenameAmbiguity(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"Series/One/_SERIES-INFO.md": "Series Info",
+		"Series/Two/_SERIES-INFO.md": "Series Info",
+	})
+	got, status := ix.resolve("_SERIES-INFO", "Series/One/Episode-01.md")
+	if status != Resolved || got != "Series/One/_SERIES-INFO.md" {
+		t.Fatalf("resolve(_SERIES-INFO, Series/One/Episode-01.md) = (%q, %v), want (Series/One/_SERIES-INFO.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveSameDirPreferenceUnrelatedDirStaysAmbiguous proves the preference
+// only kicks in when the source note actually sits in one of the candidate
+// directories: a link from a third, unrelated directory has no same-dir
+// candidate to prefer and must still be reported Ambiguous.
+func TestResolveSameDirPreferenceUnrelatedDirStaysAmbiguous(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"Series/One/_SERIES-INFO.md": "Series Info",
+		"Series/Two/_SERIES-INFO.md": "Series Info",
+	})
+	got, status := ix.resolve("_SERIES-INFO", "Unrelated/Note.md")
+	if status != Ambiguous || got != "" {
+		t.Fatalf("resolve(_SERIES-INFO, Unrelated/Note.md) = (%q, %v), want (\"\", Ambiguous)", got, status)
+	}
+}
+
+// TestResolveSameDirPreferenceEmptySourceUnchanged proves an empty sourcePath
+// (no source note in context) disables the preference entirely, keeping exact
+// pre-existing behaviour: multiple basename hits with no source context is
+// Ambiguous.
+func TestResolveSameDirPreferenceEmptySourceUnchanged(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"Series/One/_SERIES-INFO.md": "Series Info",
+		"Series/Two/_SERIES-INFO.md": "Series Info",
+	})
+	got, status := ix.resolve("_SERIES-INFO", "")
+	if status != Ambiguous || got != "" {
+		t.Fatalf("resolve(_SERIES-INFO, \"\") = (%q, %v), want (\"\", Ambiguous)", got, status)
+	}
+}
+
+// TestResolveSameDirPreferenceDirAnchoredTargetUnchanged proves a dir-anchored
+// target ("sub/Note") is unaffected by the same-dir preference: the anchoring
+// suffix check already narrows to a single candidate before decideWithDir would
+// need to choose, so a link from a third directory still resolves to the
+// anchored note, not its own directory.
+func TestResolveSameDirPreferenceDirAnchoredTargetUnchanged(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"sub/Note.md":   "Note",
+		"other/Note.md": "Note",
+	})
+	got, status := ix.resolve("sub/Note", "elsewhere/Source.md")
+	if status != Resolved || got != "sub/Note.md" {
+		t.Fatalf("resolve(sub/Note, elsewhere/Source.md) = (%q, %v), want (sub/Note.md, Resolved)", got, status)
+	}
+}
+
+// TestResolveSameDirPreferenceTitleTiebreak proves the same-directory
+// preference also applies at the title stage: two notes sharing a title, one of
+// them in the source's own directory, resolves to that same-directory note
+// instead of being reported Ambiguous.
+func TestResolveSameDirPreferenceTitleTiebreak(t *testing.T) {
+	ix := newTestIndex(map[string]string{
+		"Series/One/info.md": "Shared Title",
+		"Series/Two/info.md": "Shared Title",
+	})
+	got, status := ix.resolve("Shared Title", "Series/Two/Episode-01.md")
+	if status != Resolved || got != "Series/Two/info.md" {
+		t.Fatalf("resolve(Shared Title, Series/Two/Episode-01.md) = (%q, %v), want (Series/Two/info.md, Resolved)", got, status)
+	}
+}
+
+// TestFullReindexSameDirPreferenceEndToEnd is the WS1.2 headline scenario
+// end-to-end through a full reindex: two sibling folders each carry their own
+// "_SERIES-INFO" note, and a link from inside one folder resolves to that
+// folder's copy rather than being left ambiguous (NULL).
+func TestFullReindexSameDirPreferenceEndToEnd(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Series/One/_SERIES-INFO.md", "# Series Info\n\nOne's series info.")
+	write("Series/One/Episode-01.md", "# Episode 01\n\nSee [[_SERIES-INFO]].")
+	write("Series/Two/_SERIES-INFO.md", "# Series Info\n\nTwo's series info.")
+	write("Series/Two/Episode-01.md", "# Episode 01\n\nSee [[_SERIES-INFO]].")
+
+	db := reindexedDB(t, vault)
+	defer db.Close()
+
+	got1 := targetPathOf(t, db, "Series/One/Episode-01.md", "_SERIES-INFO")
+	if !got1.Valid || got1.String != "Series/One/_SERIES-INFO.md" {
+		t.Fatalf("Series/One/Episode-01.md target_path = %#v, want Series/One/_SERIES-INFO.md", got1)
+	}
+	got2 := targetPathOf(t, db, "Series/Two/Episode-01.md", "_SERIES-INFO")
+	if !got2.Valid || got2.String != "Series/Two/_SERIES-INFO.md" {
+		t.Fatalf("Series/Two/Episode-01.md target_path = %#v, want Series/Two/_SERIES-INFO.md", got2)
+	}
+}
+
+// TestReResolveForKeysDiffersPerSourceDirectory is the critical regression test
+// for WS1.2: reResolveForKeys must resolve per (source_path, target) row, not
+// once per raw target applied to every row sharing it. Two links, from two
+// different source directories, both carry the raw target "_SERIES-INFO"; each
+// must resolve to its own directory's copy, so the two rows end up with
+// different target_path values despite sharing the same target string. This
+// exercises the incremental path (IndexFile -> reResolveInbound ->
+// reResolveForKeys), indexing the two sibling info notes AFTER the episodes
+// that link to them so the links start dangling and must be re-resolved.
+func TestReResolveForKeysDiffersPerSourceDirectory(t *testing.T) {
+	vault := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(vault, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Series/One/Episode-01.md", "# Episode 01\n\nSee [[_SERIES-INFO]].")
+	write("Series/Two/Episode-01.md", "# Episode 01\n\nSee [[_SERIES-INFO]].")
+
+	cfg := Config{VaultPath: vault, DBPath: filepath.Join(vault, ".hebb", "index.db"), ExcludeDirs: defaultExcludeDirs}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDB(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Index both episodes first, while neither _SERIES-INFO note exists: both
+	// links start dangling (NULL).
+	if err := IndexFile(cfg, db, "Series/One/Episode-01.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := IndexFile(cfg, db, "Series/Two/Episode-01.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Index Series/One's info note: only Series/One/Episode-01.md's link should
+	// resolve (to Series/One's copy); Series/Two's link has no same-dir match yet
+	// and only one candidate exists so far, so it also resolves to the only note
+	// that exists at this point. This step establishes the baseline; the
+	// divergence is asserted after the second info note appears below.
+	write("Series/One/_SERIES-INFO.md", "# Series Info\n\nOne's series info.")
+	if err := IndexFile(cfg, db, "Series/One/_SERIES-INFO.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now index Series/Two's info note too: a second same-basename note appears,
+	// so both links must be RE-resolved (not left stale). This is the moment
+	// reResolveForKeys must update per (source_path, target) row: the row from
+	// Series/One/Episode-01.md must resolve to Series/One's copy, and the row
+	// from Series/Two/Episode-01.md must resolve to Series/Two's copy, even
+	// though both rows carry the identical raw target "_SERIES-INFO".
+	write("Series/Two/_SERIES-INFO.md", "# Series Info\n\nTwo's series info.")
+	if err := IndexFile(cfg, db, "Series/Two/_SERIES-INFO.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	got1 := targetPathOf(t, db, "Series/One/Episode-01.md", "_SERIES-INFO")
+	if !got1.Valid || got1.String != "Series/One/_SERIES-INFO.md" {
+		t.Fatalf("Series/One/Episode-01.md target_path = %#v, want Series/One/_SERIES-INFO.md", got1)
+	}
+	got2 := targetPathOf(t, db, "Series/Two/Episode-01.md", "_SERIES-INFO")
+	if !got2.Valid || got2.String != "Series/Two/_SERIES-INFO.md" {
+		t.Fatalf("Series/Two/Episode-01.md target_path = %#v, want Series/Two/_SERIES-INFO.md", got2)
+	}
+	if got1.String == got2.String {
+		t.Fatalf("both rows resolved to the same path %q; expected different target_path per source directory", got1.String)
+	}
+
+	// FullReindex must agree (the invariant WS1.2 is about).
+	if _, err := FullReindexForce(cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	got1 = targetPathOf(t, db, "Series/One/Episode-01.md", "_SERIES-INFO")
+	got2 = targetPathOf(t, db, "Series/Two/Episode-01.md", "_SERIES-INFO")
+	if !got1.Valid || got1.String != "Series/One/_SERIES-INFO.md" {
+		t.Fatalf("FullReindex Series/One/Episode-01.md target_path = %#v, want Series/One/_SERIES-INFO.md", got1)
+	}
+	if !got2.Valid || got2.String != "Series/Two/_SERIES-INFO.md" {
+		t.Fatalf("FullReindex Series/Two/Episode-01.md target_path = %#v, want Series/Two/_SERIES-INFO.md", got2)
+	}
 }
 
 // reindexedDB opens a fresh index.db under the vault and runs a full reindex,

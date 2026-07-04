@@ -16,7 +16,7 @@ A full config with every section, showing the defaults:
 name = "PersonalVault"
 exclude_dirs = [".obsidian", ".trash", ".hebb", ".git", ".claude"]
 web_port = 4321
-jobs = ["daily-digest", "action-review", "web", "update-check"]
+jobs = ["daily-digest", "action-review", "web", "update-check", "consolidate"]
 
 # Extra CLI args appended to a job's launchd program (keyed by job name).
 [job_args]
@@ -49,7 +49,7 @@ scratch_dirs = ["Daily/Scratch", "Inbox/Staging"]
 enabled = false
 url = ""
 
-[health]
+[audit]
 project_stale_days = 180
 size_threshold = 4000
 # stub_threshold defaults to 20 when omitted.
@@ -60,6 +60,9 @@ report_unresolved_links = false
 
 [bootstrap]
 track_latest = false
+
+[memory]
+access_log = false
 ```
 
 ## Top-level keys
@@ -69,7 +72,7 @@ track_latest = false
 | `name` | string | vault directory name | Human name for the vault. Used in launchd job labels. |
 | `exclude_dirs` | list of string | `[".obsidian", ".trash", ".hebb", ".git", ".claude"]` | Directory names skipped entirely during the index walk, matched at any depth. Notes inside become invisible to search. Setting this replaces the default list, so include the defaults you still want. |
 | `web_port` | int | `4321` | Port for a manual `hebb serve` (override per run with `--port` or `$HEBB_WEB_PORT`). The launchd web service is one machine-global job on `4321` (it serves every vault), so this per-vault value does not change that job. |
-| `jobs` | list of string | `["daily-digest", "action-review", "web", "update-check"]` | Which launchd jobs `hebb install --launchd` renders. Known names: `daily-digest`, `action-review`, `web`, `update-check`. `web` is the single machine-global web service (`local.hebb.web`), rendered once rather than per vault. Unknown names are ignored; automation jobs render only if their script is present. |
+| `jobs` | list of string | `["daily-digest", "action-review", "web", "update-check", "consolidate"]` | Which launchd jobs `hebb install --launchd` renders. Known names: `daily-digest`, `action-review`, `web`, `update-check`, `consolidate`. `web` is the single machine-global web service (`local.hebb.web`), rendered once rather than per vault. Unknown names are ignored; automation jobs render only if their script is present. |
 
 ## `[git]` — git auto-sync
 
@@ -115,8 +118,8 @@ per-user agent memory, so a cloned or second-machine vault inherits it.
 ## `[notify]` — headless notifications
 
 Posts a short summary to a webhook after headless job runs (`daily-digest`,
-`action-review`, `update-check`), so output reaches you without an interactive
-session. The URL is never echoed to logs or stdout.
+`action-review`, `update-check`, `consolidate`), so output reaches you without
+an interactive session. The URL is never echoed to logs or stdout.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -128,23 +131,44 @@ committed, so for a shared or public vault keep the URL out of the file and
 inject `$HEBB_NOTIFY_URL` per job via `[job_env]` instead. Committing the URL is
 fine for a private vault.
 
-## `[health]` — vault-health detectors
+## `[audit]` — vault-health detectors
 
 Thresholds and link-classification settings for `hebb audit` (alias `hebb
-health`), the read-only advisory worklist. Wiki-links are resolved case-insensitively (matching
-Obsidian).
+health`, deprecated and scheduled for removal in a future major), the
+read-only advisory worklist. Wiki-links are resolved case-insensitively
+(matching Obsidian).
+
+`[audit]` is the preferred section name. `[health]` remains accepted as a
+deprecated alias: if a config.toml has neither, defaults apply as documented
+below; if it has only one of the two, that one is used; if it has both,
+`[audit]` wins outright (whole-section, not merged key-by-key) and the
+`[health]` block is ignored. `[health]` will be removed in a future major
+version — rename existing `[health]` blocks to `[audit]` at your convenience.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `project_stale_days` | int | `180` | Days without modification before a `1-Projects/` note is flagged as PARA drift. |
+| `cooling_project_days` | int | `30` | Days without a content change inside a direct subfolder of `1-Projects/` before that folder is flagged as `cooling_project` (folder-level PARA drift). Driven by `content_changed_at`, not mtime, so a bulk rewrite that bumps mtimes without changing content cannot mask a cooling project. Notes sitting directly in the `1-Projects/` root are covered by `para_drift` instead. |
 | `size_threshold` | int | `4000` | Estimated token count (`len(body)/4`) above which a multi-section note is flagged as an oversized split candidate. The default targets the genuinely bloated top few percent of notes in a typical vault; tune this per vault if your median note size differs significantly. |
 | `stub_threshold` | int | `20` | Estimated token count (`len(body)/4`) below which a note is considered near-empty for the stub detector. A note is a stub candidate only when ALL of: token count is below this threshold, it has zero outbound resolved links, and it is not under `expected_orphan_folders`. |
 | `report_unresolved_links` | bool | `false` | List each unresolved wiki-link (a link to a note that does not exist) as a `dangling_link` finding. Obsidian treats these as expected future notes, so they are counted but not listed by default. `hebb audit --unresolved` forces listing for one run. |
 | `attachment_extensions` | list of string | built-in list | File extensions (no leading dot) treated as attachment links and excluded from dangling checks, since hebb does not index non-note files. Empty uses the built-in default (`png`, `jpg`, `pdf`, `pptx`, `canvas`, `excalidraw`, ...). Setting it replaces the default rather than extending it. |
-| `exclude_from_graph` | list of string | empty | Glob patterns matched against a note's title, basename without `.md`, and vault-relative path (any match excludes the note). A matched note is removed from the link graph before computing connected components, k-core coreness, orphans, leaves, and islands, so machine-generated scaffolding that links to hundreds of notes does not dominate those metrics. Content detectors (`dangling_link`, `ambiguous_link`, `para_drift`, `oversized`, `stub`) are unaffected and still run over all notes. Patterns use `path.Match` semantics (shell-style globs over the `/`-separated vault path; `*` does not cross `/`). A malformed pattern fails the run with a clear error rather than being silently ignored. Default: empty (exclude nothing). The `--exclude-from-graph` flag on `hebb health` overrides this list for a single run and is useful for ad-hoc experiments. Example: `exclude_from_graph = ["Vault Daily Digest", "Ingest Log", "Action Review", "My Open Actions", "Open Actions*"]` |
+| `exclude_from_graph` | list of string | empty | Glob patterns matched against a note's title, basename without `.md`, and vault-relative path (any match excludes the note). A matched note is removed from the link graph before computing connected components, k-core coreness, orphans, leaves, and islands, so machine-generated scaffolding that links to hundreds of notes does not dominate those metrics. Content detectors (`dangling_link`, `ambiguous_link`, `para_drift`, `oversized`, `stub`) are unaffected and still run over all notes. Patterns use `path.Match` semantics (shell-style globs over the `/`-separated vault path; `*` does not cross `/`). A malformed pattern fails the run with a clear error rather than being silently ignored. Default: empty (exclude nothing). The `--exclude-from-graph` flag on `hebb audit` overrides this list for a single run and is useful for ad-hoc experiments. Example: `exclude_from_graph = ["Vault Daily Digest", "Ingest Log", "Action Review", "My Open Actions", "Open Actions*"]` |
 
 Folder links (a target ending in `/`, or one naming a real directory) are never
 treated as broken note links.
+
+The `stale_pin` detector has no config key: it enforces the `_NOW.md` pin-board
+contract (each pin is an H2 whose first non-blank line is
+`review-by: YYYY-MM-DD`), flagging any pin past its review-by date and any pin
+missing the line, since a pin that can never decay violates the contract. No
+`_NOW.md` at the vault root means no findings.
+
+The weekly `consolidate` job (see `automation/README.md`) reuses these same
+detectors plus the `[audit] exclude_from_graph`-aware themes report to write
+`2-Areas/_CONSOLIDATION.md`: at most 5 ranked, proposal-only suggestions, each
+citing its source notes as `[[wiki-links]]`. It shares `cooling_project_days`
+and the `stale_pin` contract above; it has no config keys of its own.
 
 ## `[job_args]` and `[job_env]` — per-job overrides
 
@@ -169,6 +193,23 @@ wrote it, for reproducible clones.
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `track_latest` | bool | `false` | When `true`, the committed `bootstrap.sh` installs the **latest** hebb release on a clone instead of the pinned version. Use for vaults you want always-current (ephemeral, CI). Safe, since a newer hebb opens an older vault's index via migrations; you trade reproducibility for freshness. (`HEBB_VERSION=latest ./bootstrap.sh` also forces latest for a single run without changing this.) |
+
+## `[memory]` — access-log observer (Phase 3)
+
+Pure observation for the future memory layer described in `METABOLISM.md`
+Phase 3: a silent record of which notes the MCP tools (`search_vault`,
+`get_context_for_topic`, `expand_context`) surface and follow up on. No
+scoring, no decay, no consolidation — just a log. Off by default, so it costs
+nothing until you opt in.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `access_log` | bool | `false` | When `true`, every path returned by `search_vault` / `get_context_for_topic` / `expand_context` gets `return_count` and `access_count` bumped in an `access_log` table, and the resolved seed note of an `expand_context` call additionally gets `followup_count` bumped (the stronger "agent chose to follow up" signal). When `false` (default), the three tools make zero writes. |
+
+The `access_log` table lives only in the gitignored `<vault>/.hebb/index.db`;
+it never touches your notes and never enters git. It is rebuilt fresh on a
+full reindex like the rest of the index, so treat it as ephemeral, machine-local
+observation data, not a durable record.
 
 ## Two distinctions worth remembering
 

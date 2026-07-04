@@ -15,6 +15,14 @@ type IndexResult struct {
 	Removed int
 }
 
+// maxIndexFileBytes caps the size of a markdown file the indexer will read.
+// This is a DoS guard: without it, a single huge file dropped into the vault
+// (accidentally or otherwise) would be read fully into memory and hashed on
+// every reindex/watch event, and its size is checked via os.Stat before any
+// read is attempted. There is no config knob; a genuine note this large is not
+// a realistic case the indexer needs to support.
+const maxIndexFileBytes = 5 << 20 // 5 MiB
+
 // FullReindex walks the vault, parses changed markdown files and upserts the
 // index, removing entries whose files no longer exist on disk. Files whose
 // on-disk mtime matches the stored mtime are skipped without being re-parsed,
@@ -87,6 +95,15 @@ func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
 				delete(existing, rel)
 				continue
 			}
+		}
+		// DoS guard: a file over maxIndexFileBytes is skipped without being read.
+		// It is treated like an unreadable file for indexing purposes, but unlike
+		// one it must not be silently dropped from the index if a smaller version
+		// was indexed previously, so it is removed from existing here to protect
+		// any prior entry from the removal pass below.
+		if info.Size() > maxIndexFileBytes {
+			delete(existing, rel)
+			continue
 		}
 		content, rerr := readFile(full)
 		if rerr != nil {

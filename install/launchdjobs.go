@@ -32,10 +32,11 @@ func Slugify(s string) string {
 }
 
 // VaultJobs builds launchd job specs for the named jobs of a vault. The web,
-// update-check and daily-digest jobs are built in (they run the hebb binary;
-// `hebb digest` no longer needs a materialised script). The action-review job
-// is only included when its script exists under <assetRoot>/automation, so no
-// broken plist is written if the automation script is absent. updateAuto makes
+// update-check, daily-digest and consolidate jobs are built in (they run the
+// hebb binary; `hebb digest` and `hebb consolidate` need no materialised
+// script). The action-review job is only included when its script exists
+// under <assetRoot>/automation, so no broken plist is written if the
+// automation script is absent. updateAuto makes
 // the update-check job install updates
 // rather than only reporting them. jobArgs carries the per-job extra arguments
 // from config.toml's [job_args]; they are appended to the matching job's
@@ -106,6 +107,19 @@ func VaultJobs(vaultPath, slug, hebbBin, assetRoot, home string, port int, names
 				WorkingDir: vaultPath,
 				Schedule:   []launchd.CalInterval{{Weekday: -1, Hour: 7, Minute: 3}},
 				LogPath:    logPath("action-review"),
+			})
+		case "consolidate":
+			// No script gate, same reasoning as daily-digest: `hebb consolidate` is
+			// built into the binary, so the job needs only the hebb binary. Weekly
+			// on Sunday evening, ahead of the Monday daily-digest, so the digest's
+			// [[_CONSOLIDATION]] link points at a fresh review by the start of the
+			// week.
+			jobs = append(jobs, launchd.Job{
+				Label:      label("consolidate"),
+				Program:    []string{hebbBin, "consolidate", "--vault-root", vaultPath},
+				WorkingDir: vaultPath,
+				Schedule:   []launchd.CalInterval{{Weekday: 0, Hour: 18, Minute: 0}}, // Sundays 18:00
+				LogPath:    logPath("consolidate"),
 			})
 		case "update-check":
 			args := []string{hebbBin, "update", "--check"}

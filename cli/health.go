@@ -18,9 +18,12 @@ func healthCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "audit",
 		Aliases: []string{"health"},
-		Short:   "Audit vault content: dangling links, PARA drift, oversized notes",
+		Short:   "Audit vault content: dangling links, PARA drift, oversized notes (alias: health — deprecated, will be removed in a future major)",
 		Long: "Runs deterministic, read-only detectors over the vault index and prints a\n" +
 			"worklist of findings grouped by type. Repairs nothing.\n\n" +
+			"'audit' is the command name; 'hebb health' remains as a deprecated alias\n" +
+			"and will be removed in a future major version. Scripts and muscle memory\n" +
+			"should move to 'hebb audit'.\n\n" +
 			"Detectors (Phase 1):\n" +
 			"  dangling_link   wiki-links with no matching note\n" +
 			"  ambiguous_link  wiki-links that match more than one note\n" +
@@ -32,7 +35,8 @@ func healthCmd() *cobra.Command {
 			"broken note links. Links to notes that do not exist yet (Obsidian\n" +
 			"'unresolved links', often intentional future notes) are counted but not\n" +
 			"listed by default; pass --unresolved to list them, or set\n" +
-			"report_unresolved_links = true under [health] in config.toml.\n\n" +
+			"report_unresolved_links = true under [audit] in config.toml ([health] is\n" +
+			"also still accepted there, as a deprecated alias).\n\n" +
 			"Unlike 'hebb doctor', this command exits 0 even when findings exist: the\n" +
 			"output is an advisory worklist of vault-content issues, not a pass/fail\n" +
 			"install check. A non-zero exit signals an operational failure only (e.g.\n" +
@@ -118,7 +122,7 @@ func healthCmd() *cobra.Command {
 
 // typeOrder is the fixed display order for finding types. Types not listed here
 // appear last in lexicographic order (forward-compatibility with future detectors).
-var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "oversized", "stub", "orphan", "leaf", "island"}
+var typeOrder = []string{"dangling_link", "ambiguous_link", "para_drift", "cooling_project", "stale_pin", "oversized", "stub", "orphan", "leaf", "island"}
 
 // printGraphSummary writes the one-line structural graph summary to cmd's
 // output writer. It is printed above the findings worklist in text mode.

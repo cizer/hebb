@@ -52,14 +52,14 @@ func newRoot(version string) *cobra.Command {
 	group := map[string]string{
 		"new": "setup", "install": "setup", "vaults": "setup",
 		"search": "use", "serve": "use", "mcp": "use", "sync": "use",
-		"doctor": "maintain", "audit": "maintain", "index": "maintain", "update": "maintain", "unwire": "maintain",
-		"codex": "agents", "digest": "agents", "notify": "agents", "restart-services": "agents",
+		"doctor": "maintain", "audit": "maintain", "eval": "maintain", "themes": "maintain", "index": "maintain", "update": "maintain", "unwire": "maintain", "version": "maintain",
+		"codex": "agents", "digest": "agents", "consolidate": "agents", "notify": "agents", "restart-services": "agents",
 	}
 	for _, cmd := range []*cobra.Command{
 		newCmd(version), installCmd(version), vaultsCmd(),
 		searchCmd(), serveCmd(), mcpCmd(version), syncCmd(),
-		doctorCmd(), healthCmd(), indexCmd(), updateCmd(version), resetCmd(),
-		codexCmd(), digestCmd(), notifyCmd(), restartServicesCmd(),
+		doctorCmd(), healthCmd(), evalCmd(), themesCmd(), indexCmd(), updateCmd(version), resetCmd(), versionCmd(version),
+		codexCmd(), digestCmd(), consolidateCmd(), notifyCmd(), restartServicesCmd(),
 	} {
 		if g, ok := group[cmd.Name()]; ok {
 			cmd.GroupID = g
@@ -85,6 +85,10 @@ func indexCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "index",
 		Short: "Rebuild the search index (normally automatic)",
+		Long: "Walk the vault, parse markdown files that changed since the last index\n" +
+			"(by mtime), and upsert them into the search index, removing entries for\n" +
+			"files that no longer exist. Install and search both refresh automatically,\n" +
+			"so this is mainly for forcing a rebuild after bulk edits outside hebb.",
 		RunE: func(*cobra.Command, []string) error {
 			cfg, db, err := openVault()
 			if err != nil {
@@ -111,7 +115,14 @@ func searchCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "search [query]",
 		Short: "Search the vault",
-		Args:  cobra.MinimumNArgs(1),
+		Long: "Full-text search over the vault's indexed notes, ranked by relevance.\n" +
+			"Refreshes changed files before querying, so a note written moments ago is\n" +
+			"found even without a prior 'hebb index'. Narrow results with --tag or\n" +
+			"--path-prefix, or raise --limit for more hits.",
+		Example: "  hebb search \"quarterly planning\"\n" +
+			"  hebb search meeting --tag project-x --limit 5\n" +
+			"  hebb search retro --path-prefix 1-Projects/",
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cfg, db, err := openVault()
 			if err != nil {
@@ -124,7 +135,8 @@ func searchCmd() *cobra.Command {
 			if cfg.AutoRefresh {
 				_, _ = core.RefreshChanged(cfg, db)
 			}
-			results, err := core.Search(db, strings.Join(args, " "), limit, tag, prefix)
+			query := strings.Join(args, " ")
+			results, err := core.Search(db, query, limit, tag, prefix)
 			if err != nil {
 				return err
 			}
@@ -133,7 +145,13 @@ func searchCmd() *cobra.Command {
 				fmt.Fprintf(w, "%s\t%s\n", r.Title, r.Path)
 			}
 			w.Flush()
-			fmt.Printf("(%d results)\n", len(results))
+			if len(results) == 0 {
+				fmt.Printf("No matches for %q.\n", query)
+				fmt.Println("  try a broader or different term")
+				fmt.Println("  if the vault's content recently changed, run `hebb index` and search again")
+			} else {
+				fmt.Printf("(%d results)\n", len(results))
+			}
 			return nil
 		},
 	}
@@ -147,6 +165,11 @@ func mcpCmd(version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
 		Short: "Run the MCP server over stdio (Claude, Codex, any MCP client)",
+		Long: "Run hebb's Model Context Protocol server over stdio, exposing the vault's\n" +
+			"search, notes and context tools to an MCP client such as Claude Code,\n" +
+			"Claude Desktop or Codex. Normally launched by the client itself (via the\n" +
+			"hebb plugin or a generated .mcp.json / config.toml entry from 'hebb\n" +
+			"install'), not run by hand.",
 		RunE: func(*cobra.Command, []string) error {
 			cfg, err := core.ResolveVault(flagVault, flagDB)
 			if err != nil {
@@ -165,6 +188,8 @@ func serveCmd() *cobra.Command {
 		Long: "Serve the search and health UI on one loopback port for every vault hebb\n" +
 			"knows about (the current vault plus the machine registry), switchable in\n" +
 			"the UI. One server on one port, so multiple vaults never collide.",
+		Example: "  hebb serve\n" +
+			"  hebb serve --port 5555",
 		RunE: func(*cobra.Command, []string) error {
 			targets, err := buildServeTargets()
 			if err != nil {

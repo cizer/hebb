@@ -18,6 +18,9 @@ func syncCmd() *cobra.Command {
 			"nothing to do. Never force-pushes; a conflicting pull is aborted and\n" +
 			"reported so you resolve it by hand. Uses your existing git remote and\n" +
 			"credentials. Needs the vault to be a git repository with an upstream.",
+		Example: "  hebb sync\n" +
+			"  hebb sync --message \"end of day\"\n" +
+			"  hebb sync --no-push",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := core.ResolveVault(flagVault, flagDB)
 			if err != nil {

@@ -558,6 +558,45 @@ func TestHealthConfigAttachmentExtensionsCustom(t *testing.T) {
 	}
 }
 
+// TestHealthConfigCoolingProjectDaysDefault proves cooling_project_days
+// defaults to 30 when the section is absent or the key unset, and that a
+// configured value wins.
+func TestHealthConfigCoolingProjectDaysDefault(t *testing.T) {
+	if got := (HealthConfig{}).GetCoolingProjectDays(); got != 30 {
+		t.Errorf("GetCoolingProjectDays() default = %d, want 30", got)
+	}
+	if got := (HealthConfig{CoolingProjectDays: 7}).GetCoolingProjectDays(); got != 7 {
+		t.Errorf("GetCoolingProjectDays() = %d, want 7 (configured value)", got)
+	}
+}
+
+// TestHealthConfigCoolingProjectDaysParsesFromTOML proves cooling_project_days
+// parses from the preferred [audit] section name.
+func TestHealthConfigCoolingProjectDaysParsesFromTOML(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[audit]
+cooling_project_days = 45
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Health.CoolingProjectDays != 45 {
+		t.Errorf("[audit] cooling_project_days = %d, want 45", got.Health.CoolingProjectDays)
+	}
+	if got.Health.GetCoolingProjectDays() != 45 {
+		t.Errorf("GetCoolingProjectDays() = %d, want 45", got.Health.GetCoolingProjectDays())
+	}
+}
+
 // TestHealthConfigParsesFromTOML proves the new [health] keys parse from TOML.
 func TestHealthConfigParsesFromTOML(t *testing.T) {
 	vault := t.TempDir()
@@ -624,10 +663,120 @@ func TestGeneratedConfigDocumentsHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(b)
-	for _, want := range []string{"[health]", "report_unresolved_links", "attachment_extensions"} {
+	for _, want := range []string{"[health]", "report_unresolved_links", "attachment_extensions", "cooling_project_days"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("generated config.toml missing %q in commented defaults", want)
 		}
+	}
+}
+
+// TestAuditSectionAloneWorks proves [audit] alone (no [health] block at all)
+// populates vc.Health, since [audit] is the preferred section name for the
+// same underlying HealthConfig.
+func TestAuditSectionAloneWorks(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[audit]
+project_stale_days = 30
+report_unresolved_links = true
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Health.GetProjectStaleDays() != 30 {
+		t.Errorf("[audit] project_stale_days = %d, want 30", got.Health.GetProjectStaleDays())
+	}
+	if !got.Health.ReportUnresolvedLinks {
+		t.Error("[audit] report_unresolved_links = false, want true")
+	}
+}
+
+// TestHealthSectionAloneStillWorks proves the legacy [health] section name
+// still parses into vc.Health when [audit] is absent.
+func TestHealthSectionAloneStillWorks(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[health]
+project_stale_days = 45
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Health.GetProjectStaleDays() != 45 {
+		t.Errorf("[health] project_stale_days = %d, want 45", got.Health.GetProjectStaleDays())
+	}
+}
+
+// TestAuditWinsOverHealthWhenBothPresent proves that when a config.toml
+// defines both [audit] and [health], [audit] wins outright (whole-section
+// replacement, not a per-key merge of the two blocks).
+func TestAuditWinsOverHealthWhenBothPresent(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[health]
+project_stale_days = 45
+stub_threshold = 99
+
+[audit]
+project_stale_days = 30
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Health.GetProjectStaleDays() != 30 {
+		t.Errorf("both present: project_stale_days = %d, want 30 ([audit] should win)", got.Health.GetProjectStaleDays())
+	}
+	// Whole-section replacement: [health]'s stub_threshold must NOT leak
+	// through since [audit] does not set it (accessor falls back to default).
+	if got.Health.GetStubThreshold() != 20 {
+		t.Errorf("both present: stub_threshold = %d, want 20 default (no merge from [health])", got.Health.GetStubThreshold())
+	}
+}
+
+// TestNeitherAuditNorHealthDefaults proves that when neither section is
+// present, vc.Health is the zero value and all accessors fall back to their
+// documented defaults.
+func TestNeitherAuditNorHealthDefaults(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(`name = "Work"`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Health.GetProjectStaleDays() != 180 {
+		t.Errorf("neither section: project_stale_days = %d, want 180 default", got.Health.GetProjectStaleDays())
+	}
+	if got.Health.ReportUnresolvedLinks {
+		t.Error("neither section: ReportUnresolvedLinks = true, want false default")
 	}
 }
 
@@ -644,5 +793,104 @@ func TestResolveVaultHonorsConfigExcludeDirs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.ExcludeDirs, vc.ExcludeDirs) {
 		t.Errorf("exclude dirs = %v, want %v (from config.toml)", cfg.ExcludeDirs, vc.ExcludeDirs)
+	}
+}
+
+// TestMemoryConfigDefaultOff proves the [memory] access_log flag defaults to
+// false (the zero value) when the section is absent, matching METABOLISM.md
+// Phase 3's "off by default, zero writes" contract.
+func TestMemoryConfigDefaultOff(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(`name = "Work"`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if got.Memory.AccessLog {
+		t.Error("absent [memory]: AccessLog = true, want false (default off)")
+	}
+}
+
+// TestMemoryConfigParsesFromTOML proves [memory] access_log parses from TOML.
+func TestMemoryConfigParsesFromTOML(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `name = "Work"
+
+[memory]
+access_log = true
+`
+	if err := os.WriteFile(filepath.Join(vault, ".hebb", "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if !got.Memory.AccessLog {
+		t.Error("[memory] access_log = false, want true")
+	}
+}
+
+// TestMemoryConfigSaveRoundTrip proves the [memory] block survives Save/Load.
+func TestMemoryConfigSaveRoundTrip(t *testing.T) {
+	vault := t.TempDir()
+	want := DefaultVaultConfig("RT")
+	want.Memory = MemoryConfig{AccessLog: true}
+	if err := want.Save(vault); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := LoadVaultConfig(vault)
+	if err != nil {
+		t.Fatalf("LoadVaultConfig: %v", err)
+	}
+	if !got.Memory.AccessLog {
+		t.Error("round-trip [memory] access_log = false, want true")
+	}
+}
+
+// TestGeneratedConfigDocumentsMemory proves Save documents the [memory]
+// section and its access_log key in the generated config.toml header comment.
+func TestGeneratedConfigDocumentsMemory(t *testing.T) {
+	vault := t.TempDir()
+	vc := DefaultVaultConfig("Docs")
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(vault, ".hebb", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(b)
+	for _, want := range []string{"[memory]", "access_log"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated config.toml missing %q in commented defaults", want)
+		}
+	}
+}
+
+// TestResolveVaultThreadsMemoryConfig proves ResolveVault copies [memory]
+// access_log from config.toml into the runtime core.Config the MCP handlers
+// hold, the same way HealthConfig is threaded (core/config.go ResolveVault).
+func TestResolveVaultThreadsMemoryConfig(t *testing.T) {
+	vault := t.TempDir()
+	vc := DefaultVaultConfig("T")
+	vc.Memory = MemoryConfig{AccessLog: true}
+	if err := vc.Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ResolveVault(vault, "")
+	if err != nil {
+		t.Fatalf("ResolveVault: %v", err)
+	}
+	if !cfg.Memory.AccessLog {
+		t.Error("ResolveVault did not thread [memory] access_log into core.Config")
 	}
 }

@@ -10,6 +10,7 @@ Every script takes its vault from `--vault-root`; nothing is hardcoded.
 | --- | --- | --- | --- |
 | `daily-digest` | `hebb digest` (Go, in the binary) | weekdays 08:00 | Refreshes the index, then writes a rolling digest of notes whose content changed since the last run to `2-Areas/_DAILY-DIGEST.md`. |
 | `action-review` | `generate-action-review.py` | Sundays 07:03 | Collates open actions from every `OPEN-ACTIONS.md` register into a prioritised `2-Areas/_ACTION-REVIEW.md` + a `.json` export. |
+| `consolidate` | `hebb consolidate` (Go, in the binary) | Sundays 18:00 | Refreshes the index, then writes at most 5 ranked, proposal-only suggestions (stale pins, cooling projects, recurring themes) to `2-Areas/_CONSOLIDATION.md`, each citing its source notes as `[[wiki-links]]`. Action via the vault-gardener skill; the daily digest links to it once it exists. |
 
 The digest is built into the `hebb` binary (`hebb digest`), not a Python script.
 Its selection is driven by the index's content-level change detection, not by
@@ -28,8 +29,17 @@ has no grantable identity, so its child's reads into a protected vault folder
 installed plists for this and points at the grant step. Because the digest is
 pure Go, the job needs no `PYTHON` env and no materialised script.
 
+The weekly consolidate job is likewise built into the `hebb` binary
+(`hebb consolidate`), not a script. It reuses the same temporal detectors as
+`hebb audit` (`stale_pin`, `cooling_project`) plus the `hebb themes`
+recurrence report, and is proposal-only: it never edits vault content, and the
+note is fully overwritten each run rather than accumulating history (git keeps
+that). Its `Program[0]` is likewise the `hebb` binary, for the same TCC
+attribution reason as the digest.
+
 Overrides: `hebb digest` takes `--output` (digest note path) and `--date`
-(override the run date, for testing). The action review takes
+(override the run date, for testing). `hebb consolidate` takes the same two
+flags. The action review takes
 `--output`/`--json-output`, `--register-name`, `--owner` (the name highlighted
 under "My Actions"; empty by default), and `--mine-output` (off by default; with
 `--owner`, also writes a personal worklist of just the owner's actions,
@@ -86,6 +96,7 @@ note write. `hebb doctor` warns when `[notify] enabled = true` but no URL resolv
 - `action-review`: shells out to `hebb notify` after writing the review note; uses
   `$HEBB_BIN` (pinned by the rendered launchd job) so it works without hebb on PATH.
 - `update-check`: sends available version via `hebb update --check` (in Go).
+- `consolidate`: sends the proposal count via `hebb consolidate` (in Go).
 
 `hebb notify "text"` sends a one-line message directly: useful for testing or
 custom scripts. Exits non-zero on HTTP failure.

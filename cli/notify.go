@@ -85,12 +85,15 @@ func SendNotification(url, text string) error {
 	return nil
 }
 
-// resolveVaultPath returns the effective vault path for notify: flagVault if
-// set, otherwise the flagDB-derived path (same resolution openVault uses, but
-// without opening the DB since notify does not need the index).
+// resolveVaultPath returns the effective vault path for notify (and update):
+// the same flag -> $HEBB_VAULT -> cwd walk-up resolution every other command
+// uses via core.ResolveVault, without opening the index db since neither
+// caller needs it. Returns "" if no vault resolves, matching the previous
+// behaviour of falling through to LoadVaultConfig's "not found" defaults.
 func resolveVaultPath() string {
-	if flagVault != "" {
-		return flagVault
+	cfg, err := core.ResolveVault(flagVault, flagDB)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return cfg.VaultPath
 }

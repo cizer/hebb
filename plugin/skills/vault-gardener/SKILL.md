@@ -1,6 +1,6 @@
 ---
 name: vault-gardener
-description: Use this skill to remediate vault-health findings, acting on the worklist that `hebb audit` produces. Triggers on "garden the vault", "clean up the vault", "tidy the vault", "fix vault health", "resolve the audit findings", "work the health worklist", "fix the ambiguous links", "fix the dangling links", "archive the done projects", "deal with the stubs", or any request to act on what `hebb audit` (or the health dashboard) reports. Don't trigger for filing new incoming content (use vault-ingest), for retrieval-only questions, or for edits to a file the user is already working in.
+description: Use this skill to remediate vault-health findings, acting on the worklist that `hebb audit` produces. Triggers on "garden the vault", "clean up the vault", "tidy the vault", "fix vault health", "resolve the audit findings", "work the health worklist", "fix the ambiguous links", "fix the dangling links", "archive the done projects", "deal with the stubs", "work the consolidation review", "act on the consolidation proposals", "cooling projects", "stale pins", or any request to act on what `hebb audit` (or the health dashboard) reports. Don't trigger for filing new incoming content (use vault-ingest), for retrieval-only questions, or for edits to a file the user is already working in.
 ---
 
 # Vault Gardener
@@ -43,6 +43,26 @@ Run `hebb audit --json` to get the findings as a JSON array. Each finding has
 counts. Ask which category (or specific finding) to work, or take the one they
 named. For the full unresolved-link list, use `hebb audit --json --unresolved`.
 
+### 1a. Or start from the consolidation review
+
+If the user asks to garden the vault generally, or points at the consolidation
+review, also read `2-Areas/_CONSOLIDATION.md` alongside the `hebb audit`
+output. It is a weekly-generated surface (H1 "Consolidation review", a
+"## Proposals" section of numbered proposals citing sources as wiki-links, or
+"Nothing needs attention this week."). Treat each proposal as a finding and
+work it one at a time, the same as any other:
+
+- A pin-refresh proposal → the `stale_pin` playbook.
+- A quiet-project proposal → the `cooling_project` playbook.
+- A "keeps coming up — consider pinning it or giving it a map-of-content"
+  proposal → propose **either** a `_NOW.md` pin with a `review-by` date **or**
+  an additive map-of-content note (links plus one line each; never rewritten
+  prose, never a note tagged regulated/compliance — the METABOLISM Phase 4
+  carve-out). Confirm which, then apply.
+
+Never mark up `_CONSOLIDATION.md` itself beyond noting what was actioned; it
+regenerates wholesale on its own weekly schedule.
+
 ### 2. Work one finding at a time, by type
 
 **`ambiguous_link`** (a `[[link]]` that matches more than one note)
@@ -58,6 +78,36 @@ named. For the full unresolved-link list, use `hebb audit --json --unresolved`.
 2. Propose moving it to the archive folder with a tombstone (`archived_on`,
    `archived_reason`), keeping all backlinks intact.
 3. Confirm, then move (write the note to the archive path; never delete).
+
+**`cooling_project`** (a `1-Projects/<folder>/` with no content change in a
+while, e.g. Detail `no note changed in ~40 days (3 notes)`)
+1. Read the folder's index note and its most recently changed notes to judge
+   state.
+2. Propose exactly one of:
+   - **Done** — archive the whole folder to `4-Archives/`, preserving its
+     internal structure (a move, not a rewrite; git history keeps the trail).
+   - **Alive but stalled** — restate the next step in the project's index
+     note, or add/refresh a `_NOW.md` pin with a `review-by` date.
+   - **Genuinely long-cycle** — this cadence is normal for this project; note
+     that in the project index, or suggest raising `cooling_project_days` for
+     the vault (a `CLAUDE.md`/config change, not a note edit).
+3. Confirm before any move or edit.
+
+**`stale_pin`** (a `_NOW.md` pin past review-by, e.g. Detail `pin "<name>"
+past review-by YYYY-MM-DD`, or `pin "<name>" has no review-by date`)
+1. Read the pin's heading and body in `_NOW.md`.
+2. `mcp__hebb__search_vault` for recent notes that resolve or supersede it.
+3. Propose one of:
+   - **Still live** — refresh the `review-by` date.
+   - **Changed** — rewrite the pin to reflect the current state, with a fresh
+     `review-by`.
+   - **Done or superseded** — remove the pin section. Removal is fine here:
+     `_NOW.md` is a pointer surface, not the record; the underlying notes stay
+     untouched.
+   - A pin with no `review-by` line gets one added regardless of which of the
+     above applies.
+4. Confirm each change; `_NOW.md` is small enough to edit pin-by-pin rather
+   than batching.
 
 **`stub`** (a near-empty note that links nowhere)
 1. `mcp__hebb__search_vault` / `get_context_for_topic` on its title to find a

@@ -84,6 +84,10 @@ Vault-ingest conventions throughout. Three meeting-specific disciplines:
 
 **Actions discipline:** capture in the canonical note; ask once before promoting to any register; "leave actions for now" stands for the session.
 
+**Carry-forwards ("next time").** When the transcript or chat explicitly parks something for a future occurrence ("next time", "park this", "bring back", "let's pick this up again") capture it under a `## Next time` section on the occurrence note being filed. If the series folder has a `_SERIES-INFO` note with its own `## Next time` section, mirror each carried item there too, with a wiki-link back to the occurrence note it came from — that register is what a future `agenda` skill will read. When filing a **new** occurrence in a series, check that series register's `## Next time` items first: any carried item that shows up on the new agenda or transcript has landed, so remove it from the register rather than letting it linger as a duplicate.
+
+**Opportunistic `_NOW.md` refresh.** If the meeting clearly resolves or supersedes a pin on the vault's `_NOW.md`, refresh its `review-by` date or remove the pin as part of the write step — never delete a pin silently; note in the report which pin changed and why.
+
 ### 7. Log and report
 
 No manual reindex: writes (including the log row) are picked up by the index on the next search, and the file watcher reindexes live edits, so `mcp__hebb__reindex_vault` is only an escape hatch. If the vault keeps an ingest log, append one meetings-sweep row recording the **cutoff** (end of the calendar window swept), what was filed/enriched/skipped, chat-coverage caveats, the run stage, and flagged items. Close with the date filed under, the stage, clickable links, what was skipped and why, and anything awaiting a decision.

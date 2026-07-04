@@ -56,10 +56,14 @@ type Options struct {
 //   - assets:                materialise embedded automation scripts to DataDir
 //     (unless --asset-root points at a live repo checkout), for launchd jobs
 //   - memory (if Home):      symlink <vault>/.hebb/memory into the Claude project dir
+//   - skills (if Home):      copy the bundled agent skills into ~/.claude/skills
+//     (unless SkipSkills)
 //   - launchd (if requested): render the vault's jobs
 //
-// Skills are delivered by the hebb Claude Code plugin (see plugin/), not by
-// install. Every step is idempotent.
+// Skills are deliberately delivered twice: the bundled copy installed here
+// serves plain Claude Code (and Codex, via `hebb codex`), while the hebb
+// Claude Code plugin (see plugin/) ships the same skill files namespaced
+// (hebb:<name>) when installed. Every step is idempotent.
 func Run(opts Options) (Report, error) {
 	rep, err := VaultLocal(opts.VaultPath)
 	if err != nil {
@@ -108,7 +112,7 @@ func Run(opts Options) (Report, error) {
 	}
 
 	// Materialise automation scripts so launchd jobs can find them. Skills are
-	// no longer materialised or linked: the plugin ships them.
+	// not part of this step: they are copied into ~/.claude/skills below.
 	assetDir, err := resolveAssetDir(&rep, opts)
 	if err != nil {
 		return rep, err

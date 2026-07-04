@@ -12,8 +12,10 @@ conventions and structure.
   127.0.0.1.
 - Open this directory in Claude to use the bundled MCP tools.
 
-This vault is self-contained: `.hebb/config.toml` and `.mcp.json` identify and
-wire it, and the search index (`.hebb/index.db`) is rebuilt on demand.
+This vault is self-contained: `.hebb/config.toml` identifies it, and the
+search index (`.hebb/index.db`) is rebuilt on demand. The default MCP wiring
+is via the Claude Code plugin / managed settings; a per-vault `.mcp.json` is
+opt-in (`hebb install --mcp-json`) for setups that need it explicitly.
 
 ## Setup on a new machine
 

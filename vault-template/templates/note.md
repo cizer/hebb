@@ -4,7 +4,7 @@ tags: []
 created:
 ---
 
-#
+# Note title
 
 ## Notes
 

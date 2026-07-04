@@ -25,14 +25,24 @@ indexed.
   assemble related context, so link generously.
 - **Tags:** `#like-this` inline, or a `tags:` list in frontmatter. Tags drive
   filtering and topic bundles.
-- **Templates:** start a new note from `templates/note.md`.
+- **Templates:** start a new note from `templates/note.md`. Meeting series use
+  `templates/series-info.md` instead — see `_NOW.md` and that template for the
+  detail.
+- **`_NOW.md`:** a front-and-centre pin board, not a durable index. Each pin
+  carries a `review-by: YYYY-MM-DD` line; `hebb audit` flags any pin past that
+  date as `stale_pin`. Refresh the date or remove the pin — don't let a flagged
+  one linger.
+- **Ingest folders on demand:** `Notes/`, `Journal/` and `OPEN-ACTIONS.md` are
+  not part of this scaffold. The ingest skills create them the first time
+  they're needed, following the conventions in the skills themselves.
 
 ## Searching with hebb
 
 - `hebb search "<query>"` from the command line, or `hebb serve` for a local web
   UI on 127.0.0.1.
-- In Claude, the MCP tools `search_vault`, `expand_context` and
-  `get_context_for_topic` read this vault directly.
+- In Claude, the MCP tools read this vault directly: `search_vault`,
+  `expand_context`, `get_context_for_topic`, `vault_stats`, `reindex_vault` and
+  `audit_vault`.
 
 ## Memory
 

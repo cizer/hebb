@@ -156,6 +156,10 @@ canonical record and point the surfaces at it. Hold a "would this still matter i
 a month?" bar: prefer enriching an existing note or register over spawning a thin
 new note.
 
+If the vault keeps a `_NOW.md` pin board and the filed content clearly resolves
+or supersedes one of its pins, update that pin (refresh its `review-by` date or
+remove it) rather than leaving it to go stale.
+
 ### 5. Mark deprecations, don't delete
 
 If told someone has left, a contract has lapsed, or a project has wound down, mark

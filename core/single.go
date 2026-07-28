@@ -36,11 +36,13 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 		return RemoveFile(db, rel)
 	}
 	n := ParseNote(string(content), rel)
-	// The note's previous title (empty when new): a retitle changes which raw
-	// targets can match this note, so inbound re-resolution below must also
-	// revisit links written against the old title.
-	var prevTitle string
-	_ = db.QueryRow("SELECT title FROM notes WHERE path = ?", rel).Scan(&prevTitle)
+	// The note's previous title and content hash (both empty when new). A retitle
+	// changes which raw targets can match this note, so inbound re-resolution
+	// below must also revisit links written against the old title. A content_hash
+	// that differs from a non-empty prior hash means the note was actually edited
+	// (not a bare mtime touch), used for the edit-after-surface follow-up signal.
+	var prevTitle, prevHash string
+	_ = db.QueryRow("SELECT title, COALESCE(content_hash, '') FROM notes WHERE path = ?", rel).Scan(&prevTitle, &prevHash)
 	fmJSON, _ := json.Marshal(n.Frontmatter)
 	mtime := float64(info.ModTime().UnixNano()) / 1e6
 	tags := strings.Join(n.Tags, " ")
@@ -49,6 +51,14 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	if _, err := db.Exec(noteUpsertSQL,
 		rel, n.Title, n.Body, tags, string(fmJSON), mtime, hash, seed, seed); err != nil {
 		return err
+	}
+	// Edit-after-surface follow-up signal: a note that was surfaced by an MCP
+	// tool and whose content has now changed was retrieved and then acted on —
+	// the use-vs-return signal expand_context was meant to capture but rarely
+	// does in normal edit-heavy use (METABOLISM.md Phase 3). Only for an existing
+	// note (prevHash != "") whose content actually changed, gated on access_log.
+	if cfg.Memory.AccessLog && prevHash != "" && prevHash != hash {
+		LogEditAfterSurface(db, rel)
 	}
 	if _, err := db.Exec(`DELETE FROM links WHERE source_path = ?`, rel); err != nil {
 		return err

@@ -216,6 +216,14 @@ is the seed of a later `expand_context` call, or appears in a result and is then
 subject of a follow-up read. You need both columns to test, in the experiment, whether
 return frequency is just noise.
 
+> **Broadened 2026-07-28 (after the first run).** The two-week run recorded **zero**
+> followups: `expand_context` was never used, and it was the only thing that bumped
+> `followup_count`. So `followup_count` is now also bumped when a **surfaced note is
+> then edited** within a recency window (`core.LogEditAfterSurface`, wired into
+> `IndexFile`) — a "retrieved, then acted on" signal that does occur in normal
+> edit-heavy use. It updates followup only, leaving return/access/last_accessed as pure
+> surfacing signals. The gate re-measure should use this broadened signal.
+
 **Keep the write cheap.** Every read becomes a write contending on a single connection
 ([MaxOpenConns(1)](core/db.go:15) + WAL). Use one `INSERT ... ON CONFLICT(path) DO UPDATE`
 per surfaced path, batched in one transaction per handler call. Gate it behind a

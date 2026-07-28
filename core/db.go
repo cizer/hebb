@@ -362,3 +362,30 @@ func LogFollowup(db *sql.DB, path string) {
 	}
 	_ = logAccess(db, map[string]accessBumpKind{path: accessFollowup})
 }
+
+// followupEditWindow bounds the "edit after surface" follow-up signal: a note
+// edited within this window of its last MCP surfacing counts as a genuine
+// follow-up (the note was retrieved and then acted on). An edit long after the
+// last surface, or to a note never surfaced, does not count.
+const followupEditWindow = 14 * 24 * time.Hour
+
+// LogEditAfterSurface bumps followup_count for a note whose content has just
+// changed and that was surfaced by an MCP tool within followupEditWindow — the
+// "retrieved, then acted on" use signal (METABOLISM.md Phase 3 use-vs-return).
+// It broadens the follow-up signal beyond the expand_context seed, which normal
+// edit-heavy usage rarely produces (the first two-week run recorded zero of
+// them). It updates only an EXISTING access_log row (an edit to a note that was
+// never surfaced is not a follow-up) and touches followup_count alone, leaving
+// access_count / return_count / last_accessed as pure MCP-surfacing signals so
+// Q1 discrimination and the retrievability decay stay uncontaminated.
+// Best-effort: the error is swallowed so a logging failure never blocks
+// indexing.
+func LogEditAfterSurface(db *sql.DB, path string) {
+	if path == "" {
+		return
+	}
+	cutoff := float64(time.Now().Add(-followupEditWindow).UnixNano()) / 1e6
+	_, _ = db.Exec(
+		`UPDATE access_log SET followup_count = followup_count + 1 WHERE path = ? AND last_accessed >= ?`,
+		path, cutoff)
+}

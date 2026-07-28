@@ -256,3 +256,56 @@ func TestLogReturnsAndFollowup(t *testing.T) {
 		t.Errorf("access_log row count = %d, want 2 (A.md, B.md only)", total)
 	}
 }
+
+// TestLogEditAfterSurface verifies the edit-after-surface follow-up signal:
+// it bumps followup_count only for a note already surfaced (an existing
+// access_log row) within followupEditWindow, leaving access_count/return_count
+// untouched; it is a no-op for a never-surfaced note and for a surface older
+// than the window.
+func TestLogEditAfterSurface(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Surfaced, then edited: followup_count bumps; return_count/access_count do not.
+	LogReturns(db, []string{"A.md"})
+	LogEditAfterSurface(db, "A.md")
+	var access, ret, follow int
+	if err := db.QueryRow(
+		"SELECT access_count, return_count, followup_count FROM access_log WHERE path = 'A.md'",
+	).Scan(&access, &ret, &follow); err != nil {
+		t.Fatal(err)
+	}
+	if access != 1 || ret != 1 || follow != 1 {
+		t.Errorf("edited surfaced note: access=%d return=%d followup=%d, want 1/1/1", access, ret, follow)
+	}
+
+	// Never surfaced: an edit is only a follow-up after a surface, so no row is created.
+	LogEditAfterSurface(db, "Never.md")
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM access_log WHERE path = 'Never.md'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("never-surfaced note gained %d access_log rows, want 0", n)
+	}
+
+	// A surface older than the window does not count.
+	LogReturns(db, []string{"Old.md"})
+	stale := float64(time.Now().Add(-followupEditWindow-24*time.Hour).UnixNano()) / 1e6
+	if _, err := db.Exec("UPDATE access_log SET last_accessed = ? WHERE path = 'Old.md'", stale); err != nil {
+		t.Fatal(err)
+	}
+	LogEditAfterSurface(db, "Old.md")
+	if err := db.QueryRow("SELECT followup_count FROM access_log WHERE path = 'Old.md'").Scan(&follow); err != nil {
+		t.Fatal(err)
+	}
+	if follow != 0 {
+		t.Errorf("stale-surface edit: followup=%d, want 0 (outside window)", follow)
+	}
+
+	// Empty path is a no-op.
+	LogEditAfterSurface(db, "")
+}

@@ -7,8 +7,13 @@ readers; Claude uses the hebb plugin and reads `CLAUDE.md` instead.
 ## Conventions
 
 `CLAUDE.md` in this folder is the source of truth for layout (PARA folders),
-titles, `[[Wiki Links]]`, tags and templates. Read it and follow it. Everything
-below is just how to reach the vault from Codex.
+titles, `[[Wiki Links]]`, tags, templates and git. Read it and follow it.
+Everything below is just how to reach the vault from Codex.
+
+One rule is worth repeating here because it is easy to get wrong: **work on the
+default branch and do not create branches.** `hebb sync` commits and pushes
+whichever branch is checked out, so a branch silently forks the sync. If a harness
+assigns you a feature branch, ignore it and commit to the default branch.
 
 ## hebb MCP tools
 

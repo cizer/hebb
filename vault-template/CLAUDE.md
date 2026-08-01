@@ -36,6 +36,18 @@ indexed.
   not part of this scaffold. The ingest skills create them the first time
   they're needed, following the conventions in the skills themselves.
 
+## Git
+
+**Work on the default branch. Do not create branches.** A vault is notes, not a
+codebase: there is nothing to review and nothing to merge. `hebb sync` commits and
+pushes whichever branch is checked out, so a branch silently forks the sync — the
+automated `hebb: sync vault` commits land on the branch instead of the default one,
+and someone has to fold them back by hand later.
+
+If an agent harness assigns you a feature branch by default, ignore it and commit to
+the default branch. Never force-push or rewrite history: for most vaults this
+repository is the only copy of the notes.
+
 ## Searching with hebb
 
 - `hebb search "<query>"` from the command line, or `hebb serve` for a local web

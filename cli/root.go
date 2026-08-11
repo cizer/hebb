@@ -190,8 +190,19 @@ func serveCmd() *cobra.Command {
 			"the UI. One server on one port, so multiple vaults never collide.",
 		Example: "  hebb serve\n" +
 			"  hebb serve --port 5555",
-		RunE: func(*cobra.Command, []string) error {
-			targets, err := buildServeTargets()
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			targets, skipped, err := buildServeTargets()
+			// Name every registry entry that could not be opened, before handling any
+			// error. Serve already tolerates them (it serves the rest), but skipping
+			// silently makes a vault appear to vanish from the picker with no
+			// explanation — most often because its directory was moved or deleted
+			// while the entry remained. When nothing is serveable at all, these lines
+			// are the whole explanation for the error that follows.
+			for _, s := range skipped {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: skipping vault %q: %v\n  (remove it with 'hebb unwire --vault %s --force', or fix the path in the registry)\n",
+					s.Name, s.Err, s.Path)
+			}
 			if err != nil {
 				return err
 			}
@@ -205,8 +216,19 @@ func serveCmd() *cobra.Command {
 // buildServeTargets assembles the vaults to serve: the current vault (if one
 // resolves, listed first so it is the default selection) plus every registered
 // vault, de-duplicated by path. Stale registry entries (vault gone) are skipped.
-func buildServeTargets() ([]hebbweb.VaultTarget, error) {
+// skippedVault is a registry entry serve could not open — most often a vault
+// whose directory was moved or deleted while its registry entry remained. It is
+// carried out of buildServeTargets so the caller can name it rather than let the
+// vault disappear from the UI unexplained.
+type skippedVault struct {
+	Name string
+	Path string
+	Err  error
+}
+
+func buildServeTargets() ([]hebbweb.VaultTarget, []skippedVault, error) {
 	var targets []hebbweb.VaultTarget
+	var skipped []skippedVault
 	seenPath := map[string]bool{}
 	usedSlug := map[string]bool{}
 	add := func(cfg core.Config, name string) {
@@ -234,6 +256,14 @@ func buildServeTargets() ([]hebbweb.VaultTarget, error) {
 	for _, ref := range reg.Vaults {
 		cfg, err := core.ResolveVault(ref.Path, "")
 		if err != nil {
+			// A registry entry whose directory is gone (or is no longer a directory)
+			// must never stop the other vaults being served. Record it so the caller
+			// can say why it vanished, and carry on.
+			name := ref.Name
+			if name == "" {
+				name = ref.Path
+			}
+			skipped = append(skipped, skippedVault{Name: name, Path: ref.Path, Err: err})
 			continue
 		}
 		name := ref.Name
@@ -243,9 +273,11 @@ func buildServeTargets() ([]hebbweb.VaultTarget, error) {
 		add(cfg, name)
 	}
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("no vaults to serve: run 'hebb install' in a vault first")
+		// Nothing serveable. Hand back the skipped list too: when every registered
+		// vault is missing, those paths are the whole explanation.
+		return nil, skipped, fmt.Errorf("no vaults to serve: run 'hebb install' in a vault first")
 	}
-	return targets, nil
+	return targets, skipped, nil
 }
 
 // vaultDisplayName is the vault's configured name, falling back to its directory

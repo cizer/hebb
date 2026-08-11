@@ -223,6 +223,16 @@ return frequency is just noise.
 > `IndexFile`) — a "retrieved, then acted on" signal that does occur in normal
 > edit-heavy use. It updates followup only, leaving return/access/last_accessed as pure
 > surfacing signals. The gate re-measure should use this broadened signal.
+>
+> **Re-measured 2026-08-11:** the signal works (`followup_count` 0 → 69, 60 of them on
+> human-authored notes) and confirms returns != use decisively (48 of the top 50 notes by
+> `return_count` had zero follow-ups). Two problems: coverage was only 8/759 accessed
+> notes (1.1%), and one note held **58%** of all follow-ups with 10 edits per surfacing —
+> raw edit-event counting measures editing intensity, not repeated use. So follow-ups are
+> now counted **once per note per distinct calendar day** (`access_log.last_followup_day`),
+> which is the signal a stability score wants: used on ten separate days ranks above
+> fiddled with ten times in one afternoon. Phases 4-5 stay gated until a window shows the
+> use signal is dense enough to score with.
 
 **Keep the write cheap.** Every read becomes a write contending on a single connection
 ([MaxOpenConns(1)](core/db.go:15) + WAL). Use one `INSERT ... ON CONFLICT(path) DO UPDATE`

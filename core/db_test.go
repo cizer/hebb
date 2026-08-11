@@ -309,3 +309,101 @@ func TestLogEditAfterSurface(t *testing.T) {
 	// Empty path is a no-op.
 	LogEditAfterSurface(db, "")
 }
+
+// TestLogEditAfterSurfaceCountsUseDays proves the follow-up signal counts
+// distinct use-days, not raw edit events: repeated edits on the same day bump
+// followup_count once, and a note whose last follow-up was an earlier day bumps
+// again. This stops one iterative editing burst dominating the signal (the
+// 2026-08-11 re-measure had a single note holding 58% of all follow-ups).
+func TestLogEditAfterSurfaceCountsUseDays(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	LogReturns(db, []string{"A.md"})
+
+	// An editing burst on one day counts once, not five times.
+	for i := 0; i < 5; i++ {
+		LogEditAfterSurface(db, "A.md")
+	}
+	var follow int
+	var day string
+	if err := db.QueryRow(
+		"SELECT followup_count, COALESCE(last_followup_day, '') FROM access_log WHERE path = 'A.md'",
+	).Scan(&follow, &day); err != nil {
+		t.Fatal(err)
+	}
+	if follow != 1 {
+		t.Errorf("five edits in one day: followup=%d, want 1 (one use-day)", follow)
+	}
+	if day != time.Now().Format("2006-01-02") {
+		t.Errorf("last_followup_day = %q, want today", day)
+	}
+
+	// A follow-up recorded on an earlier day allows one more bump: a second
+	// distinct use-day is genuine repeat use.
+	if _, err := db.Exec("UPDATE access_log SET last_followup_day = '2000-01-01' WHERE path = 'A.md'"); err != nil {
+		t.Fatal(err)
+	}
+	LogEditAfterSurface(db, "A.md")
+	LogEditAfterSurface(db, "A.md") // same day again: still only one
+	if err := db.QueryRow("SELECT followup_count FROM access_log WHERE path = 'A.md'").Scan(&follow); err != nil {
+		t.Fatal(err)
+	}
+	if follow != 2 {
+		t.Errorf("second use-day: followup=%d, want 2", follow)
+	}
+}
+
+// TestMigrationAddsFollowupDayColumn verifies a pre-use-day access_log (no
+// last_followup_day column) gains it on open, with existing rows left NULL so
+// the next edit is still allowed to record one follow-up.
+func TestMigrationAddsFollowupDayColumn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	legacy, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE access_log (
+		path TEXT PRIMARY KEY,
+		last_accessed REAL NOT NULL,
+		access_count INTEGER NOT NULL DEFAULT 0,
+		return_count INTEGER NOT NULL DEFAULT 0,
+		followup_count INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(
+		`INSERT INTO access_log (path, last_accessed, access_count, return_count, followup_count)
+		 VALUES ('Legacy.md', ?, 3, 3, 0)`,
+		float64(time.Now().UnixNano())/1e6); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB must migrate a pre-use-day access_log: %v", err)
+	}
+	defer db.Close()
+
+	var day sql.NullString
+	if err := db.QueryRow("SELECT last_followup_day FROM access_log WHERE path = 'Legacy.md'").Scan(&day); err != nil {
+		t.Fatalf("last_followup_day missing after migration: %v", err)
+	}
+	if day.Valid {
+		t.Errorf("legacy row last_followup_day = %q, want NULL", day.String)
+	}
+
+	// The migrated row still records a follow-up on its next edit.
+	LogEditAfterSurface(db, "Legacy.md")
+	var follow int
+	if err := db.QueryRow("SELECT followup_count FROM access_log WHERE path = 'Legacy.md'").Scan(&follow); err != nil {
+		t.Fatal(err)
+	}
+	if follow != 1 {
+		t.Errorf("migrated row followup=%d, want 1", follow)
+	}
+}

@@ -32,7 +32,48 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateAccessLogFollowupDay(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
+}
+
+// migrateAccessLogFollowupDay adds access_log.last_followup_day to an index
+// created before use-day counting. It carries the day of the most recent
+// follow-up so LogEditAfterSurface can bump followup_count at most once per
+// distinct day (see that function). Fresh indexes get the column from
+// schemaSQL, so this is a no-op for them. Existing rows are left NULL, which
+// reads as "no follow-up recorded today" and so allows one bump on the next
+// edit — the conservative direction (it can never retroactively invent a
+// follow-up).
+func migrateAccessLogFollowupDay(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(access_log)")
+	if err != nil {
+		return err
+	}
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if cols["last_followup_day"] || !cols["path"] {
+		return nil
+	}
+	_, err = db.Exec("ALTER TABLE access_log ADD COLUMN last_followup_day TEXT")
+	return err
 }
 
 // migrateLinksTargetPath adds the nullable links.target_path column (and its
@@ -252,7 +293,8 @@ CREATE TABLE IF NOT EXISTS access_log (
   last_accessed REAL NOT NULL,
   access_count INTEGER NOT NULL DEFAULT 0,
   return_count INTEGER NOT NULL DEFAULT 0,
-  followup_count INTEGER NOT NULL DEFAULT 0
+  followup_count INTEGER NOT NULL DEFAULT 0,
+  last_followup_day TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   title, body, tags,
@@ -378,6 +420,16 @@ const followupEditWindow = 14 * 24 * time.Hour
 // never surfaced is not a follow-up) and touches followup_count alone, leaving
 // access_count / return_count / last_accessed as pure MCP-surfacing signals so
 // Q1 discrimination and the retrievability decay stay uncontaminated.
+//
+// It counts at most one follow-up per note per distinct calendar day
+// (last_followup_day). Counting raw edit events instead let a single iterative
+// editing burst dominate the whole signal: in the 2026-08-11 re-measure one note
+// held 58% of all follow-ups with 10 edits per surfacing, which measures editing
+// intensity rather than repeated use. Distinct use-days is the signal a stability
+// score actually wants — a note used on ten separate days outranks one fiddled
+// with ten times in an afternoon. The day is local, matching the human sense of
+// "days I used this note".
+//
 // Best-effort: the error is swallowed so a logging failure never blocks
 // indexing.
 func LogEditAfterSurface(db *sql.DB, path string) {
@@ -385,7 +437,9 @@ func LogEditAfterSurface(db *sql.DB, path string) {
 		return
 	}
 	cutoff := float64(time.Now().Add(-followupEditWindow).UnixNano()) / 1e6
+	today := time.Now().Format("2006-01-02")
 	_, _ = db.Exec(
-		`UPDATE access_log SET followup_count = followup_count + 1 WHERE path = ? AND last_accessed >= ?`,
-		path, cutoff)
+		`UPDATE access_log SET followup_count = followup_count + 1, last_followup_day = ?
+		 WHERE path = ? AND last_accessed >= ? AND COALESCE(last_followup_day, '') <> ?`,
+		today, path, cutoff, today)
 }

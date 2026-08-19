@@ -140,6 +140,25 @@ hebb serve              # browse and check vault health at http://127.0.0.1:4321
 
 Then ask your agent something only your vault knows. It will search, expand the surrounding context, and answer from what you have written.
 
+### 5. Open the web console
+
+`hebb serve` starts the local web console and prints its address:
+
+```sh
+hebb serve                       # then open http://127.0.0.1:4321
+hebb serve --port 8080           # or pick a port ($HEBB_WEB_PORT also works)
+```
+
+Open the printed URL in a browser. The console gives you a search box and a
+vault-health dashboard, and if hebb knows about more than one vault it shows tabs
+to switch between them (all served on the one port). It binds to `127.0.0.1`
+only, so it is never exposed off your machine. Stop it with `Ctrl-C`.
+
+To keep the console always running in the background, install it as a service
+with `hebb install --launchd --load` (macOS): that runs one machine-global web
+service (`local.hebb.web`) for every vault, so you can leave the tab open at
+`http://127.0.0.1:4321`.
+
 ## Commands
 
 - `hebb new <path>`: scaffold a fresh vault (PARA skeleton, `CLAUDE.md` + `AGENTS.md`, note template) and install it.
@@ -198,7 +217,7 @@ vault-template/  the `hebb new` scaffold
 
 Per vault, hebb keeps a `.hebb/` directory (like `.git`): `config.toml`, the derived `index.db`, and `memory/`. Commit `config.toml` and your notes; the index is rebuilt on demand.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, and [METABOLISM.md](METABOLISM.md) for the vault-health roadmap.
+See [USE-CASES.md](USE-CASES.md) for common, end to end recipes, [CONFIG.md](CONFIG.md) for per-key configuration, [ARCHITECTURE.md](ARCHITECTURE.md) for the design, and [METABOLISM.md](METABOLISM.md) for the vault-health roadmap.
 
 ## Build
 

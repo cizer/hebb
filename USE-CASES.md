@@ -1,238 +1,197 @@
 # Common use cases
 
-Practical, end to end recipes for hebb. Each one states the goal, the steps, and
-what you get. They assume the `hebb` binary is on your `PATH` (see the README for
-install). Commands resolve their vault from the current directory, so most of
-these are run from inside the vault unless a `--vault` is shown.
+hebb's day-to-day home is a Claude Code or Codex session opened on your vault.
+Once it is wired (a one-time step, see [Getting started](README.md#getting-started)),
+you talk to your agent in plain language and it uses hebb's five MCP tools and
+bundled skills to search, recall, capture, and maintain the vault for you.
 
-- [1. Search a folder of markdown notes you already have](#1-search-a-folder-of-markdown-notes-you-already-have)
-- [2. Give Claude or Codex a memory of your notes](#2-give-claude-or-codex-a-memory-of-your-notes)
-- [3. Capture new material into the vault](#3-capture-new-material-into-the-vault)
-- [4. Keep the vault healthy](#4-keep-the-vault-healthy)
-- [5. Prepare and run recurring meetings](#5-prepare-and-run-recurring-meetings)
-- [6. See what your work is converging on](#6-see-what-your-work-is-converging-on)
-- [7. Keep a vault in sync across machines](#7-keep-a-vault-in-sync-across-machines)
-- [8. Run several vaults at once](#8-run-several-vaults-at-once)
-- [9. Use hebb in an ephemeral or Claude Code on the web session](#9-use-hebb-in-an-ephemeral-or-claude-code-on-the-web-session)
-- [10. Automate the background upkeep](#10-automate-the-background-upkeep)
+The recipes below are written as short sessions: what you say, and what hebb does
+underneath. They work the same in Claude and Codex, since both speak to the same
+MCP server (`search_vault`, `get_context_for_topic`, `expand_context`,
+`vault_stats`, `reindex_vault`) and run the same skills. Where a skill has a slash
+command it is shown; the plain-language phrasing works too.
+
+The CLI is still there for setup and background services, gathered at the end in
+[Beyond the session](#8-beyond-the-session).
+
+- [1. Recall what you already know](#1-recall-what-you-already-know)
+- [2. Draft from your own knowledge](#2-draft-from-your-own-knowledge)
+- [3. Capture and file something on the spot](#3-capture-and-file-something-on-the-spot)
+- [4. Catch the vault up from your inbox, meetings, and videos](#4-catch-the-vault-up-from-your-inbox-meetings-and-videos)
+- [5. Tidy the vault (gardening)](#5-tidy-the-vault-gardening)
+- [6. Prepare a recurring meeting](#6-prepare-a-recurring-meeting)
+- [7. Ask what your work is converging on](#7-ask-what-your-work-is-converging-on)
+- [8. Beyond the session](#8-beyond-the-session)
 
 ---
 
-## 1. Search a folder of markdown notes you already have
+## 1. Recall what you already know
 
-**You want:** instant full-text search over an existing vault (for example an
-Obsidian folder), from the terminal or a browser, without changing how you write.
+You are about to start something and want what your past self already wrote,
+including the notes around it, not just the one with the keyword.
 
-```sh
-cd ~/Notes            # your existing markdown folder
-hebb install          # adds .hebb/, builds the index, offers to wire your agents
-hebb search "quarterly planning"
-hebb search "planning" --tag work --path-prefix 1-Projects --limit 20
-hebb serve            # web UI on http://127.0.0.1:4321
-```
+> **You:** What do I already have on the Helsinki migration?
 
-**You get:** a SQLite FTS5 index that picks up new and changed notes
-automatically on the next search, filterable by tag and folder. `hebb serve`
-adds a search box and a health dashboard, bound to loopback only. Your notes stay
-plain markdown on disk; hebb never takes ownership.
+**What happens:** the agent calls `get_context_for_topic`, which blends full-text
+search, link-graph expansion, and shared tags, then answers with the connected
+notes cited by title. You get the neighbourhood of the topic, not a single hit.
 
-## 2. Give Claude or Codex a memory of your notes
+> **You:** Find my note on the FTS ranking approach.
 
-**You want:** your AI assistant to search and recall what you already know, pull
-in the connected material, and write back into the same vault.
+**What happens:** a direct `search_vault` call, ranked by relevance, filterable by
+tag or folder if you narrow it ("...in 1-Projects", "...tagged #db").
 
-```sh
-# Claude Code (works in every vault you open):
-/plugin marketplace add cizer/hebb
-/plugin install hebb@hebb
+> **You:** Start from [[Onboarding]] and pull in everything it links to.
 
-# Codex:
-cd ~/Notes && hebb codex
+**What happens:** `expand_context` walks the `[[wiki-links]]` out from that seed
+note one or two hops, so the agent works from the whole cluster.
 
-# Claude Desktop:
-hebb install --claude-desktop     # then restart Claude Desktop
+**You get:** recall instead of amnesia. Because hebb follows your links and tags,
+the agent gathers the *related* material, then reasons over it.
 
-# Anything else that speaks MCP:
-hebb mcp                          # stdio MCP server, pinned via $HEBB_VAULT
-```
+## 2. Draft from your own knowledge
 
-Then, in the agent, just ask: "What do I already have on onboarding?" or "Pull
-together everything related to the Helsinki project." The agent uses hebb's MCP
-tools: `search_vault` (full-text), `expand_context` (follow `[[wiki-links]]` from
-a seed note), `get_context_for_topic` (search + graph + tags for a broad
-question), `vault_stats`, and `reindex_vault`.
+Recall and writing in one turn: the agent reads the vault, then produces
+something grounded in it, and can save the result back.
 
-**You get:** recall instead of amnesia. Because hebb walks your links and tags,
-the agent gets the *related* notes, not just literal keyword matches.
+> **You:** Draft a short brief on our caching strategy from what's in the vault,
+> and save it under 3-Resources.
 
-## 3. Capture new material into the vault
+**What happens:** the agent gathers the relevant notes (`get_context_for_topic`
+plus `expand_context`), writes the brief citing them, and, once you approve,
+writes the new note into the vault. The file watcher indexes it immediately, so
+your next question can already find it.
 
-**You want:** to file incoming material into the right place without hand-sorting
-it. hebb ships agent skills for this; trigger them in Claude Code (or Codex).
+**You get:** output that reflects what you actually know, with no copy-pasting
+between your notes and the chat.
 
-- **Paste anything and file it:** drop raw text, a list, contacts, or a link into
-  Claude and say "ingest this" or "file this in the vault". The `vault-ingest`
-  skill puts it in the right PARA folder using your vault's conventions.
-- **Sweep your inbox:** `/ingest-inbox` (or "catch up the vault from email")
-  pulls durable information and actions from recent mail and files the worthwhile
-  ones.
-- **Sweep meetings and chat:** `/ingest-meetings` pulls recent transcripts, AI
-  recaps, and substantive threads (for example from Teams) into the vault.
-- **Capture a YouTube video:** paste a link and say "summarise this into the
-  vault", and `ingest-youtube` distils the transcript into a note.
+## 3. Capture and file something on the spot
 
-These run in an interactive session because the email, meeting, and video
-sources need interactive authentication. They defer all filing conventions to
-`vault-ingest` and your vault `CLAUDE.md`, so everything lands consistently.
+You have a chunk of raw material (pasted text, a list of contacts, a link, a
+screenshot) and want it filed correctly without sorting it yourself.
 
-**You get:** a vault that grows from the sources you already use, filed the way
-you would file it, with you approving writes at the trust level you set
-(`[ingest] stage` in `config.toml`).
+> **You:** *(paste the raw content)* File this in the vault.
 
-## 4. Keep the vault healthy
+**What happens:** the `vault-ingest` skill triages the content, proposes a PARA
+destination and a title using your vault's own conventions (from its `CLAUDE.md`),
+and writes the note after you confirm. Drop several items at once and it files
+each. Say "where should this go?" if you only want the suggestion.
 
-**You want:** to stop the slow rot (dangling links, done projects left in
-`1-Projects/`, oversized notes, near-empty stubs) as the collection grows.
+**You get:** a vault that grows as you work, filed the way you would file it, at
+the trust level you set (`[ingest] stage` in `config.toml`).
 
-```sh
-hebb audit                    # read-only worklist, grouped by finding type
-hebb audit --unresolved       # also list links to notes that do not exist yet
-hebb audit --json | jq '.[]'  # machine-readable, for scripting
-```
+## 4. Catch the vault up from your inbox, meetings, and videos
 
-The `hebb audit` output (also shown on the `hebb serve` health dashboard) is
-advisory and changes nothing. To act on it, use the `vault-gardener` skill in
-Claude: "garden the vault" or "fix the dangling links". It reads the same
-worklist and proposes one reviewed, reversible edit at a time, applying each only
-after you confirm.
+Pull the signal out of the tools you already use and file it, in one sweep.
 
-To prove a gardening or consolidation action did not hurt retrieval, keep a
-golden query file and run `hebb eval` before and after:
+> **You:** /ingest-inbox
+>
+> *(or: "sweep my inbox and file anything useful")*
 
-```sh
-hebb eval --json > before.json
-# ...do the merge / split / archive sweep...
-hebb eval --json > after.json    # diff recall and MRR
-```
+**What happens:** the `ingest-inbox` skill reads recent mail through the email
+MCP, separates durable information and actions from noise, and files the keepers,
+deferring all filing rules to `vault-ingest`. Its siblings work the same way:
 
-**You get:** a vault that stays navigable, with a detect (audit), remediate
-(gardener), verify (eval) loop that never edits your notes without review.
+> **You:** /ingest-meetings
 
-## 5. Prepare and run recurring meetings
+files recent meeting transcripts, AI recaps, and substantive chat threads (for
+example from Teams) via `ingest-meetings`.
 
-**You want:** each instance of a standing meeting to arrive with its agenda ready
-and its follow-ups filed.
+> **You:** *(paste a YouTube link)* Summarise this into the vault.
 
-- Before the meeting: `/agenda` (or "prep the next standup") builds the next
-  agenda for a named series from its standing items, carried-forward "next time"
-  notes, chased open actions, and relevant themes, and pre-creates the dated
-  occurrence note.
-- After the meeting: `/ingest-meetings` files the transcript and recap, enriching
-  that same occurrence note in place.
+distils the transcript into a note via `ingest-youtube`.
+
+**Note:** these run in an interactive session, because the email, meeting, and
+video sources need interactive authentication.
+
+**You get:** the worthwhile parts of your week captured, without leaving the
+session or hand-copying anything.
+
+## 5. Tidy the vault (gardening)
+
+Over time links break, done projects linger in `1-Projects/`, notes bloat, and
+stubs pile up. Ask the agent to work through them.
+
+> **You:** Garden the vault.
+>
+> *(or: "fix the dangling links", "archive the done projects")*
+
+**What happens:** the `vault-gardener` skill runs `hebb audit` for you, reads the
+resulting worklist, and walks through it one item at a time. For each finding it
+proposes a concrete, reversible edit (repoint a broken link, archive a finished
+project, merge a stub) and applies it only after you approve. Nothing is changed
+in bulk and nothing is changed without you seeing it.
+
+> **You:** Did that hurt search?
+
+**What happens:** the agent can run `hebb eval` before and after a big change and
+compare recall and mean reciprocal rank against your golden query file, so a
+cleanup that quietly degrades retrieval is caught.
+
+**You get:** a detect, remediate, verify loop that keeps the vault navigable and
+never edits your notes behind your back.
+
+## 6. Prepare a recurring meeting
+
+Each instance of a standing meeting arrives with its agenda ready and its
+follow-ups filed.
+
+> **You:** /agenda for the Monday standup
+>
+> *(or: "prep the next standup")*
+
+**What happens:** the `agenda` skill assembles the next agenda for that series
+from its standing items, carried-forward "next time" notes, chased open actions,
+and relevant themes, then pre-creates the dated occurrence note. After the
+meeting, `/ingest-meetings` enriches that same note in place.
 
 **You get:** a continuous thread per meeting series, so nothing carried forward
-gets lost between occurrences.
+falls through the cracks between occurrences.
 
-## 6. See what your work is converging on
+## 7. Ask what your work is converging on
 
-**You want:** a periodic, honest read of where your recent work keeps returning,
-and a short list of things worth consolidating.
+A periodic read of where your recent work keeps returning.
 
-```sh
-hebb themes --days 30     # most-linked targets, tag momentum, co-linked pairs
-hebb digest               # refresh index, then write the daily digest note
-hebb consolidate          # weekly consolidation review: a few ranked proposals
-```
+> **You:** What themes are emerging in my recent notes?
 
-`hebb themes` reads the index over a trailing window and changes nothing.
-`hebb digest` and `hebb consolidate` write generated notes (a daily digest and a
-proposal-only weekly review); the proposals cite their source notes as
-`[[wiki-links]]`, and you action them by hand or via `vault-gardener`.
+**What happens:** the agent runs `hebb themes` and reports back the notes your
+recent work most often links to, which tags are gaining or losing momentum, and
+which pairs of notes keep being cited together.
+
+> **You:** Anything worth consolidating this week?
+
+**What happens:** the agent runs `hebb consolidate`, which drafts a short,
+proposal-only review (stale pins, cooling projects, recurring themes) with each
+proposal citing its source notes as `[[wiki-links]]`. You then action the ones
+you like, by hand or by asking `vault-gardener` to do it.
 
 **You get:** signal about the shape of your knowledge over time, driven by
 content-level change detection rather than file timestamps.
 
-## 7. Keep a vault in sync across machines
+## 8. Beyond the session
 
-**You want:** a vault that is a git repository to stay in sync automatically while
-you work, across a laptop and a desktop.
+The pieces that live outside the chat. Most are one-time setup or background
+services; see [CONFIG.md](CONFIG.md) for the full configuration.
 
-```sh
-cd ~/Notes && hebb install     # for a git repo, this enables [git] auto-sync by default
-```
-
-While a `hebb serve` or `hebb mcp` process is live, hebb pulls at startup and
-commits and pushes after edits settle (a debounced watcher). Configure it under
-`[git]` in `config.toml` (`auto_pull`, `auto_push`, `debounce_seconds`,
-`commit_message`). `hebb sync` runs one pull, commit, push by hand; it never
-force-pushes, and a conflicting pull is aborted and reported for you to resolve.
-
-**You get:** the same vault, current on every machine, with no manual commits in
-the common case.
-
-## 8. Run several vaults at once
-
-**You want:** separate vaults (for example work and personal) that never bleed
-into each other, like separate git repos.
-
-```sh
-hebb new ~/vaults/work
-hebb new ~/vaults/personal
-hebb vaults                    # list the vaults hebb knows about
-hebb --vault ~/vaults/work search "roadmap"
-export HEBB_VAULT=~/vaults/personal   # or set a default for this shell
-hebb serve                     # one web server serves all of them, switch via the tabs
-```
-
-Every command resolves its vault from `--vault`, then `$HEBB_VAULT`, then the
-nearest `.hebb/` above the current directory. The web UI is one machine-global
-service that switches between registered vaults.
-
-**You get:** many independent vaults from a single binary and a single web
-server, each self-contained and self-describing.
-
-## 9. Use hebb in an ephemeral or Claude Code on the web session
-
-**You want:** a vault to provision itself when it is cloned onto a fresh or
-throwaway machine, with no manual setup.
-
-Every scaffolded vault commits a `bootstrap.sh` at its root and a Claude Code
-`SessionStart` hook.
-
-```sh
-git clone <your-vault-repo> && cd <vault>
-./bootstrap.sh                 # installs the hebb binary if absent, then wires the vault
-```
-
-In a Claude Code on the web session the hook runs `bootstrap.sh` automatically on
-container start, before the session and its MCP tools load, so hebb is ready when
-the agent begins. The hook is a no-op on a local machine. Set
-`[bootstrap] track_latest = true` to have clones install the newest release
-instead of the pinned one.
-
-**You get:** a vault that stands itself up anywhere, including cloud sessions,
-with the one manual step being to re-authenticate any connectors.
-
-## 10. Automate the background upkeep
-
-**You want:** the digest, action review, consolidation, and update checks to run
-on a schedule without you.
-
-```sh
-hebb install --launchd --load     # render and start this vault's launchd jobs (macOS)
-```
-
-Choose which jobs run with `jobs` in `config.toml` (`daily-digest`,
-`action-review`, `web`, `update-check`, `consolidate`). To get their output without an
-interactive session, set a webhook under `[notify]` (or inject
-`$HEBB_NOTIFY_URL` per job via `[job_env]`); the jobs then post a short summary.
-Keep `[update] auto = false` (the default) to be notified of a new release
-without self-replacing the binary, or set it `true` to auto-update.
-
-**You get:** the vault's routine maintenance running quietly in the background,
-reaching you only when there is something to see.
+- **First-time setup.** `hebb new <path>` scaffolds a fresh vault, or
+  `hebb install --vault <folder>` adopts an existing one, then wires your agents.
+  See [Getting started](README.md#getting-started).
+- **The web console.** `hebb serve` opens a visual search box and vault-health
+  dashboard at `http://127.0.0.1:4321` (loopback only). Handy when you want to
+  browse findings rather than ask for them. See
+  [Open the web console](README.md#5-open-the-web-console).
+- **Several vaults.** Open a different folder and the agent acts on that vault;
+  each is independent, like separate git repos. The web console switches between
+  them via tabs.
+- **Sync across machines.** For a vault that is a git repo, hebb auto-pulls at
+  startup and commits and pushes after edits settle while a session is live
+  (`[git]` in `config.toml`).
+- **Scheduled upkeep.** `hebb install --launchd --load` (macOS) runs the daily
+  digest, action review, weekly consolidation, and update checks in the
+  background, posting a summary to a webhook (`[notify]`) if you want the output
+  without an open session.
 
 ---
 
-For per-key configuration of any of the above, see [CONFIG.md](CONFIG.md). For
-the design behind it, see [ARCHITECTURE.md](ARCHITECTURE.md).
+New here? Start with [Getting started](README.md#getting-started) to install hebb
+and connect your agent, then come back and try recipe 1.

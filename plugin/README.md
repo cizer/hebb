@@ -11,9 +11,10 @@ whatever vault you open:
   content into the right PARA location), `ingest-inbox`, `ingest-meetings` and
   `ingest-youtube` (sweep email, meetings/chat and YouTube for signal and file
   it), the maintenance skill `vault-gardener` (act on the `hebb audit`
-  worklist), and `agenda` (compose the next agenda for a recurring meeting
-  series and pre-create its occurrence note). Each loaded namespaced, e.g.
-  `hebb:vault-gardener`.
+  worklist), `agenda` (compose the next agenda for a recurring meeting
+  series and pre-create its occurrence note), and the writing skill
+  `pyramid-brief` (structure a decision-facing email, update or doc on the
+  Minto Pyramid). Each loaded namespaced, e.g. `hebb:vault-gardener`.
 
 The plugin is the agent-facing layer only. The `hebb` binary (the engine, CLI,
 and per-vault data: `install`/`new`/`doctor`, config, index, memory) is separate
@@ -44,6 +45,11 @@ skill's `SKILL.md` under [`skills/`](skills/).
 - `/hebb:agenda` - compose the next agenda for a recurring meeting series and
   pre-create its occurrence note. Triggers on "agenda for my next X", "what
   should we cover in X", "prep the next X meeting".
+- `/hebb:pyramid-brief` - structure a decision-facing email, update or doc
+  answer-first on the Minto Pyramid. Triggers on "restructure this", "tighten
+  this up", "make this exec-ready", "turn this into an email". Deliberately
+  not for records: meeting notes, journals, reference notes and logs are left
+  alone.
 
 ## Two delivery paths
 

@@ -277,10 +277,13 @@ func TestDigestExcluded(t *testing.T) {
 		"2-Areas/_ACTION-REVIEW.md": true,
 		"1-Projects/_INGEST-LOG.md": true,
 		"2-Areas/_CONSOLIDATION.md": true,
-		"assets/diagram.md":         true,
-		".obsidian/workspace.md":    true,
-		"1-Projects/real-note.md":   false,
-		"2-Areas/area/sub-note.md":  false,
+		// Added with generatedNoteBasenames: the action review's "mine" spill-out
+		// is regenerated on the same schedule, so it is daily noise too.
+		"2-Areas/_MY-OPEN-ACTIONS.md": true,
+		"assets/diagram.md":           true,
+		".obsidian/workspace.md":      true,
+		"1-Projects/real-note.md":     false,
+		"2-Areas/area/sub-note.md":    false,
 	}
 	for rel, want := range cases {
 		if got := digestExcluded(rel); got != want {
@@ -340,5 +343,29 @@ func TestDigestIgnoresConsolidationAsChange(t *testing.T) {
 	}
 	if dr.Count != 0 {
 		t.Errorf("digest count = %d, want 0: _CONSOLIDATION.md must not count as activity", dr.Count)
+	}
+}
+
+// TestIsGeneratedNote pins the shared "hebb wrote this itself" predicate that
+// both the digest and the access log's follow-up signal depend on. Matching is
+// by basename and is independent of folder, and a note merely named like one of
+// hebb's outputs in a person's own prose (no leading underscore) is theirs.
+func TestIsGeneratedNote(t *testing.T) {
+	cases := map[string]bool{
+		"2-Areas/_DAILY-DIGEST.md":            true,
+		"2-Areas/_ACTION-REVIEW.md":           true,
+		"2-Areas/_MY-OPEN-ACTIONS.md":         true,
+		"2-Areas/Vault/_INGEST-LOG.md":        true,
+		"2-Areas/_CONSOLIDATION.md":           true,
+		"_DAILY-DIGEST.md":                    true, // vault root
+		"1-Projects/deep/nest/_INGEST-LOG.md": true, // folder-independent
+		"2-Areas/People/David Cole.md":        false,
+		"1-Projects/DAILY-DIGEST.md":          false, // no underscore: a person's note
+		"2-Areas/My Open Actions.md":          false,
+	}
+	for rel, want := range cases {
+		if got := IsGeneratedNote(rel); got != want {
+			t.Errorf("IsGeneratedNote(%q) = %v, want %v", rel, got, want)
+		}
 	}
 }

@@ -407,3 +407,63 @@ func TestMigrationAddsFollowupDayColumn(t *testing.T) {
 		t.Errorf("migrated row followup=%d, want 1", follow)
 	}
 }
+
+// TestLogEditAfterSurfaceSkipsGeneratedNotes proves hebb never counts its own
+// scheduled rewrites as a user follow-up. The digest, action review, its "mine"
+// spill-out, the ingest log and the consolidation pass are rewritten daily and
+// surfaced constantly by search, so before this exclusion they banked a use-day
+// every day: in the 2026-08-25 re-measure four of them alone held 42% of the
+// entire signal, which would have driven a stability score to protect hebb's own
+// scaffolding above real work.
+func TestLogEditAfterSurfaceSkipsGeneratedNotes(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	generated := []string{
+		"2-Areas/_DAILY-DIGEST.md",
+		"2-Areas/_ACTION-REVIEW.md",
+		"2-Areas/_MY-OPEN-ACTIONS.md",
+		"2-Areas/Vault/_INGEST-LOG.md",
+		"2-Areas/_CONSOLIDATION.md",
+	}
+	human := "2-Areas/People/David Cole.md"
+
+	// Every note is surfaced, so the only thing separating them is authorship.
+	LogReturns(db, append(append([]string{}, generated...), human))
+	for _, p := range generated {
+		LogEditAfterSurface(db, p)
+	}
+	LogEditAfterSurface(db, human)
+
+	for _, p := range generated {
+		var follow int
+		if err := db.QueryRow("SELECT followup_count FROM access_log WHERE path = ?", p).Scan(&follow); err != nil {
+			t.Fatal(err)
+		}
+		if follow != 0 {
+			t.Errorf("%s: followup=%d, want 0 (hebb's own rewrite is not a user follow-up)", p, follow)
+		}
+	}
+
+	// The exclusion must be surgical: a real note edited after surfacing still counts.
+	var follow int
+	if err := db.QueryRow("SELECT followup_count FROM access_log WHERE path = ?", human).Scan(&follow); err != nil {
+		t.Fatal(err)
+	}
+	if follow != 1 {
+		t.Errorf("human-authored note: followup=%d, want 1", follow)
+	}
+
+	// Returns are untouched by the exclusion: these notes are still surfaced, and
+	// Q1 discrimination depends on that history.
+	var ret int
+	if err := db.QueryRow("SELECT return_count FROM access_log WHERE path = '2-Areas/_DAILY-DIGEST.md'").Scan(&ret); err != nil {
+		t.Fatal(err)
+	}
+	if ret != 1 {
+		t.Errorf("generated note return_count = %d, want 1 (surfacing history preserved)", ret)
+	}
+}

@@ -231,8 +231,33 @@ return frequency is just noise.
 > raw edit-event counting measures editing intensity, not repeated use. So follow-ups are
 > now counted **once per note per distinct calendar day** (`access_log.last_followup_day`),
 > which is the signal a stability score wants: used on ten separate days ranks above
-> fiddled with ten times in one afternoon. Phases 4-5 stay gated until a window shows the
-> use signal is dense enough to score with.
+> fiddled with ten times in one afternoon.
+>
+> **VERDICT 2026-09-05 — the experiment is closed. Phases 4-5 are not built as specced.**
+> The 2026-08-25 window, re-analysed with hebb's own generated notes excluded (they held
+> 42% of the raw signal: a launchd job rewrites them daily and search surfaces them
+> constantly, so they banked a use-day mechanically), gives a clean read on 67 use-days
+> across 53 human-authored notes:
+>
+> | Question | Result |
+> |---|---|
+> | Q1 discrimination | **PASS** — top-1 2%, top-10 9%, median 3. Cleaner once scaffolding is excluded. |
+> | Q2 durable-vs-transitory | **PASS** — 0 known-durable notes misclassified as TRANSITORY. |
+> | Q3 use-vs-return | **Returns are not use** — 46 of the top 50 by `return_count` have zero use-days. |
+> | mtime-only vs access-aware | **PASS, decisive** — forget-lists overlap **0/25**; 18 durable notes spared. |
+>
+> The decision table's remedy for a Q3 result like this is "drive stability from
+> `followup_count` only". **That remedy is what fails.** Cleaned, the follow-up signal is
+> near-binary: 46 of 53 notes (87%) sit at exactly one use-day, 5 at two, and only two
+> notes above that. It separates "touched once" from "never touched" and cannot rank
+> beyond that, which is not enough to drive a decay score. This is a property of the
+> signal, not of the window: it was re-measured twice (2026-08-11, 2026-08-25) and the
+> flatness held. **Do not re-run the window a third time expecting a different shape.**
+>
+> What the evidence *does* justify is narrower and worth having: the two-score model
+> (durability prior + access-driven R), with follow-up as a binary "genuinely used" flag
+> rather than a magnitude. That is exactly what the 0/25 divergence and the 18 spared
+> notes demonstrate, and it needs none of the decay machinery in Phases 4-5.
 
 **Keep the write cheap.** Every read becomes a write contending on a single connection
 ([MaxOpenConns(1)](core/db.go:15) + WAL). Use one `INSERT ... ON CONFLICT(path) DO UPDATE`
@@ -399,6 +424,6 @@ spent ~20 lines, not a scorer plus a dashboard plus two jobs, finding out.
 - [x] Phase 3: `access_log` table + writes in the three MCP handlers (post-result), behind a config flag — shipped 2026-07-04 as `[memory] access_log` (default off; enable it to start the experiment clock)
 - [x] Phase 3: capture `return_count` and `followup_count` separately — shipped 2026-07-04 (expand_context seeds count as followup; result-set paths count as return)
 - [x] Eval harness (the "single biggest gap" landmine): shipped 2026-07-04 as `hebb eval` over a golden set at `.hebb/golden.toml` (recall + MRR, non-zero exit on a miss)
-- [ ] EXP: run the vault for two weeks; hand-label 30 durable + 30 transitory
-- [ ] EXP: answer Q1 (discrimination), Q2 (confusion matrix), Q3 (use-vs-return); apply the decision rule
-- [ ] Gate: only proceed to Phase 4/5 if the experiment passes; keep everything proposal-only and reversible
+- [x] EXP: ran 2026-07-07 to 2026-08-25 across three windows. Hand-labelling was never done: Q2 used a heuristic 30+30 (folder prior + link degree), so Q2's PASS is the weakest leg. It did not need to be stronger, because the gate turned on Q3.
+- [x] EXP: answered Q1 (PASS), Q2 (PASS, heuristic labels), Q3 (returns != use, confirmed) and the mtime-vs-access sanity check (PASS, 0/25 overlap) — see VERDICT above
+- [x] Gate: **do NOT build Phases 4-5 as specced.** Not because the substrate is fake (Q1, Q2 and the sanity check all say it is real) but because the prescribed driver, `followup_count`, is near-binary once hebb's own generated notes are excluded (87% at one use-day). Ship the two-score model with follow-up as a binary flag instead, or nothing.

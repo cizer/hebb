@@ -33,14 +33,35 @@ const (
 	digestLastRunKey     = "digest_last_run_at"
 )
 
-// digestExcludeBasenames are auto-generated system notes that would otherwise be
-// daily noise. They are still indexed and searchable; they are only kept out of
-// the digest's activity list.
-var digestExcludeBasenames = map[string]bool{
-	"_DAILY-DIGEST.md":  true,
-	"_ACTION-REVIEW.md": true,
-	"_INGEST-LOG.md":    true,
-	"_CONSOLIDATION.md": true,
+// generatedNoteBasenames are notes hebb writes itself, on a schedule: the digest,
+// the action review and its "mine" spill-out, the ingest log, the consolidation
+// pass. They are still indexed and searchable; what they are not is evidence of
+// anything a person did. Two callers depend on that distinction:
+//
+//   - the digest keeps them out of its activity list, where they would be daily
+//     noise (their content changes every run by construction);
+//   - the access log refuses to count a hebb-authored rewrite as a user
+//     follow-up. Without this the metabolism signal inverts: in the 2026-08-25
+//     re-measure these four notes alone held 42% of all recorded use-days,
+//     because a launchd job rewrites them daily and search surfaces them
+//     constantly, so they banked a use-day every single day mechanically.
+//
+// Matching is by basename, so a job pointed at a non-default output path (the
+// action review's --mine-output is configurable) is only caught if it keeps the
+// conventional name.
+var generatedNoteBasenames = map[string]bool{
+	"_DAILY-DIGEST.md":    true,
+	"_ACTION-REVIEW.md":   true,
+	"_MY-OPEN-ACTIONS.md": true,
+	"_INGEST-LOG.md":      true,
+	"_CONSOLIDATION.md":   true,
+}
+
+// IsGeneratedNote reports whether a vault-relative path is a note hebb writes
+// itself rather than one a person authored (see generatedNoteBasenames).
+func IsGeneratedNote(rel string) bool {
+	parts := strings.Split(rel, "/")
+	return generatedNoteBasenames[parts[len(parts)-1]]
 }
 
 // digestParaOrder lists the top-level folders shown first and in this order;
@@ -222,7 +243,7 @@ func digestExcluded(rel string) bool {
 			return true
 		}
 	}
-	return digestExcludeBasenames[parts[len(parts)-1]]
+	return generatedNoteBasenames[parts[len(parts)-1]]
 }
 
 func renderDigestEntry(today time.Time, label string, touched []touchedNote, vaultPath string) string {

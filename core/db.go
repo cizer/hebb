@@ -436,6 +436,15 @@ func LogEditAfterSurface(db *sql.DB, path string) {
 	if path == "" {
 		return
 	}
+	// A note hebb writes itself is not evidence a person used anything: the
+	// digest, action review, ingest log and consolidation pass are rewritten on a
+	// schedule and surfaced constantly by search, so counting their rewrites banks
+	// a use-day every day and drowns real usage (42% of the signal in the
+	// 2026-08-25 re-measure). Skip them at the source so a future stability score
+	// never reads them as engagement.
+	if IsGeneratedNote(path) {
+		return
+	}
 	cutoff := float64(time.Now().Add(-followupEditWindow).UnixNano()) / 1e6
 	today := time.Now().Format("2006-01-02")
 	_, _ = db.Exec(

@@ -129,7 +129,11 @@ func fullReindex(cfg Config, db *sql.DB, force bool) (IndexResult, error) {
 		if _, err := delLinks.Exec(rel); err != nil {
 			return IndexResult{}, err
 		}
-		for _, l := range n.Links {
+		links := n.Links
+		if IsMemoryNote(rel) {
+			links = nil // agent memory records no links (see IndexFile)
+		}
+		for _, l := range links {
 			if _, err := insLink.Exec(rel, l); err != nil {
 				return IndexResult{}, err
 			}

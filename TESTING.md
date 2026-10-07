@@ -44,7 +44,7 @@ hermetic.
 | Surface | `mcp/server_test` (tool output + cross-tool tag consistency), `cli/*_test` (install/doctor via cobra), `web/server_test` (HTTP), `install/*_test` (wiring, conflict-safety, idempotency) | The strings/exit codes/files callers and Claude consume | filesystem |
 | Embed contract | root `plugin_test`, `assets_test` | The plugin manifest/`.mcp.json`/skill, and that the binary embeds the automation scripts VaultJobs depends on | embedded FS |
 | Static | `go vet`, `gofmt`; launchd plists validated with `plutil -lint` (macOS only, skipped elsewhere) | Vet, formatting, plist validity | toolchain |
-| Acceptance | **scripted** (`scripts/acceptance.sh`, 40 checks); runs in CI Stage 2 and locally | The built binary end to end | OS, real-ish env |
+| Acceptance | **scripted** (`scripts/acceptance.sh`, 53 checks); runs in CI Stage 2 and locally | The built binary end to end | OS, real-ish env |
 
 Counts as of writing: core 15, install 32, launchd 6, cli 8, web 2, mcp 5, root (plugin + assets) 5.
 
@@ -108,12 +108,13 @@ Against a throwaway fixture vault and a temp `HOME`, it:
 
 1. puts the built `hebb` on `PATH`
 2. `hebb install --vault V --home H --data-dir D --launchd --launchd-dir L` → assert exit 0; default install is data-side (`.hebb/config.toml`, index, materialised automation, memory link, rendered plists) and writes **no** per-vault `.mcp.json`. A second run with `--mcp-json` asserts the plugin-less `.mcp.json` + settings are written on demand.
-3. `hebb doctor` → assert health (expected ok/warn set; no skills check, mcp.json reports plugin mode)
+3. `hebb doctor` → assert health (expected ok/warn set; no skills check, mcp.json reports plugin mode, agent memory reported searchable)
 4. `hebb search <canary>` → assert the known notes come back and the excluded dir is skipped
 5. `hebb serve --port <free>` → `curl /api/stats` and `/api/search` → assert the JSON
 6. `hebb mcp` over stdio → JSON-RPC `initialize`, `tools/list` (the 5 tools), `tools/call search_vault` (canary) and `get_context_for_topic` (tag consistency) → assert responses
-7. macOS only: `plutil -lint` the rendered plists
-8. run the automation against the fixture: `hebb digest` (the Go launchd entrypoint: index refresh + content-driven digest note; assert a canary note appears and the retired Python generator/wrapper are not materialised) and the materialised `generate-action-review.py` (action review + JSON, owner/overdue flags) → assert their output
+7. agent memory: write a memory note under `.hebb/memory/` plus a stray `.md` elsewhere under `.hebb` → assert `hebb index` picks up only the memory note, `hebb search --path-prefix .hebb/memory/` finds it, and the stray file stays out of the index
+8. macOS only: `plutil -lint` the rendered plists
+9. run the automation against the fixture: `hebb digest` (the Go launchd entrypoint: index refresh + content-driven digest note; assert a canary note appears and the retired Python generator/wrapper are not materialised) and the materialised `generate-action-review.py` (action review + JSON, owner/overdue flags) → assert their output
 
 Notes: `--load` (launchctl bootstrap) is **not** run in CI (no GUI session, and
 it would mutate the runner); acceptance renders and validates plists instead.

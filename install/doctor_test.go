@@ -131,11 +131,63 @@ func TestDoctorMemoryFlagsStaleLink(t *testing.T) {
 	}
 	var checks []Check
 	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
-	checkMemory(add, home, vault)
+	checkMemory(add, home, vault, core.DefaultExcludeDirs())
 
 	c, _ := checkByName(checks, "memory")
 	if c.Status != "warn" || !strings.Contains(c.Detail, "elsewhere") {
 		t.Errorf("stale link: status=%q detail=%q, want warn + 'elsewhere'", c.Status, c.Detail)
+	}
+}
+
+// TestDoctorMemoryReportsSearchability proves the memory check says whether
+// memory is searchable, not just that it is linked: "ok memory linked" was read
+// as "memory is indexed" when it was not. Memory is searchable under the
+// default excludes (which list .hebb) and not once exclude_dirs lists "memory".
+func TestDoctorMemoryReportsSearchability(t *testing.T) {
+	home := t.TempDir()
+	vault := t.TempDir()
+	if _, err := SymlinkMemory(vault, filepath.Join(home, ".claude", "projects"), ClaudeProjectSlug(vault)); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		excludes []string
+		want     string
+	}{
+		{core.DefaultExcludeDirs(), "linked; searchable under .hebb/memory/"},
+		{append(core.DefaultExcludeDirs(), "memory"), `linked; not searchable (exclude_dirs lists "memory")`},
+	}
+	for _, tc := range cases {
+		var checks []Check
+		add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
+		checkMemory(add, home, vault, tc.excludes)
+		c, _ := checkByName(checks, "memory")
+		if c.Status != "ok" || c.Detail != tc.want {
+			t.Errorf("excludes %v: memory = %q (%s), want ok (%s)", tc.excludes, c.Status, c.Detail, tc.want)
+		}
+	}
+}
+
+// TestDoctorMemoryWarnsOnSymlinkedMemoryDir covers the one layout where a linked
+// memory dir is still not searchable: .hebb/memory is itself a symlink, which
+// the index walk never follows. Doctor must not report it as searchable.
+func TestDoctorMemoryWarnsOnSymlinkedMemoryDir(t *testing.T) {
+	home := t.TempDir()
+	vault := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vault, ".hebb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), MemoryDir(vault)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := SymlinkMemory(vault, filepath.Join(home, ".claude", "projects"), ClaudeProjectSlug(vault)); err != nil {
+		t.Fatal(err)
+	}
+	var checks []Check
+	add := func(n, s, d string) { checks = append(checks, Check{Name: n, Status: s, Detail: d}) }
+	checkMemory(add, home, vault, core.DefaultExcludeDirs())
+	c, _ := checkByName(checks, "memory")
+	if c.Status != "warn" || !strings.Contains(c.Detail, "not searchable") {
+		t.Errorf("symlinked memory dir: memory = %q (%s), want warn + 'not searchable'", c.Status, c.Detail)
 	}
 }
 

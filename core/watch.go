@@ -84,18 +84,23 @@ func Watch(cfg Config, db *sql.DB) (*Watcher, error) {
 	for _, d := range cfg.ExcludeDirs {
 		excluded[d] = true
 	}
-	_ = filepath.WalkDir(cfg.VaultPath, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if excluded[d.Name()] {
-				return filepath.SkipDir
+	// Watch the same tree the index walk covers (indexRoots), so agent memory
+	// edits under the otherwise-excluded .hebb are reindexed as they happen.
+	// .hebb itself is never watched, so index.db writes raise no events.
+	for _, root := range indexRoots(cfg) {
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
-			_ = fw.Add(p)
-		}
-		return nil
-	})
+			if d.IsDir() {
+				if excluded[d.Name()] {
+					return filepath.SkipDir
+				}
+				_ = fw.Add(p)
+			}
+			return nil
+		})
+	}
 	// Git mode: pull before work so the session starts from the latest remote
 	// state. Best-effort and non-blocking to the watcher; a conflict surfaces
 	// only via `hebb sync` (auto-commit/push happens on the debounce below).

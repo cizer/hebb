@@ -100,15 +100,17 @@ type themeNote struct {
 }
 
 // themeExcluded reports whether a note is kept out of the themes report
-// entirely (as a source, a target, and a tag carrier). Two exclusion families
+// entirely (as a source, a target, and a tag carrier). Three exclusion families
 // apply, mirroring how the digest and the graph detectors strip machine
 // scaffolding:
 //   - any basename starting with "_" (the digest-style machine notes:
 //     _DAILY-DIGEST.md, _ACTION-REVIEW.md, _INGEST-LOG.md, _NOW.md, ...),
+//   - agent memory under .hebb/memory/ (indexed for search only, not vault
+//     content, so it must not steer consolidation proposals),
 //   - anything matching cfg.Health.ExcludeFromGraph (title, basename without
 //     .md, or vault-relative path; path.Match semantics).
 func themeExcluded(patterns []string, title, notePath string) bool {
-	if strings.HasPrefix(path.Base(notePath), "_") {
+	if strings.HasPrefix(path.Base(notePath), "_") || IsMemoryNote(notePath) {
 		return true
 	}
 	return matchesExcludePatterns(patterns, title, notePath)
@@ -127,11 +129,11 @@ func splitThemeTags(tags string) []string {
 // so the CLI (hebb themes) and a future consolidate job can share it. days <= 0
 // applies the default (30); 14 is the other window the organiser uses.
 //
-// Exclusions: notes whose basename starts with "_" and notes matching
-// cfg.Health.ExcludeFromGraph are ignored both as sources and as targets, so
-// machine-generated hubs (digests, action reviews, pin boards) cannot
-// dominate the recurrence signal. Only resolved links (target_path set)
-// count; raw unresolved targets are never aggregated.
+// Exclusions: notes whose basename starts with "_", agent memory notes, and
+// notes matching cfg.Health.ExcludeFromGraph are ignored both as sources and as
+// targets (see themeExcluded), so machine-generated hubs (digests, action
+// reviews, pin boards) cannot dominate the recurrence signal. Only resolved
+// links (target_path set) count; raw unresolved targets are never aggregated.
 func Themes(db *sql.DB, cfg Config, days int, now time.Time) (ThemesReport, error) {
 	if days <= 0 {
 		days = defaultThemesDays

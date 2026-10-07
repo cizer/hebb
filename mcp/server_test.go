@@ -129,6 +129,20 @@ func TestSearchVaultTool(t *testing.T) {
 	}
 }
 
+// TestSearchVaultFindsAgentMemory replays the call that came back empty in the
+// field: search_vault scoped to path_prefix ".hebb/memory" for a term that only
+// a memory note carries. The fixture excludes .hebb, as installed vaults do.
+func TestSearchVaultFindsAgentMemory(t *testing.T) {
+	db, cfg := fixtureVault(t)
+	mustWrite(t, cfg.VaultPath, ".hebb/memory/reference_raquel_disambiguation.md",
+		"---\nname: Raquel disambiguation\ndescription: which Raquel is which\ntype: reference\n---\nRaquel (team A) is not Raquel (team B).\n")
+
+	out := call(t, db, cfg, "search_vault", map[string]any{"query": "Raquel", "path_prefix": ".hebb/memory"})
+	if !strings.Contains(out, "Path: .hebb/memory/reference_raquel_disambiguation.md") {
+		t.Errorf("search_vault did not find the memory note under .hebb/memory:\n%s", out)
+	}
+}
+
 func TestVaultStatsExcludesHiddenDirs(t *testing.T) {
 	db, cfg := fixtureVault(t)
 	out := call(t, db, cfg, "vault_stats", nil)

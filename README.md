@@ -215,7 +215,7 @@ automation/   optional background jobs (action review; the digest is built into 
 vault-template/  the `hebb new` scaffold
 ```
 
-Per vault, hebb keeps a `.hebb/` directory (like `.git`): `config.toml`, the derived `index.db`, and `memory/`. Commit `config.toml` and your notes; the index is rebuilt on demand.
+Per vault, hebb keeps a `.hebb/` directory (like `.git`): `config.toml`, the derived `index.db`, and `memory/`. Commit `config.toml` and your notes; the index is rebuilt on demand. The agent memory in `memory/` is the one part of `.hebb/` that is indexed: search it with `--path-prefix .hebb/memory/` (or `path_prefix` in `search_vault`). It stays out of the link graph and the audit.
 
 See [USE-CASES.md](USE-CASES.md) for common, end to end recipes, [CONFIG.md](CONFIG.md) for per-key configuration, [ARCHITECTURE.md](ARCHITECTURE.md) for the design, and [METABOLISM.md](METABOLISM.md) for the vault-health roadmap.
 

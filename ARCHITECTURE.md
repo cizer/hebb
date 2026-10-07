@@ -16,7 +16,7 @@ The **generic** parts (a PARA skeleton, a baseline `CLAUDE.md`/`AGENTS.md`, note
 
 hebb is multi-vault like `git` is multi-repo: installed once, with each vault self-contained and self-describing.
 
-- **Per-vault marker (`.hebb/`).** Each vault has a `.hebb/` directory at its root, like `.git`: `config.toml` (name, exclude dirs, web port, enabled jobs, ingest policy), the derived `index.db`, and `memory/` (the agent's memory for this vault — under `.hebb/` so it's hidden from Obsidian and excluded from the index, but still travels with the vault).
+- **Per-vault marker (`.hebb/`).** Each vault has a `.hebb/` directory at its root, like `.git`: `config.toml` (name, exclude dirs, web port, enabled jobs, ingest policy), the derived `index.db`, and `memory/` (the agent's memory for this vault: under `.hebb/` so it's hidden from Obsidian and travels with the vault. It is the one part of `.hebb/` the index walks, so memory is searchable under the `.hebb/memory/` path prefix, but it is not vault content: it records no links and stays out of the graph metrics, the audit, themes and the digest).
 - **Directory-context operation.** hebb walks up from the working directory to the nearest `.hebb/`, like `git`. A `--vault <path>` flag and `$HEBB_VAULT` override cover automation and headless runs.
 - **Travels vs local.** Commit `.hebb/config.toml` and your notes so a synced or cloned vault self-identifies; the `index.db` is derived and gitignored, rebuilt on demand.
 

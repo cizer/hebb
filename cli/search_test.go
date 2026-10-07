@@ -54,6 +54,50 @@ func TestSearchSelfRefreshesBeforeQuerying(t *testing.T) {
 	}
 }
 
+// TestIndexThenSearchFindsAgentMemory mirrors the field check for agent memory
+// on a vault configured like the one that reported it missing (.hebb in
+// exclude_dirs): 'hebb index' must count the memory note, and 'hebb search
+// Raquel' must find it, with and without --path-prefix .hebb/memory/.
+func TestIndexThenSearchFindsAgentMemory(t *testing.T) {
+	vault := t.TempDir()
+	if err := core.DefaultVaultConfig("T").Save(vault); err != nil {
+		t.Fatal(err)
+	}
+	mem := filepath.Join(vault, ".hebb", "memory")
+	if err := os.MkdirAll(mem, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "note.md"), []byte("# Note\n\nordinary vault content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	memo := "---\nname: Raquel disambiguation\ndescription: which Raquel is which\ntype: reference\n---\nRaquel (team A) is not Raquel (team B).\n"
+	if err := os.WriteFile(filepath.Join(mem, "reference_raquel_disambiguation.md"), []byte(memo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) string {
+		t.Helper()
+		return captureStdout(t, func() {
+			root := newRoot("test")
+			var buf bytes.Buffer
+			root.SetOut(&buf)
+			root.SetErr(&buf)
+			root.SetArgs(append(args, "--vault", vault))
+			if err := root.Execute(); err != nil {
+				t.Fatalf("%v: %v\n%s", args, err, buf.String())
+			}
+		})
+	}
+	if out := run("index"); !contains(out, "indexed 2 notes") {
+		t.Errorf("hebb index should count the vault note and the memory note:\n%s", out)
+	}
+	for _, args := range [][]string{{"search", "Raquel"}, {"search", "Raquel", "--path-prefix", ".hebb/memory/"}} {
+		if out := run(args...); !contains(out, ".hebb/memory/reference_raquel_disambiguation.md") {
+			t.Errorf("hebb %v did not find the memory note:\n%s", args, out)
+		}
+	}
+}
+
 // TestSearchNoResultsShowsGuidance asserts that a zero-hit search prints a
 // distinct empty state (not just the bare "(0 results)" line) suggesting how
 // to recover, and still exits 0.

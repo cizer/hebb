@@ -120,6 +120,18 @@ func RunHealthFull(cfg Config, db *sql.DB, reportUnresolved bool) (HealthResult,
 	islands := detectIslands(cfg, g)
 	all = append(all, islands...)
 
+	// Agent memory (.hebb/memory/) is indexed for search only and is not vault
+	// content, so no detector's finding about it reaches the worklist: a short
+	// memory note would otherwise read as a stub. The graph already leaves it
+	// out (buildGraphExcluding), so the stats below are unaffected too.
+	kept := all[:0]
+	for _, f := range all {
+		if !IsMemoryNote(f.Path) {
+			kept = append(kept, f)
+		}
+	}
+	all = kept
+
 	// Compute stats from the same graph.
 	var stats GraphStats
 	if g.nodeCount() > 0 {

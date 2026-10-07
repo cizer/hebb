@@ -63,6 +63,13 @@ func IndexFile(cfg Config, db *sql.DB, rel string) error {
 	if _, err := db.Exec(`DELETE FROM links WHERE source_path = ?`, rel); err != nil {
 		return err
 	}
+	// Agent memory is indexed for search only, not as part of the note graph: it
+	// records no links (so it adds no backlinks, graph edges or audit findings)
+	// and is never a link target (loadNoteIndex skips it), so there is nothing to
+	// resolve in either direction.
+	if IsMemoryNote(rel) {
+		return nil
+	}
 	// Build the in-memory note index once from a single notes scan and reuse it
 	// for this file's outgoing links and the inbound re-resolution below. This
 	// replaces the previous per-link "SELECT path FROM notes" full scan, so a file

@@ -73,7 +73,7 @@ func Doctor(opts Options) []Check {
 	checkSettings(add, opts.VaultPath, opts.MCPName)
 
 	if opts.Home != "" {
-		checkMemory(add, opts.Home, opts.VaultPath)
+		checkMemory(add, opts.Home, opts.VaultPath, effectiveExcludeDirs(vc))
 	}
 
 	// Agent wiring drift: re-verify any entry pinned to this vault against what
@@ -215,14 +215,20 @@ func checkIndex(add func(string, string, string), vaultPath string, vc core.Vaul
 // and its re-stat'd value. A genuine edit moves the mtime by far more.
 const staleMtimeEpsilonMillis = 1.0
 
+// effectiveExcludeDirs is the exclude_dirs list the index walk actually uses
+// for this config: the configured list, or the defaults when it is empty
+// (mirroring core.ResolveVault).
+func effectiveExcludeDirs(vc core.VaultConfig) []string {
+	if len(vc.ExcludeDirs) == 0 {
+		return core.DefaultExcludeDirs()
+	}
+	return vc.ExcludeDirs
+}
+
 // indexStale reports whether the newest indexable .md on disk post-dates the
 // newest indexed note. Returns a one-line detail for the warning when true.
 func indexStale(vaultPath string, vc core.VaultConfig, db *sql.DB) (bool, string) {
-	excludes := vc.ExcludeDirs
-	if len(excludes) == 0 {
-		excludes = core.DefaultExcludeDirs()
-	}
-	cfg := core.Config{VaultPath: vaultPath, ExcludeDirs: excludes}
+	cfg := core.Config{VaultPath: vaultPath, ExcludeDirs: effectiveExcludeDirs(vc)}
 	newest, ok := core.NewestMarkdownMtime(cfg)
 	if !ok {
 		return false, ""
@@ -266,15 +272,21 @@ func checkSettings(add func(string, string, string), vaultPath, mcpName string) 
 }
 
 // checkMemory verifies the Claude project memory symlink resolves to this
-// vault's MemoryDir. A symlink pointing elsewhere (e.g. a stale link to an old
-// memory location) is flagged rather than passed.
-func checkMemory(add func(string, string, string), home, vaultPath string) {
+// vault's MemoryDir, and says whether that memory is searchable: "linked" alone
+// was once read as "indexed", which it never meant. A symlink pointing
+// elsewhere (e.g. a stale link to an old memory location) is flagged rather
+// than passed. excludes is the effective exclude_dirs list.
+func checkMemory(add func(string, string, string), home, vaultPath string, excludes []string) {
 	link := filepath.Join(home, ".claude", "projects", ClaudeProjectSlug(vaultPath), "memory")
 	want := MemoryDir(vaultPath)
 	target, _ := os.Readlink(link)
 	switch {
+	case target == want && isSymlink(want):
+		add("memory", "warn", "linked, but "+core.MemoryDirRel+" is itself a symlink, which the index never follows: memory is not searchable")
+	case target == want && core.MemoryIndexed(excludes):
+		add("memory", "ok", "linked; searchable under "+core.MemoryDirRel+"/")
 	case target == want:
-		add("memory", "ok", "linked")
+		add("memory", "ok", `linked; not searchable (exclude_dirs lists "memory")`)
 	case isSymlink(link):
 		add("memory", "warn", "linked elsewhere: "+target)
 	default:

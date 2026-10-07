@@ -47,4 +47,7 @@ indexed.
 ## Memory
 
 Agent memory for this vault lives under `.hebb/memory/` and travels with the
-vault. It is hidden from Obsidian and excluded from the index.
+vault. It is hidden from Obsidian but indexed for search: `search_vault` with
+`path_prefix: ".hebb/memory/"` (or `hebb search --path-prefix .hebb/memory/`)
+finds what earlier sessions saved. Memory is not part of the link graph, so
+`expand_context` and the vault audit ignore it.

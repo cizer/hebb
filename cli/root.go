@@ -121,7 +121,8 @@ func searchCmd() *cobra.Command {
 			"--path-prefix, or raise --limit for more hits.",
 		Example: "  hebb search \"quarterly planning\"\n" +
 			"  hebb search meeting --tag project-x --limit 5\n" +
-			"  hebb search retro --path-prefix 1-Projects/",
+			"  hebb search retro --path-prefix 1-Projects/\n" +
+			"  hebb search onboarding --path-prefix .hebb/memory/   # agent memory",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			cfg, db, err := openVault()

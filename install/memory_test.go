@@ -33,7 +33,7 @@ func TestSymlinkMemoryCreatesLink(t *testing.T) {
 	if status != "symlinked" {
 		t.Errorf("status = %q, want symlinked", status)
 	}
-	// The in-vault memory dir is created under .hebb (hidden, index-excluded)...
+	// The in-vault memory dir is created under .hebb (hidden from Obsidian)...
 	if fi, err := os.Stat(MemoryDir(vault)); err != nil || !fi.IsDir() {
 		t.Fatalf("vault memory dir not created at %s: %v", MemoryDir(vault), err)
 	}

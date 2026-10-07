@@ -490,6 +490,8 @@ func (vc VaultConfig) Save(vaultPath string) error {
 	buf.WriteString("#   name          - human name for this vault (used in launchd labels)\n")
 	buf.WriteString("#   exclude_dirs  - directory names skipped entirely during the index walk:\n")
 	buf.WriteString("#                   notes become invisible to search. Matched at any depth.\n")
+	buf.WriteString("#                   .hebb/memory (agent memory) is indexed anyway; add\n")
+	buf.WriteString("#                   \"memory\" to skip it.\n")
 	buf.WriteString("#   web_port      - port for 'hebb serve' (default 4321)\n")
 	buf.WriteString("#   jobs          - launchd jobs to render (daily-digest, action-review, web, update-check, consolidate)\n")
 	buf.WriteString("#\n")

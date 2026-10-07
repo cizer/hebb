@@ -94,7 +94,8 @@ func buildGraph(db *sql.DB) (*noteGraph, error) {
 // non-empty, any note whose title, basename-without-.md, or vault-relative path
 // matches ANY pattern is excluded from the graph entirely: it becomes neither a
 // node nor the endpoint of any edge. Pass nil (or an empty slice) to build the
-// full graph without exclusions.
+// full graph without pattern exclusions; agent memory notes (IsMemoryNote) are
+// always left out, since they are indexed for search only.
 func buildGraphExcluding(db *sql.DB, excludePatterns []string) (*noteGraph, error) {
 	// Validate the patterns before touching the DB: a malformed glob must fail
 	// the run with a clear message, not silently exclude nothing and report
@@ -117,7 +118,10 @@ func buildGraphExcluding(db *sql.DB, excludePatterns []string) (*noteGraph, erro
 			rows.Close()
 			return nil, fmt.Errorf("graph: scan note path: %w", err)
 		}
-		if matchesExcludePatterns(excludePatterns, title, p) {
+		// Agent memory is never a graph node either: it is indexed for search
+		// only, and as isolated nodes it would inflate the component count and
+		// sink the giant-component ratio.
+		if IsMemoryNote(p) || matchesExcludePatterns(excludePatterns, title, p) {
 			excluded[p] = true
 			continue
 		}

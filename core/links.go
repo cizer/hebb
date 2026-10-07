@@ -228,7 +228,10 @@ func distinct(hits []string) []string {
 }
 
 // loadNoteIndex reads the full notes table into an in-memory index for batch
-// resolution. Used by fullReindex once all notes are present.
+// resolution. Used by fullReindex once all notes are present. Agent memory
+// notes are left out: memory is searchable but is not part of the note graph,
+// and Obsidian (which never sees .hebb) could not resolve a link to it either,
+// so a memory file such as MEMORY.md must never make a vault link ambiguous.
 func loadNoteIndex(q queryer) (*noteIndex, error) {
 	rows, err := q.Query("SELECT path, title FROM notes")
 	if err != nil {
@@ -241,6 +244,9 @@ func loadNoteIndex(q queryer) (*noteIndex, error) {
 		var p, t string
 		if err := rows.Scan(&p, &t); err != nil {
 			return nil, err
+		}
+		if IsMemoryNote(p) {
+			continue
 		}
 		paths = append(paths, p)
 		titles[p] = t
@@ -264,6 +270,10 @@ func loadNoteIndex(q queryer) (*noteIndex, error) {
 // and title stages. Pass "" when there is no source note in context (e.g. the
 // context walk's seed lookup), which disables the preference and matches prior
 // behaviour exactly.
+//
+// Agent memory notes are never candidates, matching loadNoteIndex: memory is
+// not part of the note graph, so it is neither a link target nor a context
+// seed.
 func ResolveTargetDB(q queryer, rawTarget, sourcePath string) (string, Resolution) {
 	target := canonicalTarget(rawTarget)
 	if target == "" {
@@ -646,9 +656,10 @@ type queryer interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 }
 
-// queryPaths runs a path-returning query and collects the results. On error it
-// returns nil so callers fall through to the next precedence rather than
-// fabricating a match.
+// queryPaths runs a path-returning query and collects the results as resolver
+// candidates, so agent memory notes are dropped (they are never a link target
+// or seed; see ResolveTargetDB). On error it returns nil so callers fall
+// through to the next precedence rather than fabricating a match.
 func queryPaths(q queryer, query string, args ...any) []string {
 	rows, err := q.Query(query, args...)
 	if err != nil {
@@ -658,7 +669,7 @@ func queryPaths(q queryer, query string, args ...any) []string {
 	var out []string
 	for rows.Next() {
 		var p string
-		if rows.Scan(&p) == nil {
+		if rows.Scan(&p) == nil && !IsMemoryNote(p) {
 			out = append(out, p)
 		}
 	}

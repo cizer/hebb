@@ -20,39 +20,42 @@ var readFile = os.ReadFile
 // indexing, refresh and staleness detection. A second walk without these rules
 // would index excluded content (defeating the privacy posture the symlink
 // comment documents) or loop forever on a symlinked .md that IndexFile removes
-// on every pass.
+// on every pass. The walk starts from every indexRoots entry, so agent memory
+// under the excluded .hebb is included by the same rules.
 func enumerateMarkdown(cfg Config) ([]string, error) {
 	excluded := map[string]bool{}
 	for _, d := range cfg.ExcludeDirs {
 		excluded[d] = true
 	}
 	var files []string
-	err := filepath.WalkDir(cfg.VaultPath, func(p string, d fs.DirEntry, err error) error {
+	for _, root := range indexRoots(cfg) {
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // skip unreadable entries (and a memory dir that does not exist)
+			}
+			// Never follow symlinks. WalkDir does not descend into symlinked dirs,
+			// but a symlinked .md file would otherwise be read and indexed - a note
+			// pointing at, say, ~/.ssh/id_rsa would pull host files into the
+			// searchable index. This matters most for synced or shared vaults.
+			if d.Type()&fs.ModeSymlink != 0 {
+				return nil
+			}
+			if d.IsDir() {
+				if excluded[d.Name()] {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasSuffix(d.Name(), ".md") {
+				if rel, rerr := filepath.Rel(cfg.VaultPath, p); rerr == nil {
+					files = append(files, filepath.ToSlash(rel))
+				}
+			}
+			return nil
+		})
 		if err != nil {
-			return nil // skip unreadable entries
+			return nil, err
 		}
-		// Never follow symlinks. WalkDir does not descend into symlinked dirs,
-		// but a symlinked .md file would otherwise be read and indexed - a note
-		// pointing at, say, ~/.ssh/id_rsa would pull host files into the
-		// searchable index. This matters most for synced or shared vaults.
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		if d.IsDir() {
-			if excluded[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(d.Name(), ".md") {
-			if rel, rerr := filepath.Rel(cfg.VaultPath, p); rerr == nil {
-				files = append(files, filepath.ToSlash(rel))
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	return files, nil
 }

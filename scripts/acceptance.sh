@@ -120,6 +120,7 @@ doc="$(cat "$WORK/doctor.out")"
 if has "$doc" "FAIL"; then report 1 "doctor reports no FAIL checks"; else report 0 "doctor reports no FAIL checks"; fi
 has "$doc" "config"; report $? "doctor checks config"
 has "$doc" "memory"; report $? "doctor checks memory"
+has "$doc" "searchable under .hebb/memory/"; report $? "doctor says agent memory is searchable"
 
 # --- search -------------------------------------------------------------------
 echo "==> search"
@@ -162,6 +163,29 @@ for tool in search_vault expand_context get_context_for_topic vault_stats reinde
 done
 has "$mcp" "Aurora Overview"; report $? "mcp search_vault returns canary note"
 if has "$mcp" "Tags: none"; then report 1 "mcp context tags consistent (no 'Tags: none')"; else report 0 "mcp context tags consistent (no 'Tags: none')"; fi
+
+# --- agent memory -------------------------------------------------------------
+# Claude Code writes auto-memory through the link install made into
+# .hebb/memory. .hebb is in exclude_dirs, yet memory must be indexed and
+# searchable under the .hebb/memory/ prefix while the rest of .hebb stays out.
+echo "==> agent memory"
+MEMCANARY="HEBB-MEMORY-CANARY-2Q7V"
+cat > "$VAULT/.hebb/memory/reference_acceptance.md" <<EOF
+---
+name: Acceptance memory
+description: synthetic agent memory note
+type: reference
+---
+$MEMCANARY lives in agent memory.
+EOF
+printf '# Stray\n\n%s\n' "$MEMCANARY" > "$VAULT/.hebb/stray.md"
+out="$(hebb index --vault "$VAULT" 2>&1)"
+has "$out" "indexed 1 notes"; report $? "index picks up a new memory note (and nothing else under .hebb)"
+out="$(hebb search --vault "$VAULT" --path-prefix .hebb/memory/ "$MEMCANARY" 2>&1)"
+has "$out" ".hebb/memory/reference_acceptance.md"; report $? "search finds agent memory under .hebb/memory/"
+out="$(hebb search --vault "$VAULT" "$MEMCANARY" 2>&1)"
+if has "$out" ".hebb/stray.md"; then report 1 "rest of .hebb stays out of the index"; else report 0 "rest of .hebb stays out of the index"; fi
+rm -f "$VAULT/.hebb/stray.md"
 
 # --- plist validity (macOS only) ----------------------------------------------
 echo "==> plist validity"

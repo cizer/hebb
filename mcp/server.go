@@ -64,7 +64,7 @@ func toolset(db *sql.DB, cfg core.Config, health watcherHealth) []server.ServerT
 				mcp.WithString("query", mcp.Required(), mcp.Description("Search terms (natural language or FTS5 syntax)")),
 				mcp.WithNumber("limit", mcp.Description("Maximum results to return (default 10)")),
 				mcp.WithString("tag", mcp.Description("Filter results to notes with this tag")),
-				mcp.WithString("path_prefix", mcp.Description("Filter to notes under this path prefix (e.g. '2-Areas/', '1-Projects/FTTF/')")),
+				mcp.WithString("path_prefix", mcp.Description("Filter to notes under this path prefix (e.g. '2-Areas/', '1-Projects/FTTF/'). Agent memory notes are indexed under '.hebb/memory/'.")),
 			),
 			Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				refresh(cfg, db)

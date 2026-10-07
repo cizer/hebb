@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cizer/hebb/core"
 )
 
 // ClaudeProjectSlug reproduces Claude Code's per-project directory naming:
@@ -25,10 +27,12 @@ func ClaudeProjectSlug(absPath string) string {
 
 // MemoryDir is the in-vault home for this vault's Claude Code memory. It lives
 // under .hebb so agent memory still syncs and travels with the vault, but is
-// hidden from Obsidian (a dotfolder) and excluded from the index (.hebb is in
-// the default exclude list), so memory is never treated as vault content.
+// hidden from Obsidian (a dotfolder). The index carves it out of the .hebb
+// exclusion: memory is searchable under the ".hebb/memory/" path prefix, but it
+// is not treated as vault content (no links, graph or audit; see
+// core.MemoryDirRel).
 func MemoryDir(vaultPath string) string {
-	return filepath.Join(vaultPath, ".hebb", "memory")
+	return filepath.Join(vaultPath, filepath.FromSlash(core.MemoryDirRel))
 }
 
 // SymlinkMemory links <vault>/.hebb/memory into

@@ -28,7 +28,8 @@ exists**; the rules below are the generic defaults.
 The hebb MCP (`mcp__hebb__*`) is the retrieval surface — prefer
 `search_vault` / `expand_context` / `get_context_for_topic` over directory
 listing or grep. `hebb themes --json` and `hebb audit --json` are CLI reads
-over the index; both are read-only.
+over the index; both are read-only. If the MCP server is not connected, the
+CLI reads the same index: `hebb search "<query>"` stands in for `search_vault`.
 
 ## Core rules (non-negotiable)
 

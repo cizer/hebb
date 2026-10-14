@@ -15,7 +15,9 @@ what "done" means, tag vocabulary) in its `CLAUDE.md`. **Follow that file when i
 exists**; the rules below are the generic defaults.
 
 The hebb MCP (`mcp__hebb__*`) is the retrieval and indexing surface. Prefer it
-over directory listing or grep.
+over directory listing or grep. If the MCP server is not connected, the `hebb`
+CLI reads the same index: `hebb search "<query>"` for `search_vault`,
+`hebb index` for `reindex_vault` and `hebb audit` for `audit_vault`.
 
 ## Core rules (non-negotiable)
 

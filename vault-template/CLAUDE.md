@@ -38,11 +38,22 @@ indexed.
 
 ## Searching with hebb
 
-- `hebb search "<query>"` from the command line, or `hebb serve` for a local web
-  UI on 127.0.0.1.
 - In Claude, the MCP tools read this vault directly: `search_vault`,
   `expand_context`, `get_context_for_topic`, `vault_stats`, `reindex_vault` and
-  `audit_vault`.
+  `audit_vault`. Prefer them over raw directory listing or grep.
+- `hebb search "<query>"` from the command line, or `hebb serve` for a local web
+  UI on 127.0.0.1.
+- **The CLI is the fallback, not grep.** hebb is one binary: `hebb mcp` and the
+  CLI read the same index, so when the MCP server is not connected (the harness
+  reports it failed, or no `mcp__hebb__*` tools are present) use the CLI from a
+  shell: `hebb search "<query>"` for `search_vault`, `hebb index` for
+  `reindex_vault`, `hebb audit` for `audit_vault`. If `hebb` is not on PATH:
+  in a cloud session run `.claude/hooks/session-start.sh`, which installs the
+  latest release to `~/.local/bin` and indexes the vault, then
+  `export PATH="$HOME/.local/bin:$PATH"`; on a machine, install it with
+  `curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh`.
+  Only if that fails too fall back to grep, and say in the reply that the index
+  was not used.
 
 ## Memory
 

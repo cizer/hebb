@@ -15,6 +15,9 @@ exists**; the layout and rules below are the generic defaults to fall back on.
 
 The hebb MCP (`mcp__hebb__*`) is the primary retrieval and indexing surface.
 Prefer it over directory listing or grep when looking for existing content.
+If the MCP server is not connected, the `hebb` CLI reads the same index:
+`hebb search "<query>"` stands in for `search_vault` and `hebb index` for
+`reindex_vault`. Fall back to grep only if the CLI is missing too, and say so.
 
 ## Default layout (PARA)
 

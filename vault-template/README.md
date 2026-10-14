@@ -10,7 +10,8 @@ conventions and structure.
 - Start a new note from `templates/note.md`.
 - Search: `hebb search "<query>"`, or `hebb serve` for a local web UI on
   127.0.0.1.
-- Open this directory in Claude to use the bundled MCP tools.
+- Open this directory in Claude to use the bundled MCP tools. If the MCP
+  server is not connected, the CLI above is the fallback: same index.
 
 This vault is self-contained: `.hebb/config.toml` identifies it, and the
 search index (`.hebb/index.db`) is rebuilt on demand. The default MCP wiring

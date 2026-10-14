@@ -47,13 +47,10 @@ indexed.
   CLI read the same index, so when the MCP server is not connected (the harness
   reports it failed, or no `mcp__hebb__*` tools are present) use the CLI from a
   shell: `hebb search "<query>"` for `search_vault`, `hebb index` for
-  `reindex_vault`, `hebb audit` for `audit_vault`. If `hebb` is not on PATH:
-  in a cloud session run `.claude/hooks/session-start.sh`, which installs the
-  latest release to `~/.local/bin` and indexes the vault, then
-  `export PATH="$HOME/.local/bin:$PATH"`; on a machine, install it with
-  `curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh`.
-  Only if that fails too fall back to grep, and say in the reply that the index
-  was not used.
+  `reindex_vault`, `hebb audit` for `audit_vault`. If `hebb` is not on PATH,
+  run `./bootstrap.sh`, which installs the pinned hebb and wires this vault,
+  then `export PATH="$HOME/.local/bin:$PATH"`. Only if that fails too fall
+  back to grep, and say in the reply that the index was not used.
 
 ## Memory
 

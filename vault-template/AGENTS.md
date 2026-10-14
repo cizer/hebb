@@ -31,10 +31,8 @@ despite that, or after bulk file moves. From a shell you can also run
 The CLI is the fallback when the MCP server is not connected: it shares the
 server's index, so `hebb search "<query>"` stands in for `search_vault`,
 `hebb index` for `reindex_vault` and `hebb audit` for `audit_vault`. If `hebb`
-is not installed, install it with
-`curl -fsSL https://raw.githubusercontent.com/cizer/hebb/main/install.sh | sh`
-and put `~/.local/bin` on PATH. Only if that fails too fall back to grep, and
-say so.
+is not installed, run `./bootstrap.sh` and put `~/.local/bin` on PATH. Only if
+that fails too fall back to grep, and say so.
 
 ## Memory
 
